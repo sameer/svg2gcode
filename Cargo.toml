@@ -1,0 +1,8 @@
+[package]
+name = "lsys"
+version = "0.1.0"
+authors = ["purisame"]
+edition = "2018"
+
+[dependencies]
+cairo-rs = { version = "^0", features = ["svg"] }
