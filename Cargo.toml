@@ -1,8 +1,13 @@
 [package]
-name = "lsys"
-version = "0.1.0"
-authors = ["purisame"]
+name = "svg2gcode"
+version = "0.0.1"
+authors = ["Sameer Puri <purisame@spuri.io>"]
 edition = "2018"
+description = "Convert paths in SVG files to GCode for a pen plotter"
 
 [dependencies]
-cairo-rs = { version = "^0", features = ["svg"] }
+svgdom = "^0"
+lyon_geom = "^0"
+clap = "^2"
+log = "^0"
+env_logger = "^0"
