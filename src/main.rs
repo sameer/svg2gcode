@@ -14,8 +14,10 @@ use lyon_geom::math;
 use svgdom::{AttributeId, AttributeValue, ElementId, ElementType, PathSegment};
 
 mod code;
+mod machine;
 
 use code::*;
+use machine::*;
 
 fn main() -> io::Result<()> {
     if let Err(_) = env::var("RUST_LOG") {
@@ -48,7 +50,8 @@ fn main() -> io::Result<()> {
         }
     };
 
-    let mut opts = MachineOptions::default();
+    let mut opts = ProgramOptions::default();
+    let mut mach = Machine::default();
 
     if let Some(tolerance) = matches.value_of("tolerance").and_then(|x| x.parse().ok()) {
         opts.tolerance = tolerance;
@@ -60,94 +63,55 @@ fn main() -> io::Result<()> {
         opts.dpi = dpi;
     }
 
+    if true {
+        mach.tool_on_action = vec![GCode::StopSpindle, GCode::Dwell { p: 1.5 }];
+    }
+    if true {
+        mach.tool_off_action = vec![
+            GCode::Dwell { p: 0.1 },
+            GCode::StartSpindle {
+                d: Direction::Clockwise,
+                s: 40.0,
+            },
+            GCode::Dwell { p: 0.2 },
+        ];
+    }
+
     let doc = svgdom::Document::from_str(&input).expect("Invalid or unsupported SVG file");
 
-    let prog = svg2program(&doc, opts);
+    let prog = svg2program(&doc, opts, mach);
     program2gcode(&prog, File::create("out.gcode")?)
 }
 
-struct MachineOptions {
+struct ProgramOptions {
     tolerance: f64,
     feedrate: f64,
-    tool_on_action: Vec<GCode>,
-    tool_off_action: Vec<GCode>,
     dpi: f64,
 }
 
-impl Default for MachineOptions {
+impl Default for ProgramOptions {
     fn default() -> Self {
-        Self {
+        ProgramOptions {
             tolerance: 0.1,
             feedrate: 3000.0,
-            tool_on_action: vec![GCode::StopSpindle, GCode::Dwell { p: 1.5 }],
-            tool_off_action: vec![
-                GCode::Dwell { p: 0.1 },
-                GCode::StartSpindle {
-                    d: Direction::Clockwise,
-                    s: 40.0,
-                },
-                GCode::Dwell { p: 0.2 },
-            ],
             dpi: 72.0,
         }
     }
 }
 
-fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
-    let tool = std::cell::Cell::new(Tool::On);
-    let tool_on = |p: &mut Program| {
-        if tool.get() == Tool::Off {
-            opts.tool_on_action
-                .iter()
-                .map(Clone::clone)
-                .for_each(|x| p.push(x));
-            tool.set(Tool::On);
-        }
-    };
-
-    let tool_off = |p: &mut Program| {
-        if tool.get() == Tool::On {
-            opts.tool_off_action
-                .iter()
-                .map(Clone::clone)
-                .for_each(|x| p.push(x));
-            tool.set(Tool::Off);
-        }
-    };
-
-    let is_absolute = std::cell::Cell::from(true);
-    let incremental = |p: &mut Program| {
-        if is_absolute.get() {
-            p.push(GCode::IncrementalDistanceMode);
-            is_absolute.set(false);
-        }
-    };
-    let absolute = |p: &mut Program| {
-        if !is_absolute.get() {
-            p.push(GCode::AbsoluteDistanceMode);
-            is_absolute.set(true);
-        }
-    };
-    let select_mode = |p: &mut Program, abs: bool| {
-        if abs {
-            absolute(p);
-        } else {
-            incremental(p);
-        }
-    };
-
+fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mut mach: Machine) -> Program {
     let mut current_transform = lyon_geom::euclid::Transform2D::create_scale(1.0, -1.0)
         .post_translate(math::vector(0.0, 2.0));
     let mut transform_stack = vec![];
 
     let mut p = Program::new();
     p.push(GCode::UnitsMillimeters);
-    tool_off(&mut p);
+    mach.tool_off(&mut p);
     p.push(GCode::RapidPositioning {
         x: 0.0.into(),
         y: 0.0.into(),
     });
-    tool_on(&mut p);
+    mach.tool_on(&mut p);
 
     for edge in doc.root().traverse() {
         let (node, is_start) = match edge {
@@ -198,8 +162,8 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                         for segment in path.iter() {
                             match segment {
                                 PathSegment::MoveTo { abs, x, y } => {
-                                    tool_off(&mut p);
-                                    select_mode(&mut p, *abs);
+                                    mach.tool_off(&mut p);
+                                    mach.distance(&mut p, *abs);
                                     let mut to = math::point(*x, *y);
                                     to = current_transform.transform_point(&to);
                                     if !*abs {
@@ -220,11 +184,11 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     prev_ctrl = curpos;
                                 }
                                 PathSegment::ClosePath { abs } => {
-                                    tool_off(&mut p);
+                                    mach.tool_off(&mut p);
                                 }
                                 PathSegment::LineTo { abs, x, y } => {
-                                    tool_on(&mut p);
-                                    select_mode(&mut p, *abs);
+                                    mach.tool_on(&mut p);
+                                    mach.distance(&mut p, *abs);
                                     let mut to = math::point(*x, *y);
                                     to = current_transform.transform_point(&to);
                                     if !*abs {
@@ -247,8 +211,8 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     prev_ctrl = curpos;
                                 }
                                 PathSegment::HorizontalLineTo { abs, x } => {
-                                    tool_on(&mut p);
-                                    select_mode(&mut p, *abs);
+                                    mach.tool_on(&mut p);
+                                    mach.distance(&mut p, *abs);
                                     let mut to = if *abs {
                                         let inv_transform = current_transform
                                             .inverse()
@@ -278,8 +242,8 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     prev_ctrl = curpos;
                                 }
                                 PathSegment::VerticalLineTo { abs, y } => {
-                                    tool_on(&mut p);
-                                    select_mode(&mut p, *abs);
+                                    mach.tool_on(&mut p);
+                                    mach.distance(&mut p, *abs);
                                     let mut to = if *abs {
                                         let inv_transform = current_transform
                                             .inverse()
@@ -317,8 +281,8 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     x,
                                     y,
                                 } => {
-                                    tool_on(&mut p);
-                                    absolute(&mut p);
+                                    mach.tool_on(&mut p);
+                                    mach.absolute(&mut p);
                                     let from = curpos;
                                     let mut ctrl1 = math::point(*x1, *y1);
                                     ctrl1 = current_transform.transform_point(&ctrl1);
@@ -351,8 +315,8 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     prev_ctrl = ctrl1;
                                 }
                                 PathSegment::SmoothCurveTo { abs, x2, y2, x, y } => {
-                                    tool_on(&mut p);
-                                    absolute(&mut p);
+                                    mach.tool_on(&mut p);
+                                    mach.absolute(&mut p);
                                     let from = curpos;
                                     let mut ctrl1 = prev_ctrl;
                                     let mut ctrl2 = math::point(*x2, *y2);
@@ -384,8 +348,8 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     prev_ctrl = ctrl1;
                                 }
                                 PathSegment::Quadratic { abs, x1, y1, x, y } => {
-                                    tool_on(&mut p);
-                                    absolute(&mut p);
+                                    mach.tool_on(&mut p);
+                                    mach.absolute(&mut p);
                                     let from = curpos;
                                     let mut ctrl = math::point(*x1, *y1);
                                     ctrl = current_transform.transform_point(&ctrl);
@@ -410,8 +374,8 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     prev_ctrl = ctrl;
                                 }
                                 PathSegment::SmoothQuadratic { abs, x, y } => {
-                                    tool_on(&mut p);
-                                    absolute(&mut p);
+                                    mach.tool_on(&mut p);
+                                    mach.absolute(&mut p);
                                     let from = curpos;
                                     let mut ctrl = prev_ctrl;
                                     let mut to = math::point(*x, *y);
@@ -444,8 +408,8 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     x,
                                     y,
                                 } => {
-                                    tool_on(&mut p);
-                                    absolute(&mut p);
+                                    mach.tool_on(&mut p);
+                                    mach.absolute(&mut p);
                                     let from = curpos;
                                     let mut to = math::point(*x, *y);
                                     to = current_transform.transform_point(&to);
@@ -495,12 +459,13 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
         }
     }
 
-    tool_off(&mut p);
+    mach.tool_off(&mut p);
+    mach.absolute(&mut p);
     p.push(GCode::RapidPositioning {
         x: 0.0.into(),
         y: 0.0.into(),
     });
-    tool_on(&mut p);
+    mach.tool_on(&mut p);
     p.push(GCode::ProgramEnd);
 
     p
