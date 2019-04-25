@@ -132,7 +132,7 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
                 t.set_scaling(
                     euclid::Transform2D::create_scale(
                         width_in_mm / width.num,
-                        height_in_mm / height.num,
+                        -height_in_mm / height.num,
                     )
                     .post_translate(math::vector(0.0, height_in_mm)),
                 );

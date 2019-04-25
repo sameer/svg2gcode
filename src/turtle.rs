@@ -330,8 +330,8 @@ impl Turtle {
     }
 
     pub fn set_scaling(&mut self, scaling: Transform2D<f64>) {
-        if let Some(ref scaling) = self.scaling {
-            self.curtran = self.curtran.post_mul(&scaling.inverse().unwrap());
+        if let Some(ref old_scaling) = self.scaling {
+            self.curtran = self.curtran.post_mul(&old_scaling.inverse().unwrap());
         }
         self.scaling = Some(scaling);
         self.curtran = self
@@ -342,12 +342,13 @@ impl Turtle {
     pub fn push_transform(&mut self, trans: Transform2D<f64>) {
         self.transtack.push(self.curtran);
         if let Some(ref scaling) = self.scaling {
-            println!("{:?}", trans);
             self.curtran = self
                 .curtran
                 .post_mul(&scaling.inverse().unwrap())
-                .post_mul(&trans)
-                .post_mul(&scaling);
+                .pre_mul(&trans)
+            .post_mul(&scaling);
+        } else {
+            self.curtran = self.curtran.post_mul(&trans);
         }
     }
 
