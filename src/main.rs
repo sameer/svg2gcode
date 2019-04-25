@@ -8,12 +8,19 @@ extern crate lyon_geom;
 
 use std::env;
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 
 use lyon_geom::math;
-use svgdom::{AttributeId, AttributeValue, ElementId, ElementType, FilterSvg, PathSegment};
+use svgdom::{AttributeId, AttributeValue, ElementId, ElementType, PathSegment};
+
+mod code;
+
+use code::*;
 
 fn main() -> io::Result<()> {
+    if let Err(_) = env::var("RUST_LOG") {
+        env::set_var("RUST_LOG", "svg2gcode=info")
+    }
     env_logger::init();
     let matches = clap_app!(svg2gcode =>
         (version: crate_version!())
@@ -62,8 +69,8 @@ fn main() -> io::Result<()> {
 struct MachineOptions {
     tolerance: f64,
     feedrate: f64,
-    tool_on_action: Vec<MachineCode>,
-    tool_off_action: Vec<MachineCode>,
+    tool_on_action: Vec<GCode>,
+    tool_off_action: Vec<GCode>,
     dpi: f64,
 }
 
@@ -72,14 +79,14 @@ impl Default for MachineOptions {
         Self {
             tolerance: 0.1,
             feedrate: 3000.0,
-            tool_on_action: vec![MachineCode::StopSpindle, MachineCode::Dwell { p: 1.5 }],
+            tool_on_action: vec![GCode::StopSpindle, GCode::Dwell { p: 1.5 }],
             tool_off_action: vec![
-                MachineCode::Dwell { p: 0.1 },
-                MachineCode::StartSpindle {
+                GCode::Dwell { p: 0.1 },
+                GCode::StartSpindle {
                     d: Direction::Clockwise,
                     s: 40.0,
                 },
-                MachineCode::Dwell { p: 0.2 },
+                GCode::Dwell { p: 0.2 },
             ],
             dpi: 72.0,
         }
@@ -111,13 +118,13 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
     let is_absolute = std::cell::Cell::from(true);
     let incremental = |p: &mut Program| {
         if is_absolute.get() {
-            p.push(MachineCode::IncrementalDistanceMode);
+            p.push(GCode::IncrementalDistanceMode);
             is_absolute.set(false);
         }
     };
     let absolute = |p: &mut Program| {
         if !is_absolute.get() {
-            p.push(MachineCode::AbsoluteDistanceMode);
+            p.push(GCode::AbsoluteDistanceMode);
             is_absolute.set(true);
         }
     };
@@ -129,13 +136,14 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
         }
     };
 
-    let mut current_transform = lyon_geom::euclid::Transform2D::default();
+    let mut current_transform = lyon_geom::euclid::Transform2D::create_scale(1.0, -1.0)
+        .post_translate(math::vector(0.0, 2.0));
     let mut transform_stack = vec![];
 
     let mut p = Program::new();
-    p.push(MachineCode::UnitsMillimeters);
+    p.push(GCode::UnitsMillimeters);
     tool_off(&mut p);
-    p.push(MachineCode::RapidPositioning {
+    p.push(GCode::RapidPositioning {
         x: 0.0.into(),
         y: 0.0.into(),
     });
@@ -159,14 +167,15 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
             ) {
                 let width_in_mm = length_to_mm(width, opts.dpi);
                 let height_in_mm = length_to_mm(height, opts.dpi);
-                current_transform = lyon_geom::euclid::Transform2D::create_scale(
-                    width_in_mm / width.num,
-                    height_in_mm / height.num,
-                );
+                current_transform =
+                    current_transform.post_mul(&lyon_geom::euclid::Transform2D::create_scale(
+                        width_in_mm / width.num,
+                        height_in_mm / height.num,
+                    ));
             }
         }
         if let (ElementId::G, true) = (id, is_start) {
-            p.push(MachineCode::Named(Box::new(node.id().to_string())));
+            p.push(GCode::Named(Box::new(node.id().to_string())));
         }
         if let Some(&AttributeValue::Transform(ref t)) = attrs.get_value(AttributeId::Transform) {
             if is_start {
@@ -182,7 +191,7 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
             match id {
                 ElementId::Path => {
                     if let Some(&AttributeValue::Path(ref path)) = attrs.get_value(AttributeId::D) {
-                        p.push(MachineCode::Named(Box::new(node.id().to_string())));
+                        p.push(GCode::Named(Box::new(node.id().to_string())));
                         let mut curpos = math::point(0.0, 0.0);
                         curpos = current_transform.transform_point(&curpos);
                         let mut prev_ctrl = curpos;
@@ -194,9 +203,12 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     let mut to = math::point(*x, *y);
                                     to = current_transform.transform_point(&to);
                                     if !*abs {
-                                        to -= math::vector(current_transform.m31, current_transform.m32);
+                                        to -= math::vector(
+                                            current_transform.m31,
+                                            current_transform.m32,
+                                        );
                                     }
-                                    p.push(MachineCode::RapidPositioning {
+                                    p.push(GCode::RapidPositioning {
                                         x: to.x.into(),
                                         y: to.y.into(),
                                     });
@@ -216,9 +228,12 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     let mut to = math::point(*x, *y);
                                     to = current_transform.transform_point(&to);
                                     if !*abs {
-                                        to -= math::vector(current_transform.m31, current_transform.m32);
+                                        to -= math::vector(
+                                            current_transform.m31,
+                                            current_transform.m32,
+                                        );
                                     }
-                                    p.push(MachineCode::LinearInterpolation {
+                                    p.push(GCode::LinearInterpolation {
                                         x: to.x.into(),
                                         y: to.y.into(),
                                         z: None,
@@ -244,9 +259,12 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     };
                                     to = current_transform.transform_point(&to);
                                     if !*abs {
-                                        to -= math::vector(current_transform.m31, current_transform.m32);
+                                        to -= math::vector(
+                                            current_transform.m31,
+                                            current_transform.m32,
+                                        );
                                     }
-                                    p.push(MachineCode::LinearInterpolation {
+                                    p.push(GCode::LinearInterpolation {
                                         x: to.x.into(),
                                         y: to.y.into(),
                                         z: None,
@@ -272,9 +290,12 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     };
                                     to = current_transform.transform_point(&to);
                                     if !*abs {
-                                        to -= math::vector(current_transform.m31, current_transform.m32);
+                                        to -= math::vector(
+                                            current_transform.m31,
+                                            current_transform.m32,
+                                        );
                                     }
-                                    p.push(MachineCode::LinearInterpolation {
+                                    p.push(GCode::LinearInterpolation {
                                         x: to.x.into(),
                                         y: to.y.into(),
                                         z: None,
@@ -318,7 +339,7 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     };
                                     let last_point = std::cell::Cell::new(curpos);
                                     cbs.flattened(opts.tolerance).for_each(|point| {
-                                        p.push(MachineCode::LinearInterpolation {
+                                        p.push(GCode::LinearInterpolation {
                                             x: point.x.into(),
                                             y: point.y.into(),
                                             z: None,
@@ -351,7 +372,7 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     };
                                     let last_point = std::cell::Cell::new(curpos);
                                     cbs.flattened(opts.tolerance).for_each(|point| {
-                                        p.push(MachineCode::LinearInterpolation {
+                                        p.push(GCode::LinearInterpolation {
                                             x: point.x.into(),
                                             y: point.y.into(),
                                             z: None,
@@ -377,7 +398,7 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     let qbs = lyon_geom::QuadraticBezierSegment { from, ctrl, to };
                                     let last_point = std::cell::Cell::new(curpos);
                                     qbs.flattened(opts.tolerance).for_each(|point| {
-                                        p.push(MachineCode::LinearInterpolation {
+                                        p.push(GCode::LinearInterpolation {
                                             x: point.x.into(),
                                             y: point.y.into(),
                                             z: None,
@@ -402,7 +423,7 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     let qbs = lyon_geom::QuadraticBezierSegment { from, ctrl, to };
                                     let last_point = std::cell::Cell::new(curpos);
                                     qbs.flattened(opts.tolerance).for_each(|point| {
-                                        p.push(MachineCode::LinearInterpolation {
+                                        p.push(GCode::LinearInterpolation {
                                             x: point.x.into(),
                                             y: point.y.into(),
                                             z: None,
@@ -451,7 +472,7 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     sarc.for_each_flattened(
                                         opts.tolerance,
                                         &mut |point: math::F64Point| {
-                                            p.push(MachineCode::LinearInterpolation {
+                                            p.push(GCode::LinearInterpolation {
                                                 x: point.x.into(),
                                                 y: point.y.into(),
                                                 z: None,
@@ -468,19 +489,19 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                     }
                 }
                 _ => {
-                    info!("{} node with id {} is unsupported", id, node.id());
+                    info!("Node <{} id=\"{}\" .../> is not supported", id, node.id());
                 }
             }
         }
     }
 
     tool_off(&mut p);
-    p.push(MachineCode::RapidPositioning {
+    p.push(GCode::RapidPositioning {
         x: 0.0.into(),
         y: 0.0.into(),
     });
     tool_on(&mut p);
-    p.push(MachineCode::ProgramEnd);
+    p.push(GCode::ProgramEnd);
 
     p
 }
@@ -497,118 +518,4 @@ fn length_to_mm(l: svgdom::Length, dpi: f64) -> f64 {
     };
 
     l.num * scale
-}
-
-#[derive(Clone, PartialEq, Eq)]
-enum Direction {
-    Clockwise,
-    Anticlockwise,
-}
-
-#[derive(Copy, Clone, PartialEq, Eq)]
-enum Tool {
-    Off,
-    On,
-}
-
-macro_rules! write_if_some {
-    ($w:expr, $s:expr, $v:ident) => {
-        if let Some(v) = $v {
-            write!($w, $s, v)
-        } else {
-            Ok(())
-        }
-    };
-}
-
-#[derive(Clone, PartialEq)]
-enum MachineCode {
-    RapidPositioning {
-        x: Option<f64>,
-        y: Option<f64>,
-    },
-    LinearInterpolation {
-        x: Option<f64>,
-        y: Option<f64>,
-        z: Option<f64>,
-        f: Option<f64>,
-    },
-    Dwell {
-        p: f64,
-    },
-    UnitsInches,
-    UnitsMillimeters,
-    ProgramEnd,
-    StartSpindle {
-        d: Direction,
-        s: f64,
-    },
-    StopSpindle,
-    AbsoluteDistanceMode,
-    IncrementalDistanceMode,
-    Named(Box<String>),
-}
-
-type Program = Vec<MachineCode>;
-
-fn program2gcode<W: Write>(p: &Program, mut w: W) -> io::Result<()> {
-    use MachineCode::*;
-    for code in p.iter() {
-        match code {
-            RapidPositioning { x, y } => {
-                if let (None, None) = (x, y) {
-                    continue;
-                }
-                write!(w, "G0")?;
-                write_if_some!(w, " X{}", x)?;
-                write_if_some!(w, " Y{}", y)?;
-                writeln!(w)?;
-            }
-            LinearInterpolation { x, y, z, f } => {
-                if let (None, None, None, None) = (x, y, z, f) {
-                    continue;
-                }
-                write!(w, "G1")?;
-                write_if_some!(w, " X{}", x)?;
-                write_if_some!(w, " Y{}", y)?;
-                write_if_some!(w, " Z{}", z)?;
-                write_if_some!(w, " F{}", f)?;
-                writeln!(w, "")?;
-            }
-            Dwell { p } => {
-                writeln!(w, "G4 P{}", p)?;
-            }
-            UnitsInches => {
-                writeln!(w, "G20")?;
-            }
-            UnitsMillimeters => {
-                writeln!(w, "G21")?;
-            }
-            ProgramEnd => {
-                writeln!(w, "M20")?;
-            }
-            StartSpindle { d, s } => {
-                let d = match d {
-                    Direction::Clockwise => 3,
-                    Direction::Anticlockwise => 4,
-                };
-                writeln!(w, "M{} S{}", d, s)?;
-            }
-            StopSpindle => {
-                writeln!(w, "M5")?;
-            }
-            AbsoluteDistanceMode => {
-                writeln!(w, "G90")?;
-            }
-            IncrementalDistanceMode => {
-                writeln!(w, "G91")?;
-            }
-            Named(name) => {
-                if name.len() > 0 {
-                    writeln!(w, "({})", name)?;
-                }
-            }
-        }
-    }
-    Ok(())
 }
