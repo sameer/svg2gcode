@@ -6,6 +6,7 @@ use lyon_geom::{ArcFlags, CubicBezierSegment, QuadraticBezierSegment, SvgArc};
 
 pub struct Turtle {
     curpos: F64Point,
+    initpos: F64Point,
     curtran: Transform2D<f64>,
     scaling: Option<Transform2D<f64>>,
     transtack: Vec<Transform2D<f64>>,
@@ -17,6 +18,7 @@ impl Default for Turtle {
     fn default() -> Self {
         Self {
             curpos: point(0.0, 0.0),
+            initpos: point(0.0, 0.0),
             curtran: Transform2D::identity(),
             scaling: None,
             transtack: vec![],
@@ -46,7 +48,8 @@ impl Turtle {
         let mut to = point(x, y);
         to = self.curtran.transform_point(&to);
         self.curpos = to;
-        self.prev_ctrl = self.curpos;
+        self.initpos = to;
+        self.prev_ctrl = to;
 
         vec![
             self.mach.tool_off(),
@@ -54,6 +57,27 @@ impl Turtle {
             vec![GCode::RapidPositioning {
                 x: to.x.into(),
                 y: to.y.into(),
+            }],
+        ]
+        .drain(..)
+        .flatten()
+        .collect()
+    }
+
+    pub fn close<Z, F>(&mut self, z: Z, f: F) -> Program
+    where
+        Z: Into<Option<f64>>,
+        F: Into<Option<f64>>,
+    {
+        self.curpos = self.initpos;
+        vec![
+            self.mach.tool_on(),
+            self.mach.absolute(),
+            vec![GCode::LinearInterpolation {
+                x: self.initpos.x.into(),
+                y: self.initpos.y.into(),
+                z: z.into(),
+                f: f.into(),
             }],
         ]
         .drain(..)
@@ -334,9 +358,7 @@ impl Turtle {
             self.curtran = self.curtran.post_mul(&old_scaling.inverse().unwrap());
         }
         self.scaling = Some(scaling);
-        self.curtran = self
-                .curtran
-                .post_mul(&scaling);
+        self.curtran = self.curtran.post_mul(&scaling);
     }
 
     pub fn push_transform(&mut self, trans: Transform2D<f64>) {
@@ -346,7 +368,7 @@ impl Turtle {
                 .curtran
                 .post_mul(&scaling.inverse().unwrap())
                 .pre_mul(&trans)
-            .post_mul(&scaling);
+                .post_mul(&scaling);
         } else {
             self.curtran = self.curtran.post_mul(&trans);
         }

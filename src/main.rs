@@ -164,7 +164,7 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
                                 }
                                 PathSegment::ClosePath { abs } => {
                                     // Ignore abs, should have identical effect: https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand
-                                    p.extend(t.line(true, 0.0, 0.0, None, opts.feedrate))
+                                    p.extend(t.close(None, opts.feedrate))
                                 }
                                 PathSegment::LineTo { abs, x, y } => {
                                     p.extend(t.line(*abs, *x, *y, None, opts.feedrate));
