@@ -10,17 +10,19 @@ use std::env;
 use std::fs::File;
 use std::io::{self, Read};
 
-use lyon_geom::math;
+use lyon_geom::{math, euclid};
 use svgdom::{AttributeId, AttributeValue, ElementId, ElementType, PathSegment};
 
 mod code;
 mod machine;
+mod turtle;
 
 use code::*;
 use machine::*;
+use turtle::*;
 
 fn main() -> io::Result<()> {
-    if let Err(_) = env::var("RUST_LOG") {
+    if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "svg2gcode=info")
     }
     env_logger::init();
@@ -92,26 +94,22 @@ struct ProgramOptions {
 impl Default for ProgramOptions {
     fn default() -> Self {
         ProgramOptions {
-            tolerance: 0.1,
+            tolerance: 0.001,
             feedrate: 3000.0,
             dpi: 72.0,
         }
     }
 }
 
-fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mut mach: Machine) -> Program {
-    let mut current_transform = lyon_geom::euclid::Transform2D::create_scale(1.0, -1.0)
-        .post_translate(math::vector(0.0, 2.0));
-    let mut transform_stack = vec![];
-
+fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> Program {
     let mut p = Program::new();
+    let mut t = Turtle::default();
+    t.mach = mach;
+
     p.push(GCode::UnitsMillimeters);
-    mach.tool_off(&mut p);
-    p.push(GCode::RapidPositioning {
-        x: 0.0.into(),
-        y: 0.0.into(),
-    });
-    mach.tool_on(&mut p);
+    p.extend(t.mach.tool_off());
+    p.extend(t.move_to(true, 0.0, 0.0));
+    p.extend(t.mach.tool_on());
 
     for edge in doc.root().traverse() {
         let (node, is_start) = match edge {
@@ -131,24 +129,26 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mut mach: Machine) 
             ) {
                 let width_in_mm = length_to_mm(width, opts.dpi);
                 let height_in_mm = length_to_mm(height, opts.dpi);
-                current_transform =
-                    current_transform.post_mul(&lyon_geom::euclid::Transform2D::create_scale(
+                t.set_scaling(
+                    euclid::Transform2D::create_scale(
                         width_in_mm / width.num,
                         height_in_mm / height.num,
-                    ));
+                    )
+                    .post_translate(math::vector(0.0, height_in_mm)),
+                );
             }
         }
         if let (ElementId::G, true) = (id, is_start) {
             p.push(GCode::Named(Box::new(node.id().to_string())));
         }
-        if let Some(&AttributeValue::Transform(ref t)) = attrs.get_value(AttributeId::Transform) {
+        if let Some(&AttributeValue::Transform(ref trans)) = attrs.get_value(AttributeId::Transform)
+        {
             if is_start {
-                transform_stack.push(current_transform);
-                current_transform = current_transform.post_mul(
-                    &lyon_geom::euclid::Transform2D::row_major(t.a, t.b, t.c, t.d, t.e, t.f),
-                );
+                t.push_transform(lyon_geom::euclid::Transform2D::row_major(
+                    trans.a, trans.b, trans.c, trans.d, trans.e, trans.f,
+                ));
             } else {
-                current_transform = transform_stack.pop().unwrap();
+                t.pop_transform();
             }
         }
         if node.is_graphic() && is_start {
@@ -156,121 +156,24 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mut mach: Machine) 
                 ElementId::Path => {
                     if let Some(&AttributeValue::Path(ref path)) = attrs.get_value(AttributeId::D) {
                         p.push(GCode::Named(Box::new(node.id().to_string())));
-                        let mut curpos = math::point(0.0, 0.0);
-                        curpos = current_transform.transform_point(&curpos);
-                        let mut prev_ctrl = curpos;
+                        t.reset();
                         for segment in path.iter() {
                             match segment {
                                 PathSegment::MoveTo { abs, x, y } => {
-                                    mach.tool_off(&mut p);
-                                    mach.distance(&mut p, *abs);
-                                    let mut to = math::point(*x, *y);
-                                    to = current_transform.transform_point(&to);
-                                    if !*abs {
-                                        to -= math::vector(
-                                            current_transform.m31,
-                                            current_transform.m32,
-                                        );
-                                    }
-                                    p.push(GCode::RapidPositioning {
-                                        x: to.x.into(),
-                                        y: to.y.into(),
-                                    });
-                                    if *abs {
-                                        curpos = to;
-                                    } else {
-                                        curpos += to.to_vector();
-                                    }
-                                    prev_ctrl = curpos;
+                                    p.extend(t.move_to(*abs, *x, *y))
                                 }
                                 PathSegment::ClosePath { abs } => {
-                                    mach.tool_off(&mut p);
+                                    // Ignore abs, should have identical effect: https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand
+                                    p.extend(t.line(true, 0.0, 0.0, None, opts.feedrate))
                                 }
                                 PathSegment::LineTo { abs, x, y } => {
-                                    mach.tool_on(&mut p);
-                                    mach.distance(&mut p, *abs);
-                                    let mut to = math::point(*x, *y);
-                                    to = current_transform.transform_point(&to);
-                                    if !*abs {
-                                        to -= math::vector(
-                                            current_transform.m31,
-                                            current_transform.m32,
-                                        );
-                                    }
-                                    p.push(GCode::LinearInterpolation {
-                                        x: to.x.into(),
-                                        y: to.y.into(),
-                                        z: None,
-                                        f: opts.feedrate.into(),
-                                    });
-                                    if *abs {
-                                        curpos = to;
-                                    } else {
-                                        curpos += to.to_vector();
-                                    }
-                                    prev_ctrl = curpos;
+                                    p.extend(t.line(*abs, *x, *y, None, opts.feedrate));
                                 }
                                 PathSegment::HorizontalLineTo { abs, x } => {
-                                    mach.tool_on(&mut p);
-                                    mach.distance(&mut p, *abs);
-                                    let mut to = if *abs {
-                                        let inv_transform = current_transform
-                                            .inverse()
-                                            .expect("could not invert transform");
-                                        math::point(*x, inv_transform.transform_point(&curpos).y)
-                                    } else {
-                                        math::point(*x, 0.0)
-                                    };
-                                    to = current_transform.transform_point(&to);
-                                    if !*abs {
-                                        to -= math::vector(
-                                            current_transform.m31,
-                                            current_transform.m32,
-                                        );
-                                    }
-                                    p.push(GCode::LinearInterpolation {
-                                        x: to.x.into(),
-                                        y: to.y.into(),
-                                        z: None,
-                                        f: opts.feedrate.into(),
-                                    });
-                                    if *abs {
-                                        curpos = to;
-                                    } else {
-                                        curpos += to.to_vector();
-                                    }
-                                    prev_ctrl = curpos;
+                                    p.extend(t.line(*abs, *x, None, None, opts.feedrate));
                                 }
                                 PathSegment::VerticalLineTo { abs, y } => {
-                                    mach.tool_on(&mut p);
-                                    mach.distance(&mut p, *abs);
-                                    let mut to = if *abs {
-                                        let inv_transform = current_transform
-                                            .inverse()
-                                            .expect("could not invert transform");
-                                        math::point(inv_transform.transform_point(&curpos).x, *y)
-                                    } else {
-                                        math::point(0.0, *y)
-                                    };
-                                    to = current_transform.transform_point(&to);
-                                    if !*abs {
-                                        to -= math::vector(
-                                            current_transform.m31,
-                                            current_transform.m32,
-                                        );
-                                    }
-                                    p.push(GCode::LinearInterpolation {
-                                        x: to.x.into(),
-                                        y: to.y.into(),
-                                        z: None,
-                                        f: opts.feedrate.into(),
-                                    });
-                                    if *abs {
-                                        curpos = to;
-                                    } else {
-                                        curpos += to.to_vector();
-                                    }
-                                    prev_ctrl = curpos;
+                                    p.extend(t.line(*abs, None, *y, None, opts.feedrate));
                                 }
                                 PathSegment::CurveTo {
                                     abs,
@@ -281,122 +184,52 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mut mach: Machine) 
                                     x,
                                     y,
                                 } => {
-                                    mach.tool_on(&mut p);
-                                    mach.absolute(&mut p);
-                                    let from = curpos;
-                                    let mut ctrl1 = math::point(*x1, *y1);
-                                    ctrl1 = current_transform.transform_point(&ctrl1);
-                                    let mut ctrl2 = math::point(*x2, *y2);
-                                    ctrl2 = current_transform.transform_point(&ctrl2);
-                                    let mut to = math::point(*x, *y);
-                                    to = current_transform.transform_point(&to);
-                                    if !*abs {
-                                        ctrl1 += curpos.to_vector();
-                                        ctrl2 += curpos.to_vector();
-                                        to += curpos.to_vector();
-                                    }
-                                    let cbs = lyon_geom::CubicBezierSegment {
-                                        from,
-                                        ctrl1,
-                                        ctrl2,
-                                        to,
-                                    };
-                                    let last_point = std::cell::Cell::new(curpos);
-                                    cbs.flattened(opts.tolerance).for_each(|point| {
-                                        p.push(GCode::LinearInterpolation {
-                                            x: point.x.into(),
-                                            y: point.y.into(),
-                                            z: None,
-                                            f: opts.feedrate.into(),
-                                        });
-                                        last_point.set(point);
-                                    });
-                                    curpos = last_point.get();
-                                    prev_ctrl = ctrl1;
+                                    p.extend(t.cubic_bezier(
+                                        *abs,
+                                        *x1,
+                                        *y1,
+                                        *x2,
+                                        *y2,
+                                        *x,
+                                        *y,
+                                        opts.tolerance,
+                                        None,
+                                        opts.feedrate,
+                                    ));
                                 }
                                 PathSegment::SmoothCurveTo { abs, x2, y2, x, y } => {
-                                    mach.tool_on(&mut p);
-                                    mach.absolute(&mut p);
-                                    let from = curpos;
-                                    let mut ctrl1 = prev_ctrl;
-                                    let mut ctrl2 = math::point(*x2, *y2);
-                                    ctrl2 = current_transform.transform_point(&ctrl2);
-                                    let mut to = math::point(*x, *y);
-                                    to = current_transform.transform_point(&to);
-                                    if !*abs {
-                                        ctrl1 += curpos.to_vector();
-                                        ctrl2 += curpos.to_vector();
-                                        to += curpos.to_vector();
-                                    }
-                                    let cbs = lyon_geom::CubicBezierSegment {
-                                        from,
-                                        ctrl1,
-                                        ctrl2,
-                                        to,
-                                    };
-                                    let last_point = std::cell::Cell::new(curpos);
-                                    cbs.flattened(opts.tolerance).for_each(|point| {
-                                        p.push(GCode::LinearInterpolation {
-                                            x: point.x.into(),
-                                            y: point.y.into(),
-                                            z: None,
-                                            f: opts.feedrate.into(),
-                                        });
-                                        last_point.set(point);
-                                    });
-                                    curpos = last_point.get();
-                                    prev_ctrl = ctrl1;
+                                    p.extend(t.smooth_cubic_bezier(
+                                        *abs,
+                                        *x2,
+                                        *y2,
+                                        *x,
+                                        *y,
+                                        opts.tolerance,
+                                        None,
+                                        opts.feedrate,
+                                    ));
                                 }
                                 PathSegment::Quadratic { abs, x1, y1, x, y } => {
-                                    mach.tool_on(&mut p);
-                                    mach.absolute(&mut p);
-                                    let from = curpos;
-                                    let mut ctrl = math::point(*x1, *y1);
-                                    ctrl = current_transform.transform_point(&ctrl);
-                                    let mut to = math::point(*x, *y);
-                                    to = current_transform.transform_point(&to);
-                                    if !*abs {
-                                        ctrl += curpos.to_vector();
-                                        to += curpos.to_vector();
-                                    }
-                                    let qbs = lyon_geom::QuadraticBezierSegment { from, ctrl, to };
-                                    let last_point = std::cell::Cell::new(curpos);
-                                    qbs.flattened(opts.tolerance).for_each(|point| {
-                                        p.push(GCode::LinearInterpolation {
-                                            x: point.x.into(),
-                                            y: point.y.into(),
-                                            z: None,
-                                            f: opts.feedrate.into(),
-                                        });
-                                        last_point.set(point);
-                                    });
-                                    curpos = last_point.get();
-                                    prev_ctrl = ctrl;
+                                    p.extend(t.quadratic_bezier(
+                                        *abs,
+                                        *x1,
+                                        *y1,
+                                        *x,
+                                        *y,
+                                        opts.tolerance,
+                                        None,
+                                        opts.feedrate,
+                                    ));
                                 }
                                 PathSegment::SmoothQuadratic { abs, x, y } => {
-                                    mach.tool_on(&mut p);
-                                    mach.absolute(&mut p);
-                                    let from = curpos;
-                                    let mut ctrl = prev_ctrl;
-                                    let mut to = math::point(*x, *y);
-                                    to = current_transform.transform_point(&to);
-                                    if !*abs {
-                                        ctrl += curpos.to_vector();
-                                        to += curpos.to_vector();
-                                    }
-                                    let qbs = lyon_geom::QuadraticBezierSegment { from, ctrl, to };
-                                    let last_point = std::cell::Cell::new(curpos);
-                                    qbs.flattened(opts.tolerance).for_each(|point| {
-                                        p.push(GCode::LinearInterpolation {
-                                            x: point.x.into(),
-                                            y: point.y.into(),
-                                            z: None,
-                                            f: opts.feedrate.into(),
-                                        });
-                                        last_point.set(point);
-                                    });
-                                    curpos = last_point.get();
-                                    prev_ctrl = ctrl;
+                                    p.extend(t.smooth_quadratic_bezier(
+                                        *abs,
+                                        *x,
+                                        *y,
+                                        opts.tolerance,
+                                        None,
+                                        opts.feedrate,
+                                    ));
                                 }
                                 PathSegment::EllipticalArc {
                                     abs,
@@ -408,45 +241,19 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mut mach: Machine) 
                                     x,
                                     y,
                                 } => {
-                                    mach.tool_on(&mut p);
-                                    mach.absolute(&mut p);
-                                    let from = curpos;
-                                    let mut to = math::point(*x, *y);
-                                    to = current_transform.transform_point(&to);
-                                    if !*abs {
-                                        to += curpos.to_vector();
-                                    }
-
-                                    let mut radii = math::vector(*rx, *ry);
-                                    radii = current_transform.transform_vector(&radii);
-
-                                    let sarc = lyon_geom::SvgArc {
-                                        from,
-                                        to,
-                                        radii,
-                                        x_rotation: lyon_geom::euclid::Angle {
-                                            radians: *x_axis_rotation,
-                                        },
-                                        flags: lyon_geom::ArcFlags {
-                                            large_arc: *large_arc,
-                                            sweep: *sweep,
-                                        },
-                                    };
-                                    let last_point = std::cell::Cell::new(curpos);
-                                    sarc.for_each_flattened(
+                                    p.extend(t.elliptical(
+                                        *abs,
+                                        *rx,
+                                        *ry,
+                                        *x_axis_rotation,
+                                        *large_arc,
+                                        *sweep,
+                                        *x,
+                                        *y,
+                                        None,
+                                        opts.feedrate,
                                         opts.tolerance,
-                                        &mut |point: math::F64Point| {
-                                            p.push(GCode::LinearInterpolation {
-                                                x: point.x.into(),
-                                                y: point.y.into(),
-                                                z: None,
-                                                f: opts.feedrate.into(),
-                                            });
-                                            last_point.set(point);
-                                        },
-                                    );
-                                    curpos = last_point.get();
-                                    prev_ctrl = curpos;
+                                    ));
                                 }
                             }
                         }
@@ -459,13 +266,13 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mut mach: Machine) 
         }
     }
 
-    mach.tool_off(&mut p);
-    mach.absolute(&mut p);
+    p.extend(t.mach.tool_off());
+    p.extend(t.mach.absolute());
     p.push(GCode::RapidPositioning {
         x: 0.0.into(),
         y: 0.0.into(),
     });
-    mach.tool_on(&mut p);
+    p.extend(t.mach.tool_on());
     p.push(GCode::ProgramEnd);
 
     p
