@@ -22,6 +22,7 @@ fn main() -> io::Result<()> {
         (@arg FILE: "Selects the input SVG file to use, else reading from stdin")
         (@arg tolerance: "Sets the interpolation tolerance for curves")
         (@arg feedrate: "Sets the machine feed rate")
+        (@arg dpi: "Sets the DPI for SVGs with units in pt, pc, etc.")
     )
     .get_matches();
 
@@ -48,6 +49,9 @@ fn main() -> io::Result<()> {
     if let Some(feedrate) = matches.value_of("feedrate").and_then(|x| x.parse().ok()) {
         opts.feedrate = feedrate;
     }
+    if let Some(dpi) = matches.value_of("dpi").and_then(|x| x.parse().ok()) {
+        opts.dpi = dpi;
+    }
 
     let doc = svgdom::Document::from_str(&input).expect("Invalid or unsupported SVG file");
 
@@ -60,6 +64,7 @@ struct MachineOptions {
     feedrate: f64,
     tool_on_action: Vec<MachineCode>,
     tool_off_action: Vec<MachineCode>,
+    dpi: f64,
 }
 
 impl Default for MachineOptions {
@@ -76,6 +81,7 @@ impl Default for MachineOptions {
                 },
                 MachineCode::Dwell { p: 0.2 },
             ],
+            dpi: 72.0,
         }
     }
 }
@@ -145,15 +151,29 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
         } else {
             continue;
         };
+        let attrs = node.attributes();
+        if let (ElementId::Svg, true) = (id, is_start) {
+            if let (Some(&AttributeValue::Length(width)), Some(&AttributeValue::Length(height))) = (
+                attrs.get_value(AttributeId::Width),
+                attrs.get_value(AttributeId::Height),
+            ) {
+                let width_in_mm = length_to_mm(width, opts.dpi);
+                let height_in_mm = length_to_mm(height, opts.dpi);
+                current_transform = lyon_geom::euclid::Transform2D::create_scale(
+                    width_in_mm / width.num,
+                    height_in_mm / height.num,
+                );
+            }
+        }
         if let (ElementId::G, true) = (id, is_start) {
             p.push(MachineCode::Named(Box::new(node.id().to_string())));
         }
-        if let Some(&AttributeValue::Transform(ref t)) =
-            node.attributes().get_value(AttributeId::Transform)
-        {
+        if let Some(&AttributeValue::Transform(ref t)) = attrs.get_value(AttributeId::Transform) {
             if is_start {
                 transform_stack.push(current_transform);
-                current_transform = current_transform.post_mul(&lyon_geom::euclid::Transform2D::row_major(t.a, t.b, t.c, t.d, t.e, t.f));
+                current_transform = current_transform.post_mul(
+                    &lyon_geom::euclid::Transform2D::row_major(t.a, t.b, t.c, t.d, t.e, t.f),
+                );
             } else {
                 current_transform = transform_stack.pop().unwrap();
             }
@@ -161,7 +181,6 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
         if node.is_graphic() && is_start {
             match id {
                 ElementId::Path => {
-                    let attrs = node.attributes();
                     if let Some(&AttributeValue::Path(ref path)) = attrs.get_value(AttributeId::D) {
                         p.push(MachineCode::Named(Box::new(node.id().to_string())));
                         let mut curpos = math::point(0.0, 0.0);
@@ -174,6 +193,9 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     select_mode(&mut p, *abs);
                                     let mut to = math::point(*x, *y);
                                     to = current_transform.transform_point(&to);
+                                    if !*abs {
+                                        to -= math::vector(current_transform.m31, current_transform.m32);
+                                    }
                                     p.push(MachineCode::RapidPositioning {
                                         x: to.x.into(),
                                         y: to.y.into(),
@@ -193,6 +215,9 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                     select_mode(&mut p, *abs);
                                     let mut to = math::point(*x, *y);
                                     to = current_transform.transform_point(&to);
+                                    if !*abs {
+                                        to -= math::vector(current_transform.m31, current_transform.m32);
+                                    }
                                     p.push(MachineCode::LinearInterpolation {
                                         x: to.x.into(),
                                         y: to.y.into(),
@@ -209,9 +234,18 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                 PathSegment::HorizontalLineTo { abs, x } => {
                                     tool_on(&mut p);
                                     select_mode(&mut p, *abs);
-                                    let inv_transform = current_transform.inverse().expect("could not invert transform");
-                                    let mut to = math::point(*x, inv_transform.transform_point(&curpos).y);
+                                    let mut to = if *abs {
+                                        let inv_transform = current_transform
+                                            .inverse()
+                                            .expect("could not invert transform");
+                                        math::point(*x, inv_transform.transform_point(&curpos).y)
+                                    } else {
+                                        math::point(*x, 0.0)
+                                    };
                                     to = current_transform.transform_point(&to);
+                                    if !*abs {
+                                        to -= math::vector(current_transform.m31, current_transform.m32);
+                                    }
                                     p.push(MachineCode::LinearInterpolation {
                                         x: to.x.into(),
                                         y: to.y.into(),
@@ -228,9 +262,18 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
                                 PathSegment::VerticalLineTo { abs, y } => {
                                     tool_on(&mut p);
                                     select_mode(&mut p, *abs);
-                                    let inv_transform = current_transform.inverse().expect("could not invert transform");
-                                    let mut to = math::point(inv_transform.transform_point(&curpos).x, *y);
+                                    let mut to = if *abs {
+                                        let inv_transform = current_transform
+                                            .inverse()
+                                            .expect("could not invert transform");
+                                        math::point(inv_transform.transform_point(&curpos).x, *y)
+                                    } else {
+                                        math::point(0.0, *y)
+                                    };
                                     to = current_transform.transform_point(&to);
+                                    if !*abs {
+                                        to -= math::vector(current_transform.m31, current_transform.m32);
+                                    }
                                     p.push(MachineCode::LinearInterpolation {
                                         x: to.x.into(),
                                         y: to.y.into(),
@@ -440,6 +483,20 @@ fn svg2program(doc: &svgdom::Document, opts: MachineOptions) -> Program {
     p.push(MachineCode::ProgramEnd);
 
     p
+}
+
+fn length_to_mm(l: svgdom::Length, dpi: f64) -> f64 {
+    use svgdom::LengthUnit::*;
+    let scale = match l.unit {
+        Cm => 0.1,
+        Mm => 1.0,
+        In => 25.4,
+        Pt => 25.4 / dpi,
+        Pc => 25.4 / (6.0 * (dpi / 72.0)),
+        _ => 1.0,
+    };
+
+    l.num * scale
 }
 
 #[derive(Clone, PartialEq, Eq)]
