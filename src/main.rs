@@ -94,7 +94,7 @@ struct ProgramOptions {
 impl Default for ProgramOptions {
     fn default() -> Self {
         ProgramOptions {
-            tolerance: 0.001,
+            tolerance: 0.002, // See https://github.com/gnea/grbl/wiki/Grbl-v1.1-Configuration#12--arc-tolerance-mm
             feedrate: 3000.0,
             dpi: 72.0,
         }
@@ -136,11 +136,8 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
                 let width_in_mm = length_to_mm(width, opts.dpi);
                 let height_in_mm = length_to_mm(height, opts.dpi);
                 t.stack_scaling(
-                    euclid::Transform2D::create_scale(
-                        width_in_mm,
-                        -height_in_mm,
-                    )
-                    .post_translate(math::vector(0.0, height_in_mm)),
+                    euclid::Transform2D::create_scale(width_in_mm, -height_in_mm)
+                        .post_translate(math::vector(0.0, height_in_mm)),
                 );
             }
         }
