@@ -328,7 +328,7 @@ impl Turtle {
                 radians: x_axis_rotation,
             },
             flags: ArcFlags {
-                large_arc: large_arc,
+                large_arc: !large_arc,
                 sweep: sweep,
             },
         };
@@ -353,12 +353,13 @@ impl Turtle {
             .collect()
     }
 
-    pub fn set_scaling(&mut self, scaling: Transform2D<f64>) {
-        if let Some(ref old_scaling) = self.scaling {
-            self.curtran = self.curtran.post_mul(&old_scaling.inverse().unwrap());
-        }
-        self.scaling = Some(scaling);
+    pub fn stack_scaling(&mut self, scaling: Transform2D<f64>) {
         self.curtran = self.curtran.post_mul(&scaling);
+        if let Some(ref current_scaling) = self.scaling {
+            self.scaling = Some(current_scaling.post_mul(&scaling));
+        } else {
+            self.scaling = Some(scaling);
+        }
     }
 
     pub fn push_transform(&mut self, trans: Transform2D<f64>) {

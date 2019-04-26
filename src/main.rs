@@ -10,7 +10,7 @@ use std::env;
 use std::fs::File;
 use std::io::{self, Read};
 
-use lyon_geom::{math, euclid};
+use lyon_geom::{euclid, math};
 use svgdom::{AttributeId, AttributeValue, ElementId, ElementType, PathSegment};
 
 mod code;
@@ -123,16 +123,22 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
         };
         let attrs = node.attributes();
         if let (ElementId::Svg, true) = (id, is_start) {
+            if let Some(&AttributeValue::ViewBox(vbox)) = attrs.get_value(AttributeId::ViewBox) {
+                t.stack_scaling(
+                    euclid::Transform2D::create_scale(1. / vbox.w, 1. / vbox.h)
+                        .post_translate(math::vector(vbox.x, vbox.y)),
+                );
+            }
             if let (Some(&AttributeValue::Length(width)), Some(&AttributeValue::Length(height))) = (
                 attrs.get_value(AttributeId::Width),
                 attrs.get_value(AttributeId::Height),
             ) {
                 let width_in_mm = length_to_mm(width, opts.dpi);
                 let height_in_mm = length_to_mm(height, opts.dpi);
-                t.set_scaling(
+                t.stack_scaling(
                     euclid::Transform2D::create_scale(
-                        width_in_mm / width.num,
-                        -height_in_mm / height.num,
+                        width_in_mm,
+                        -height_in_mm,
                     )
                     .post_translate(math::vector(0.0, height_in_mm)),
                 );
