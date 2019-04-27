@@ -4,8 +4,8 @@ use crate::code::*;
 pub struct Machine {
     tool_state: Option<Tool>,
     distance_mode: Option<Distance>,
-    pub tool_on_action: Program,
-    pub tool_off_action: Program,
+    pub tool_on_action: Vec<GCode>,
+    pub tool_off_action: Vec<GCode>,
 }
 
 impl Default for Machine {
@@ -20,7 +20,7 @@ impl Default for Machine {
 }
 
 impl Machine {
-    pub fn tool_on(&mut self) -> Program {
+    pub fn tool_on(&mut self) -> Vec<GCode> {
         if self.tool_state == Some(Tool::Off) || self.tool_state == None {
             self.tool_state = Some(Tool::On);
             self.tool_on_action.clone()
@@ -29,7 +29,7 @@ impl Machine {
         }
     }
 
-    pub fn tool_off(&mut self) -> Program {
+    pub fn tool_off(&mut self) -> Vec<GCode> {
         if self.tool_state == Some(Tool::On) || self.tool_state == None {
             self.tool_state = Some(Tool::Off);
             self.tool_off_action.clone()
@@ -38,7 +38,7 @@ impl Machine {
         }
     }
 
-    pub fn distance(&mut self, is_absolute: bool) -> Program {
+    pub fn distance(&mut self, is_absolute: bool) -> Vec<GCode> {
         if is_absolute {
             self.absolute()
         } else {
@@ -46,7 +46,7 @@ impl Machine {
         }
     }
 
-    pub fn absolute(&mut self) -> Program {
+    pub fn absolute(&mut self) -> Vec<GCode> {
         if self.distance_mode == Some(Distance::Incremental) || self.distance_mode == None {
             self.distance_mode = Some(Distance::Absolute);
             vec![GCode::DistanceMode(Distance::Absolute)]
@@ -55,7 +55,7 @@ impl Machine {
         }
     }
 
-    pub fn incremental(&mut self) -> Program {
+    pub fn incremental(&mut self) -> Vec<GCode> {
         if self.distance_mode == Some(Distance::Absolute) || self.distance_mode == None {
             self.distance_mode = Some(Distance::Incremental);
             vec![GCode::DistanceMode(Distance::Incremental)]

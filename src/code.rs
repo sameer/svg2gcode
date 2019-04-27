@@ -1,4 +1,5 @@
 use std::io::{self, Write};
+use std::ops::AddAssign;
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum Direction {
@@ -18,7 +19,34 @@ pub enum Distance {
     Incremental,
 }
 
-pub type Program = Vec<GCode>;
+#[derive(Default, PartialEq, Clone)]
+pub struct Program(Vec<GCode>);
+
+impl std::ops::Deref for Program {
+    type Target = [GCode];
+
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl AddAssign for Program {
+    fn add_assign(&mut self, mut other: Program) {
+        self.0.extend(other.0.drain(..));
+    }
+}
+
+impl From<Vec<GCode>> for Program {
+    fn from(v: Vec<GCode>) -> Self {
+        Self(v)
+    }
+}
+
+impl Program {
+    pub fn push(&mut self, g: GCode) {
+        self.0.push(g)
+    }
+}
 
 macro_rules! write_if_some {
     ($w:expr, $s:expr, $v:ident) => {
@@ -59,7 +87,7 @@ pub enum GCode {
 
 pub fn program2gcode<W: Write>(p: &Program, mut w: W) -> io::Result<()> {
     use GCode::*;
-    let mut last_feedrate = None;
+    let mut last_feedrate: Option<f64> = None;
     for code in p.iter() {
         match code {
             RapidPositioning { x, y } => {
@@ -84,15 +112,15 @@ pub fn program2gcode<W: Write>(p: &Program, mut w: W) -> io::Result<()> {
                         ))
                     }
                     (Some(last), Some(new)) => {
-                        if last != new {
-                            last_feedrate = Some(new);
+                        if (last - *new).abs() < std::f64::EPSILON {
+                            last_feedrate = Some(*new);
                             Some(new)
                         } else {
                             None
                         }
                     }
                     (None, Some(new)) => {
-                        last_feedrate = Some(new);
+                        last_feedrate = Some(*new);
                         Some(new)
                     }
                     (Some(_), None) => None,

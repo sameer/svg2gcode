@@ -108,14 +108,13 @@ impl Default for ProgramOptions {
 }
 
 fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> Program {
-    let mut p = Program::new();
+    let mut p = Program::default();
     let mut t = Turtle::default();
     t.mach = mach;
 
     p.push(GCode::UnitsMillimeters);
-    p.extend(t.mach.tool_off());
-    p.extend(t.move_to(true, 0.0, 0.0));
-    p.extend(t.mach.tool_on());
+    p += t.mach.tool_off().into();
+    p += t.move_to(true, 0.0, 0.0).into();
 
     for edge in doc.root().traverse() {
         let (node, is_start) = match edge {
@@ -147,8 +146,10 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
                 );
             }
         }
-        if let (ElementId::G, true) = (id, is_start) {
-            p.push(GCode::Named(Box::new(node.id().to_string())));
+        if let ElementId::G = id {
+            if is_start {
+                p.push(GCode::Named(Box::new(node.id().to_string())));
+            }
         }
         if let Some(&AttributeValue::Transform(ref trans)) = attrs.get_value(AttributeId::Transform)
         {
@@ -167,22 +168,20 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
                         p.push(GCode::Named(Box::new(node.id().to_string())));
                         t.reset();
                         for segment in path.iter() {
-                            match segment {
-                                PathSegment::MoveTo { abs, x, y } => {
-                                    p.extend(t.move_to(*abs, *x, *y))
-                                }
+                            let segment_gcode = match segment {
+                                PathSegment::MoveTo { abs, x, y } => t.move_to(*abs, *x, *y),
                                 PathSegment::ClosePath { abs } => {
                                     // Ignore abs, should have identical effect: https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand
-                                    p.extend(t.close(None, opts.feedrate))
+                                    t.close(None, opts.feedrate)
                                 }
                                 PathSegment::LineTo { abs, x, y } => {
-                                    p.extend(t.line(*abs, *x, *y, None, opts.feedrate));
+                                    t.line(*abs, *x, *y, None, opts.feedrate)
                                 }
                                 PathSegment::HorizontalLineTo { abs, x } => {
-                                    p.extend(t.line(*abs, *x, None, None, opts.feedrate));
+                                    t.line(*abs, *x, None, None, opts.feedrate)
                                 }
                                 PathSegment::VerticalLineTo { abs, y } => {
-                                    p.extend(t.line(*abs, None, *y, None, opts.feedrate));
+                                    t.line(*abs, None, *y, None, opts.feedrate)
                                 }
                                 PathSegment::CurveTo {
                                     abs,
@@ -192,22 +191,20 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
                                     y2,
                                     x,
                                     y,
-                                } => {
-                                    p.extend(t.cubic_bezier(
-                                        *abs,
-                                        *x1,
-                                        *y1,
-                                        *x2,
-                                        *y2,
-                                        *x,
-                                        *y,
-                                        opts.tolerance,
-                                        None,
-                                        opts.feedrate,
-                                    ));
-                                }
-                                PathSegment::SmoothCurveTo { abs, x2, y2, x, y } => {
-                                    p.extend(t.smooth_cubic_bezier(
+                                } => t.cubic_bezier(
+                                    *abs,
+                                    *x1,
+                                    *y1,
+                                    *x2,
+                                    *y2,
+                                    *x,
+                                    *y,
+                                    opts.tolerance,
+                                    None,
+                                    opts.feedrate,
+                                ),
+                                PathSegment::SmoothCurveTo { abs, x2, y2, x, y } => t
+                                    .smooth_cubic_bezier(
                                         *abs,
                                         *x2,
                                         *y2,
@@ -216,30 +213,26 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
                                         opts.tolerance,
                                         None,
                                         opts.feedrate,
-                                    ));
-                                }
-                                PathSegment::Quadratic { abs, x1, y1, x, y } => {
-                                    p.extend(t.quadratic_bezier(
-                                        *abs,
-                                        *x1,
-                                        *y1,
-                                        *x,
-                                        *y,
-                                        opts.tolerance,
-                                        None,
-                                        opts.feedrate,
-                                    ));
-                                }
-                                PathSegment::SmoothQuadratic { abs, x, y } => {
-                                    p.extend(t.smooth_quadratic_bezier(
+                                    ),
+                                PathSegment::Quadratic { abs, x1, y1, x, y } => t.quadratic_bezier(
+                                    *abs,
+                                    *x1,
+                                    *y1,
+                                    *x,
+                                    *y,
+                                    opts.tolerance,
+                                    None,
+                                    opts.feedrate,
+                                ),
+                                PathSegment::SmoothQuadratic { abs, x, y } => t
+                                    .smooth_quadratic_bezier(
                                         *abs,
                                         *x,
                                         *y,
                                         opts.tolerance,
                                         None,
                                         opts.feedrate,
-                                    ));
-                                }
+                                    ),
                                 PathSegment::EllipticalArc {
                                     abs,
                                     rx,
@@ -249,22 +242,21 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
                                     sweep,
                                     x,
                                     y,
-                                } => {
-                                    p.extend(t.elliptical(
-                                        *abs,
-                                        *rx,
-                                        *ry,
-                                        *x_axis_rotation,
-                                        *large_arc,
-                                        *sweep,
-                                        *x,
-                                        *y,
-                                        None,
-                                        opts.feedrate,
-                                        opts.tolerance,
-                                    ));
-                                }
-                            }
+                                } => t.elliptical(
+                                    *abs,
+                                    *rx,
+                                    *ry,
+                                    *x_axis_rotation,
+                                    *large_arc,
+                                    *sweep,
+                                    *x,
+                                    *y,
+                                    None,
+                                    opts.feedrate,
+                                    opts.tolerance,
+                                ),
+                            };
+                            p += segment_gcode.into();
                         }
                     }
                 }
@@ -275,13 +267,12 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
         }
     }
 
-    p.extend(t.mach.tool_off());
-    p.extend(t.mach.absolute());
+    p += t.mach.tool_off().into();
+    p += t.mach.absolute().into();
     p.push(GCode::RapidPositioning {
         x: 0.0.into(),
         y: 0.0.into(),
     });
-    p.extend(t.mach.tool_on());
     p.push(GCode::ProgramEnd);
 
     p

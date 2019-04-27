@@ -1,4 +1,4 @@
-use crate::code::{GCode, Program};
+use crate::code::{GCode};
 use crate::machine::Machine;
 use lyon_geom::euclid::{Angle, Transform2D};
 use lyon_geom::math::{point, vector, F64Point};
@@ -29,7 +29,7 @@ impl Default for Turtle {
 }
 
 impl Turtle {
-    pub fn move_to<X, Y>(&mut self, abs: bool, x: X, y: Y) -> Program
+    pub fn move_to<X, Y>(&mut self, abs: bool, x: X, y: Y) -> Vec<GCode>
     where
         X: Into<Option<f64>>,
         Y: Into<Option<f64>>,
@@ -64,7 +64,7 @@ impl Turtle {
         .collect()
     }
 
-    pub fn close<Z, F>(&mut self, z: Z, f: F) -> Program
+    pub fn close<Z, F>(&mut self, z: Z, f: F) -> Vec<GCode>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -85,7 +85,7 @@ impl Turtle {
         .collect()
     }
 
-    pub fn line<X, Y, Z, F>(&mut self, abs: bool, x: X, y: Y, z: Z, f: F) -> Program
+    pub fn line<X, Y, Z, F>(&mut self, abs: bool, x: X, y: Y, z: Z, f: F) -> Vec<GCode>
     where
         X: Into<Option<f64>>,
         Y: Into<Option<f64>>,
@@ -129,7 +129,7 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Program {
+    ) -> Vec<GCode> {
         let z = z.into();
         let f = f.into();
         let last_point = std::cell::Cell::new(self.curpos);
@@ -164,7 +164,7 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Program
+    ) -> Vec<GCode>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -203,7 +203,7 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Program
+    ) -> Vec<GCode>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -238,7 +238,7 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Program
+    ) -> Vec<GCode>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -267,7 +267,7 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Program
+    ) -> Vec<GCode>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -301,7 +301,7 @@ impl Turtle {
         z: Z,
         f: F,
         tolerance: f64,
-    ) -> Program
+    ) -> Vec<GCode>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
