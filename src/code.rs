@@ -59,6 +59,7 @@ pub enum GCode {
 
 pub fn program2gcode<W: Write>(p: &Program, mut w: W) -> io::Result<()> {
     use GCode::*;
+    let mut last_feedrate = None;
     for code in p.iter() {
         match code {
             RapidPositioning { x, y } => {
@@ -74,6 +75,28 @@ pub fn program2gcode<W: Write>(p: &Program, mut w: W) -> io::Result<()> {
                 if let (None, None, None, None) = (x, y, z, f) {
                     continue;
                 }
+
+                let f = match (last_feedrate, f) {
+                    (None, None) => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::Other,
+                            "Linear interpolation without previously set feedrate",
+                        ))
+                    }
+                    (Some(last), Some(new)) => {
+                        if last != new {
+                            last_feedrate = Some(new);
+                            Some(new)
+                        } else {
+                            None
+                        }
+                    }
+                    (None, Some(new)) => {
+                        last_feedrate = Some(new);
+                        Some(new)
+                    }
+                    (Some(_), None) => None,
+                };
                 write!(w, "G1")?;
                 write_if_some!(w, " X{}", x)?;
                 write_if_some!(w, " Y{}", y)?;

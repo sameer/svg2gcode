@@ -386,5 +386,6 @@ impl Turtle {
         self.curpos = point(0.0, 0.0);
         self.curpos = self.curtran.transform_point(&self.curpos);
         self.prev_ctrl = self.curpos;
+        self.initpos = self.curpos;
     }
 }

@@ -66,16 +66,22 @@ fn main() -> io::Result<()> {
     }
 
     if true {
-        mach.tool_on_action = vec![GCode::StopSpindle, GCode::Dwell { p: 1.5 }];
+        mach.tool_on_action = vec![
+            GCode::StartSpindle {
+                d: Direction::Clockwise,
+                s: 70.0,
+            },
+            GCode::Dwell { p: 0.1 },
+        ];
     }
     if true {
         mach.tool_off_action = vec![
             GCode::Dwell { p: 0.1 },
             GCode::StartSpindle {
                 d: Direction::Clockwise,
-                s: 40.0,
+                s: 50.0,
             },
-            GCode::Dwell { p: 0.2 },
+            GCode::Dwell { p: 0.1 },
         ];
     }
 
