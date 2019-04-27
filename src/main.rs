@@ -261,7 +261,7 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
                     }
                 }
                 _ => {
-                    info!("Node <{} id=\"{}\" .../> is not supported", id, node.id());
+                    warn!("Node <{} id=\"{}\" .../> is not supported", id, node.id());
                 }
             }
         }

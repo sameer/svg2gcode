@@ -1,9 +1,12 @@
-use crate::code::{GCode};
+use crate::code::GCode;
 use crate::machine::Machine;
 use lyon_geom::euclid::{Angle, Transform2D};
 use lyon_geom::math::{point, vector, F64Point};
 use lyon_geom::{ArcFlags, CubicBezierSegment, QuadraticBezierSegment, SvgArc};
 
+/// Turtle graphics simulator for paths that outputs the GCode enum representation for each operation.
+/// Handles trasforms, scaling, position offsets, etc.
+/// See https://www.w3.org/TR/SVG/paths.html
 pub struct Turtle {
     curpos: F64Point,
     initpos: F64Point,
@@ -11,7 +14,7 @@ pub struct Turtle {
     scaling: Option<Transform2D<f64>>,
     transtack: Vec<Transform2D<f64>>,
     pub mach: Machine,
-    prev_ctrl: F64Point,
+    prev_ctrl: Option<F64Point>,
 }
 
 impl Default for Turtle {
@@ -23,7 +26,7 @@ impl Default for Turtle {
             scaling: None,
             transtack: vec![],
             mach: Machine::default(),
-            prev_ctrl: point(0.0, 0.0),
+            prev_ctrl: None,
         }
     }
 }
@@ -49,7 +52,7 @@ impl Turtle {
         to = self.curtran.transform_point(&to);
         self.curpos = to;
         self.initpos = to;
-        self.prev_ctrl = to;
+        self.prev_ctrl = None;
 
         vec![
             self.mach.tool_off(),
@@ -69,6 +72,14 @@ impl Turtle {
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
     {
+        // See https://www.w3.org/TR/SVG/paths.html#Segment-CompletingClosePath which could result in a G91 G1 X0 Y0
+        if (self.curpos - self.initpos)
+            .abs()
+            .lower_than(&vector(std::f64::EPSILON, std::f64::EPSILON))
+            .all()
+        {
+            return vec![];
+        }
         self.curpos = self.initpos;
         vec![
             self.mach.tool_on(),
@@ -106,7 +117,7 @@ impl Turtle {
         let mut to = point(x, y);
         to = self.curtran.transform_point(&to);
         self.curpos = to;
-        self.prev_ctrl = self.curpos;
+        self.prev_ctrl = None;
 
         vec![
             self.mach.tool_on(),
@@ -144,7 +155,12 @@ impl Turtle {
             last_point.set(point);
         });
         self.curpos = last_point.get();
-        self.prev_ctrl = cbs.ctrl1;
+        // See https://www.w3.org/TR/SVG/paths.html#ReflectedControlPoints
+        self.prev_ctrl = point(
+            2.0 * self.curpos.x - cbs.ctrl2.x,
+            2.0 * self.curpos.y - cbs.ctrl2.y,
+        )
+        .into();
 
         vec![self.mach.tool_on(), self.mach.absolute(), cubic]
             .drain(..)
@@ -209,7 +225,7 @@ impl Turtle {
         F: Into<Option<f64>>,
     {
         let from = self.curpos;
-        let ctrl1 = self.prev_ctrl;
+        let ctrl1 = self.prev_ctrl.unwrap_or(self.curpos);
         let mut ctrl2 = point(x2, y2);
         let mut to = point(x, y);
         if !abs {
@@ -244,7 +260,7 @@ impl Turtle {
         F: Into<Option<f64>>,
     {
         let from = self.curpos;
-        let ctrl = self.prev_ctrl;
+        let ctrl = self.prev_ctrl.unwrap_or(self.curpos);
         let mut to = point(x, y);
         if !abs {
             let invtran = self.curtran.inverse().unwrap();
@@ -345,7 +361,7 @@ impl Turtle {
             last_point.set(point);
         });
         self.curpos = last_point.get();
-        self.prev_ctrl = self.curpos;
+        self.prev_ctrl = None;
 
         vec![self.mach.tool_on(), self.mach.absolute(), ellipse]
             .drain(..)
@@ -385,7 +401,7 @@ impl Turtle {
     pub fn reset(&mut self) {
         self.curpos = point(0.0, 0.0);
         self.curpos = self.curtran.transform_point(&self.curpos);
-        self.prev_ctrl = self.curpos;
+        self.prev_ctrl = None;
         self.initpos = self.curpos;
     }
 }
