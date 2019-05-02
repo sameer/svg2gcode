@@ -31,6 +31,14 @@ impl Default for Turtle {
     }
 }
 
+impl From<Machine> for Turtle {
+    fn from(m: Machine) -> Self {
+        let mut t = Self::default();
+        t.mach = m;
+        t
+    }
+}
+
 impl Turtle {
     pub fn move_to<X, Y>(&mut self, abs: bool, x: X, y: Y) -> Vec<GCode>
     where

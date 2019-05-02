@@ -58,6 +58,13 @@ macro_rules! write_if_some {
     };
 }
 
+/// Rudimentary regular expression GCode validator.
+pub fn validate_gcode(gcode: &&str) -> bool {
+    use regex::Regex;
+    let re = Regex::new(r##"^(?:(?:%|\(.*\)|(?:[A-Z^E^U][+-]?\d+(?:\.\d*)?))\h*)*$"##).unwrap();
+    gcode.lines().all(|line| re.is_match(line))
+}
+
 #[derive(Clone, PartialEq)]
 pub enum GCode {
     RapidPositioning {
@@ -82,7 +89,8 @@ pub enum GCode {
     },
     StopSpindle,
     DistanceMode(Distance),
-    Named(Box<String>),
+    Comment(Box<String>),
+    Raw(Box<String>),
 }
 
 pub fn program2gcode<W: Write>(p: &Program, mut w: W) -> io::Result<()> {
@@ -164,10 +172,11 @@ pub fn program2gcode<W: Write>(p: &Program, mut w: W) -> io::Result<()> {
                     }
                 )?;
             }
-            Named(name) => {
-                if name.len() > 0 {
-                    writeln!(w, "({})", name)?;
-                }
+            Comment(name) => {
+                writeln!(w, "({})", name)?;
+            }
+            Raw(raw) => {
+                writeln!(w, "{}", raw)?;
             }
         }
     }

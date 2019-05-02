@@ -9,6 +9,7 @@ Convert any SVG 1.1 path to gcode for a pen plotter, laser engraver, etc.
 - [x] Px, pc, in to mm
 - [x] Configurable DPI for px/pc to mm
 - [ ] Sort paths by distance to reduce G0 distances
+- [ ] Configurable start/end sequence
 
 ## Known bugs & whether fixed
 - [ ] Smooth curves should not use the control point when the previous curve is not of the same type (quadratic -> smooth cubic, cubic -> smooth quadratic)

@@ -1,10 +1,12 @@
 #[macro_use]
 extern crate clap;
 extern crate env_logger;
-extern crate svgdom;
 #[macro_use]
 extern crate log;
 extern crate lyon_geom;
+extern crate regex;
+extern crate svgdom;
+extern crate uom;
 
 use std::env;
 use std::fs::File;
@@ -31,9 +33,11 @@ fn main() -> io::Result<()> {
         (author: crate_authors!())
         (about: crate_description!())
         (@arg FILE: "Selects the input SVG file to use, else reading from stdin")
-        (@arg tolerance: "Sets the interpolation tolerance for curves")
-        (@arg feedrate: "Sets the machine feed rate")
-        (@arg dpi: "Sets the DPI for SVGs with units in pt, pc, etc.")
+        (@arg tolerance: --tolerance "Sets the interpolation tolerance for curves")
+        (@arg feedrate: --feedrate "Sets the machine feed rate")
+        (@arg dpi: --dpi "Sets the DPI for SVGs with units in pt, pc, etc.")
+        (@arg tool_on_action: --tool_on_action "Sets the tool on GCode sequence")
+        (@arg tool_off_action: --tool_off_action "Sets the tool off GCode sequence")
     )
     .get_matches();
 
@@ -65,24 +69,11 @@ fn main() -> io::Result<()> {
         opts.dpi = dpi;
     }
 
-    if true {
-        mach.tool_on_action = vec![
-            GCode::StartSpindle {
-                d: Direction::Clockwise,
-                s: 70.0,
-            },
-            GCode::Dwell { p: 0.1 },
-        ];
+    if let Some(tool_on_action) = matches.value_of("tool_on_action").filter(validate_gcode) {
+        mach.tool_on_action = vec![GCode::Raw(Box::new(tool_on_action.to_string()))];
     }
-    if true {
-        mach.tool_off_action = vec![
-            GCode::Dwell { p: 0.1 },
-            GCode::StartSpindle {
-                d: Direction::Clockwise,
-                s: 50.0,
-            },
-            GCode::Dwell { p: 0.1 },
-        ];
+    if let Some(tool_off_action) = matches.value_of("tool_off_action").filter(validate_gcode) {
+        mach.tool_off_action = vec![GCode::Raw(Box::new(tool_off_action.to_string()))];
     }
 
     let doc = svgdom::Document::from_str(&input).expect("Invalid or unsupported SVG file");
@@ -109,8 +100,7 @@ impl Default for ProgramOptions {
 
 fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> Program {
     let mut p = Program::default();
-    let mut t = Turtle::default();
-    t.mach = mach;
+    let mut t = Turtle::from(mach);
 
     p.push(GCode::UnitsMillimeters);
     p += t.mach.tool_off().into();
@@ -121,11 +111,13 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
             svgdom::NodeEdge::Start(node) => (node, true),
             svgdom::NodeEdge::End(node) => (node, false),
         };
+
         let id = if let svgdom::QName::Id(id) = *node.tag_name() {
             id
         } else {
             continue;
         };
+
         let attrs = node.attributes();
         if let (ElementId::Svg, true) = (id, is_start) {
             if let Some(&AttributeValue::ViewBox(vbox)) = attrs.get_value(AttributeId::ViewBox) {
@@ -148,7 +140,7 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
         }
         if let ElementId::G = id {
             if is_start {
-                p.push(GCode::Named(Box::new(node.id().to_string())));
+                p.push(GCode::Comment(Box::new(node.id().to_string())));
             }
         }
         if let Some(&AttributeValue::Transform(ref trans)) = attrs.get_value(AttributeId::Transform)
@@ -165,7 +157,7 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
             match id {
                 ElementId::Path => {
                     if let Some(&AttributeValue::Path(ref path)) = attrs.get_value(AttributeId::D) {
-                        p.push(GCode::Named(Box::new(node.id().to_string())));
+                        p.push(GCode::Comment(Box::new(node.id().to_string())));
                         t.reset();
                         for segment in path.iter() {
                             let segment_gcode = match segment {
@@ -280,14 +272,17 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
 
 fn length_to_mm(l: svgdom::Length, dpi: f64) -> f64 {
     use svgdom::LengthUnit::*;
-    let scale = match l.unit {
-        Cm => 0.1,
-        Mm => 1.0,
-        In => 25.4,
-        Pt => 25.4 / dpi,
-        Pc => 25.4 / (6.0 * (dpi / 72.0)),
-        _ => 1.0,
+    use uom::si::f64::Length;
+    use uom::si::length::*;
+
+    let length = match l.unit {
+        Cm => Length::new::<centimeter>(l.num),
+        Mm => Length::new::<millimeter>(l.num),
+        In => Length::new::<inch>(l.num),
+        Pt => Length::new::<point_printers>(l.num) * dpi / 72.0, // See https://github.com/iliekturtles/uom/blob/5cad47d4e67c902304c4c2b7feeb9c3d34fdffba/src/si/length.rs#L61
+        Pc => Length::new::<pica_printers>(l.num) * dpi / 72.0, // See https://github.com/iliekturtles/uom/blob/5cad47d4e67c902304c4c2b7feeb9c3d34fdffba/src/si/length.rs#L58
+        _ => Length::new::<millimeter>(l.num),
     };
 
-    l.num * scale
+    length.get::<millimeter>()
 }

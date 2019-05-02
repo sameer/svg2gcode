@@ -13,8 +13,22 @@ impl Default for Machine {
         Self {
             tool_state: None,
             distance_mode: None,
-            tool_on_action: vec![],
-            tool_off_action: vec![],
+            tool_on_action: vec![
+                GCode::Dwell { p: 0.1 },
+                GCode::StartSpindle {
+                    d: Direction::Clockwise,
+                    s: 70.0,
+                },
+                GCode::Dwell { p: 0.1 },
+            ],
+            tool_off_action: vec![
+                GCode::Dwell { p: 0.1 },
+                GCode::StartSpindle {
+                    d: Direction::Clockwise,
+                    s: 50.0,
+                },
+                GCode::Dwell { p: 0.1 },
+            ],
         }
     }
 }
