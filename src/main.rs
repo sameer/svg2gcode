@@ -35,7 +35,7 @@ fn main() -> io::Result<()> {
         (@arg FILE: "Selects the input SVG file to use, else reading from stdin")
         (@arg tolerance: --tolerance "Sets the interpolation tolerance for curves")
         (@arg feedrate: --feedrate "Sets the machine feed rate")
-        (@arg dpi: --dpi "Sets the DPI for SVGs with units in pt, pc, etc.")
+        (@arg dpi: --dpi "Sets the DPI for SVGs with units in pt, pc, etc. (default 72.0)")
         (@arg tool_on_action: --tool_on_action "Sets the tool on GCode sequence")
         (@arg tool_off_action: --tool_off_action "Sets the tool off GCode sequence")
     )
@@ -102,6 +102,8 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
     let mut p = Program::default();
     let mut t = Turtle::from(mach);
 
+    let mut namestack: Vec<String> = vec![];
+
     p.push(GCode::UnitsMillimeters);
     p += t.mach.tool_off().into();
     p += t.move_to(true, 0.0, 0.0).into();
@@ -140,7 +142,9 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
         }
         if let ElementId::G = id {
             if is_start {
-                p.push(GCode::Comment(Box::new(node.id().to_string())));
+                namestack.push(node.id().to_string());
+            } else {
+                namestack.pop();
             }
         }
         if let Some(&AttributeValue::Transform(ref trans)) = attrs.get_value(AttributeId::Transform)
@@ -157,7 +161,13 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
             match id {
                 ElementId::Path => {
                     if let Some(&AttributeValue::Path(ref path)) = attrs.get_value(AttributeId::D) {
-                        p.push(GCode::Comment(Box::new(node.id().to_string())));
+                        let prefix: String =
+                            namestack.iter().fold(String::new(), |mut acc, name| {
+                                acc += name;
+                                acc += "-->";
+                                acc
+                            });
+                        p.push(GCode::Comment(Box::new(prefix + &node.id())));
                         t.reset();
                         for segment in path.iter() {
                             let segment_gcode = match segment {
