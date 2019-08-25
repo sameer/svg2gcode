@@ -1,6 +1,6 @@
 use crate::code::GCode;
 use crate::machine::Machine;
-use lyon_geom::euclid::{Angle, Transform2D};
+use lyon_geom::euclid::{Angle, default::Transform2D};
 use lyon_geom::math::{point, vector, F64Point};
 use lyon_geom::{ArcFlags, CubicBezierSegment, QuadraticBezierSegment, SvgArc};
 
@@ -46,7 +46,7 @@ impl Turtle {
         Y: Into<Option<f64>>,
     {
         let invtran = self.curtran.inverse().unwrap();
-        let origcurpos = invtran.transform_point(&self.curpos);
+        let origcurpos = invtran.transform_point(self.curpos);
         let x = x
             .into()
             .map(|x| if abs { x } else { origcurpos.x + x })
@@ -57,7 +57,7 @@ impl Turtle {
             .unwrap_or(origcurpos.y);
 
         let mut to = point(x, y);
-        to = self.curtran.transform_point(&to);
+        to = self.curtran.transform_point(to);
         self.curpos = to;
         self.initpos = to;
         self.prev_ctrl = None;
@@ -83,7 +83,7 @@ impl Turtle {
         // See https://www.w3.org/TR/SVG/paths.html#Segment-CompletingClosePath which could result in a G91 G1 X0 Y0
         if (self.curpos - self.initpos)
             .abs()
-            .lower_than(&vector(std::f64::EPSILON, std::f64::EPSILON))
+            .lower_than(vector(std::f64::EPSILON, std::f64::EPSILON))
             .all()
         {
             return vec![];
@@ -112,7 +112,7 @@ impl Turtle {
         F: Into<Option<f64>>,
     {
         let invtran = self.curtran.inverse().unwrap();
-        let origcurpos = invtran.transform_point(&self.curpos);
+        let origcurpos = invtran.transform_point(self.curpos);
         let x = x
             .into()
             .map(|x| if abs { x } else { origcurpos.x + x })
@@ -123,7 +123,7 @@ impl Turtle {
             .unwrap_or(origcurpos.y);
 
         let mut to = point(x, y);
-        to = self.curtran.transform_point(&to);
+        to = self.curtran.transform_point(to);
         self.curpos = to;
         self.prev_ctrl = None;
 
@@ -199,14 +199,14 @@ impl Turtle {
         let mut to = point(x, y);
         if !abs {
             let invtran = self.curtran.inverse().unwrap();
-            let origcurpos = invtran.transform_point(&self.curpos);
+            let origcurpos = invtran.transform_point(self.curpos);
             ctrl1 += origcurpos.to_vector();
             ctrl2 += origcurpos.to_vector();
             to += origcurpos.to_vector();
         }
-        ctrl1 = self.curtran.transform_point(&ctrl1);
-        ctrl2 = self.curtran.transform_point(&ctrl2);
-        to = self.curtran.transform_point(&to);
+        ctrl1 = self.curtran.transform_point(ctrl1);
+        ctrl2 = self.curtran.transform_point(ctrl2);
+        to = self.curtran.transform_point(to);
         let cbs = lyon_geom::CubicBezierSegment {
             from,
             ctrl1,
@@ -238,12 +238,12 @@ impl Turtle {
         let mut to = point(x, y);
         if !abs {
             let invtran = self.curtran.inverse().unwrap();
-            let origcurpos = invtran.transform_point(&self.curpos);
+            let origcurpos = invtran.transform_point(self.curpos);
             ctrl2 += origcurpos.to_vector();
             to += origcurpos.to_vector();
         }
-        ctrl2 = self.curtran.transform_point(&ctrl2);
-        to = self.curtran.transform_point(&to);
+        ctrl2 = self.curtran.transform_point(ctrl2);
+        to = self.curtran.transform_point(to);
         let cbs = lyon_geom::CubicBezierSegment {
             from,
             ctrl1,
@@ -272,10 +272,10 @@ impl Turtle {
         let mut to = point(x, y);
         if !abs {
             let invtran = self.curtran.inverse().unwrap();
-            let origcurpos = invtran.transform_point(&self.curpos);
+            let origcurpos = invtran.transform_point(self.curpos);
             to += origcurpos.to_vector();
         }
-        to = self.curtran.transform_point(&to);
+        to = self.curtran.transform_point(to);
         let qbs = QuadraticBezierSegment { from, ctrl, to };
 
         self.bezier(qbs.to_cubic(), tolerance, z, f)
@@ -301,12 +301,12 @@ impl Turtle {
         let mut to = point(x, y);
         if !abs {
             let invtran = self.curtran.inverse().unwrap();
-            let origcurpos = invtran.transform_point(&self.curpos);
+            let origcurpos = invtran.transform_point(self.curpos);
             to += origcurpos.to_vector();
             ctrl += origcurpos.to_vector();
         }
-        ctrl = self.curtran.transform_point(&ctrl);
-        to = self.curtran.transform_point(&to);
+        ctrl = self.curtran.transform_point(ctrl);
+        to = self.curtran.transform_point(to);
         let qbs = QuadraticBezierSegment { from, ctrl, to };
 
         self.bezier(qbs.to_cubic(), tolerance, z, f)
@@ -334,15 +334,15 @@ impl Turtle {
         let f = f.into();
 
         let from = self.curpos;
-        let mut to = point(x, y);
-        to = self.curtran.transform_point(&to);
+        let mut to: F64Point = point(x, y);
+        to = self.curtran.transform_point(to);
         if !abs {
             to -= vector(self.curtran.m31, self.curtran.m32);
             to += self.curpos.to_vector();
         }
 
         let mut radii = vector(rx, ry);
-        radii = self.curtran.transform_vector(&radii);
+        radii = self.curtran.transform_vector(radii);
 
         let sarc = SvgArc {
             from,
@@ -378,9 +378,9 @@ impl Turtle {
     }
 
     pub fn stack_scaling(&mut self, scaling: Transform2D<f64>) {
-        self.curtran = self.curtran.post_mul(&scaling);
+        self.curtran = self.curtran.post_transform(&scaling);
         if let Some(ref current_scaling) = self.scaling {
-            self.scaling = Some(current_scaling.post_mul(&scaling));
+            self.scaling = Some(current_scaling.post_transform(&scaling));
         } else {
             self.scaling = Some(scaling);
         }
@@ -391,11 +391,11 @@ impl Turtle {
         if let Some(ref scaling) = self.scaling {
             self.curtran = self
                 .curtran
-                .post_mul(&scaling.inverse().unwrap())
-                .pre_mul(&trans)
-                .post_mul(&scaling);
+                .post_transform(&scaling.inverse().unwrap())
+                .pre_transform(&trans)
+                .post_transform(&scaling);
         } else {
-            self.curtran = self.curtran.post_mul(&trans);
+            self.curtran = self.curtran.post_transform(&trans);
         }
     }
 
@@ -408,7 +408,7 @@ impl Turtle {
 
     pub fn reset(&mut self) {
         self.curpos = point(0.0, 0.0);
-        self.curpos = self.curtran.transform_point(&self.curpos);
+        self.curpos = self.curtran.transform_point(self.curpos);
         self.prev_ctrl = None;
         self.initpos = self.curpos;
     }
