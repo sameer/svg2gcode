@@ -353,7 +353,7 @@ impl Turtle {
             },
             flags: ArcFlags {
                 large_arc: !large_arc,
-                sweep: sweep,
+                sweep,
             },
         };
         let last_point = std::cell::Cell::new(self.curpos);
