@@ -157,7 +157,16 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
                 t.pop_transform();
             }
         }
-        if node.is_graphic() && is_start {
+
+        let is_clip_path = node.ancestors().any(|ancestor| {
+            if let svgdom::QName::Id(ancestor_id) = *ancestor.tag_name() {
+                ancestor_id == ElementId::ClipPath
+            } else {
+                false
+            }
+        });
+
+        if node.is_graphic() && is_start && !is_clip_path {
             match id {
                 ElementId::Path => {
                     if let Some(&AttributeValue::Path(ref path)) = attrs.get_value(AttributeId::D) {
