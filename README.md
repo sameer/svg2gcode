@@ -1,5 +1,7 @@
 # svg2gcode
 
+[![Build Status](https://travis-ci.com/sameer/svg2gcode.svg?branch=master)](https://travis-ci.com/sameer/svg2gcode)
+
 Convert any SVG 1.1 path to gcode for a pen plotter, laser engraver, etc.
 
 ## TODO
