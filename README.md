@@ -33,7 +33,7 @@ cargo run --release -- examples/Vanderbilt_Commodores_logo.svg
 ### Output, rendered at [https://ncviewer.com]()
 
 ```bash
-cat output.gcode
+cat out.gcode
 ```
 
 ![Vanderbilt Commodores Logo Gcode](examples/Vanderbilt_Commodores_logo_gcode.png)
