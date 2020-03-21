@@ -58,7 +58,7 @@ macro_rules! write_if_some {
     };
 }
 
-/// Rudimentary regular expression GCode validator.
+// Rudimentary regular expression GCode validator.
 pub fn validate_gcode(gcode: &&str) -> bool {
     use regex::Regex;
     let re = Regex::new(r##"^(?:(?:%|\(.*\)|(?:[A-Z^E^U][+-]?\d+(?:\.\d*)?))\h*)*$"##).unwrap();
