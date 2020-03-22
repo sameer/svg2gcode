@@ -1,12 +1,14 @@
+/// TODO: Documentation
+
 use crate::code::GCode;
 use crate::machine::Machine;
 use lyon_geom::euclid::{Angle, default::Transform2D};
 use lyon_geom::math::{point, vector, F64Point};
 use lyon_geom::{ArcFlags, CubicBezierSegment, QuadraticBezierSegment, SvgArc};
 
-/// Turtle graphics simulator for paths that outputs the GCode enum representation for each operation.
-/// Handles trasforms, scaling, position offsets, etc.
-/// See https://www.w3.org/TR/SVG/paths.html
+/// Turtle graphics simulator for paths that outputs the GCode enum
+/// representation for each operation.  Handles trasforms, scaling, position
+/// offsets, etc.  See https://www.w3.org/TR/SVG/paths.html
 pub struct Turtle {
     curpos: F64Point,
     initpos: F64Point,
@@ -17,6 +19,7 @@ pub struct Turtle {
     prev_ctrl: Option<F64Point>,
 }
 
+// TODO: Documentation
 impl Default for Turtle {
     fn default() -> Self {
         Self {
@@ -31,6 +34,7 @@ impl Default for Turtle {
     }
 }
 
+// TODO: Documentation
 impl From<Machine> for Turtle {
     fn from(m: Machine) -> Self {
         let mut t = Self::default();
@@ -39,6 +43,7 @@ impl From<Machine> for Turtle {
     }
 }
 
+// TODO: Documentation
 impl Turtle {
     pub fn move_to<X, Y>(&mut self, abs: bool, x: X, y: Y) -> Vec<GCode>
     where
@@ -75,12 +80,14 @@ impl Turtle {
         .collect()
     }
 
+    // TODO: Documentation
     pub fn close<Z, F>(&mut self, z: Z, f: F) -> Vec<GCode>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
     {
-        // See https://www.w3.org/TR/SVG/paths.html#Segment-CompletingClosePath which could result in a G91 G1 X0 Y0
+        // See https://www.w3.org/TR/SVG/paths.html#Segment-CompletingClosePath
+        // which could result in a G91 G1 X0 Y0
         if (self.curpos - self.initpos)
             .abs()
             .lower_than(vector(std::f64::EPSILON, std::f64::EPSILON))
@@ -104,6 +111,7 @@ impl Turtle {
         .collect()
     }
 
+    // TODO: Documentation
     pub fn line<X, Y, Z, F>(&mut self, abs: bool, x: X, y: Y, z: Z, f: F) -> Vec<GCode>
     where
         X: Into<Option<f64>>,
@@ -176,6 +184,7 @@ impl Turtle {
             .collect()
     }
 
+    // TODO: Documentation
     pub fn cubic_bezier<Z, F>(
         &mut self,
         abs: bool,
@@ -217,6 +226,7 @@ impl Turtle {
         self.bezier(cbs, tolerance, z, f)
     }
 
+    // TODO: Documentation
     pub fn smooth_cubic_bezier<Z, F>(
         &mut self,
         abs: bool,
@@ -254,6 +264,7 @@ impl Turtle {
         self.bezier(cbs, tolerance, z, f)
     }
 
+    // TODO: Documentation
     pub fn smooth_quadratic_bezier<Z, F>(
         &mut self,
         abs: bool,
@@ -281,6 +292,7 @@ impl Turtle {
         self.bezier(qbs.to_cubic(), tolerance, z, f)
     }
 
+    // TODO: Documentation
     pub fn quadratic_bezier<Z, F>(
         &mut self,
         abs: bool,
@@ -312,6 +324,7 @@ impl Turtle {
         self.bezier(qbs.to_cubic(), tolerance, z, f)
     }
 
+    // TODO: Documentation
     pub fn elliptical<Z, F>(
         &mut self,
         abs: bool,
@@ -377,6 +390,7 @@ impl Turtle {
             .collect()
     }
 
+    // TODO: Documentation
     pub fn stack_scaling(&mut self, scaling: Transform2D<f64>) {
         self.curtran = self.curtran.post_transform(&scaling);
         if let Some(ref current_scaling) = self.scaling {
@@ -386,6 +400,7 @@ impl Turtle {
         }
     }
 
+    // TODO: Documentation
     pub fn push_transform(&mut self, trans: Transform2D<f64>) {
         self.transtack.push(self.curtran);
         if let Some(ref scaling) = self.scaling {
@@ -399,6 +414,7 @@ impl Turtle {
         }
     }
 
+    // TODO: Documentation
     pub fn pop_transform(&mut self) {
         self.curtran = self
             .transtack
@@ -406,6 +422,7 @@ impl Turtle {
             .expect("popped when no transforms left");
     }
 
+    // TODO: Documentation
     pub fn reset(&mut self) {
         self.curpos = point(0.0, 0.0);
         self.curpos = self.curtran.transform_point(self.curpos);

@@ -1,53 +1,65 @@
+/// TODO: Documentation
+
 use std::io::{self, Write};
 use std::ops::AddAssign;
 
+// TODO: Documentation
 #[derive(Clone, PartialEq, Eq)]
 pub enum Direction {
     Clockwise,
     AntiClockwise,
 }
 
+// TODO: Documentation
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Tool {
     Off,
     On,
 }
 
+// TODO: Documentation
 #[derive(Clone, PartialEq)]
 pub enum Distance {
     Absolute,
     Incremental,
 }
 
+// TODO: Documentation
 #[derive(Default, PartialEq, Clone)]
 pub struct Program(Vec<GCode>);
 
+// TODO: Documentation
 impl std::ops::Deref for Program {
     type Target = [GCode];
 
+    // TODO: Documentation
     fn deref(&self) -> &Self::Target {
         self.0.deref()
     }
 }
 
+// TODO: Documentation
 impl AddAssign for Program {
     fn add_assign(&mut self, mut other: Program) {
         self.0.extend(other.0.drain(..));
     }
 }
 
+// TODO: Documentation
 impl From<Vec<GCode>> for Program {
     fn from(v: Vec<GCode>) -> Self {
         Self(v)
     }
 }
 
+// TODO: Documentation
 impl Program {
     pub fn push(&mut self, g: GCode) {
         self.0.push(g)
     }
 }
 
+// TODO: Documentation
 macro_rules! write_if_some {
     ($w:expr, $s:expr, $v:ident) => {
         if let Some(v) = $v {
@@ -58,6 +70,7 @@ macro_rules! write_if_some {
     };
 }
 
+// TODO: Documentation
 // Rudimentary regular expression GCode validator.
 pub fn validate_gcode(gcode: &&str) -> bool {
     use regex::Regex;
@@ -65,6 +78,7 @@ pub fn validate_gcode(gcode: &&str) -> bool {
     gcode.lines().all(|line| re.is_match(line))
 }
 
+// TODO: Documentation
 #[derive(Clone, PartialEq)]
 pub enum GCode {
     RapidPositioning {
@@ -93,6 +107,8 @@ pub enum GCode {
     Raw(Box<String>),
 }
 
+// TODO: Documentation
+// TODO: This function is too large
 pub fn program2gcode<W: Write>(p: &Program, mut w: W) -> io::Result<()> {
     use GCode::*;
     let mut last_feedrate: Option<f64> = None;

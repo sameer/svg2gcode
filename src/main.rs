@@ -1,3 +1,5 @@
+/// TODO: documentation
+
 #[macro_use]
 extern crate clap;
 extern crate env_logger;
@@ -23,6 +25,7 @@ use code::*;
 use machine::*;
 use turtle::*;
 
+// TODO: Documentation
 fn main() -> io::Result<()> {
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "svg2gcode=info")
@@ -82,12 +85,14 @@ fn main() -> io::Result<()> {
     program2gcode(&prog, File::create("out.gcode")?)
 }
 
+// TODO: Documentation
 struct ProgramOptions {
     tolerance: f64,
     feedrate: f64,
     dpi: f64,
 }
 
+// Sets the baseline options for the machine.
 impl Default for ProgramOptions {
     fn default() -> Self {
         ProgramOptions {
@@ -98,6 +103,8 @@ impl Default for ProgramOptions {
     }
 }
 
+// TODO: Documentation
+// TODO: This function is much too large
 fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> Program {
     let mut p = Program::default();
     let mut t = Turtle::from(mach);
@@ -289,6 +296,7 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
     p
 }
 
+// TODO: Documentation
 fn length_to_mm(l: svgdom::Length, dpi: f64) -> f64 {
     use svgdom::LengthUnit::*;
     use uom::si::f64::Length;

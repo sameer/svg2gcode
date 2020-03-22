@@ -4,6 +4,7 @@
 
 use crate::code::*;
 
+// TODO: Documentation
 // Generic machine state simulation, assuming nothing is known about the machine when initialized.
 pub struct Machine {
     tool_state: Option<Tool>,
@@ -12,6 +13,7 @@ pub struct Machine {
     pub tool_off_action: Vec<GCode>,
 }
 
+// TODO: Documentation
 // Assigns reasonable default settings that apply to most gcode applications.
 impl Default for Machine {
     fn default() -> Self {
@@ -38,7 +40,8 @@ impl Default for Machine {
     }
 }
 
-// Implements the state machine functions
+// TODO: Documentation
+// Implements the state machine functions to export Gcode.
 impl Machine {
     // Outputs gcode to turn the tool on.
     pub fn tool_on(&mut self) -> Vec<GCode> {
