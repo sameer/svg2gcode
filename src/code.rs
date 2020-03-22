@@ -198,3 +198,18 @@ pub fn program2gcode<W: Write>(p: &Program, mut w: W) -> io::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_gcode() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_program2gcode() {
+        panic!("TODO: basic passing test");
+    }
+}

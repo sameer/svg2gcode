@@ -1,6 +1,4 @@
-/// State machine used to generate gcode for various operations.
-///
-/// TODO: more detailed examples
+/// TODO: Documentation
 
 use crate::code::*;
 
@@ -90,5 +88,35 @@ impl Machine {
         } else {
             vec![]
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tool_on() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_tool_off() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_distance() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_absolute() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_incremental() {
+        panic!("TODO: basic passing test");
     }
 }

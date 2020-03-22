@@ -313,3 +313,18 @@ fn length_to_mm(l: svgdom::Length, dpi: f64) -> f64 {
 
     length.get::<millimeter>()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_svg2program() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_length_to_mm() {
+        panic!("TODO: basic passing test");
+    }
+}

@@ -185,6 +185,7 @@ impl Turtle {
     }
 
     // TODO: Documentation
+    // TODO: Function too long
     pub fn cubic_bezier<Z, F>(
         &mut self,
         abs: bool,
@@ -428,5 +429,75 @@ impl Turtle {
         self.curpos = self.curtran.transform_point(self.curpos);
         self.prev_ctrl = None;
         self.initpos = self.curpos;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_move_to() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_close() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_line() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_bezier() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_cubic_bezier() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_smooth_cubic_bezier() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_smooth_quadratic_bezier() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_quadratic_bezier() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_elliptical() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_stack_scaling() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_push_transform() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_pop_transform() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_reset() {
+        panic!("TODO: basic passing test");
     }
 }
