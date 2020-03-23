@@ -1,6 +1,9 @@
+/// TODO: Documentation
+
 use crate::code::*;
 
-/// Generic machine state simulation, assuming nothing is known about the machine when initialized.
+// TODO: Documentation
+// Generic machine state simulation, assuming nothing is known about the machine when initialized.
 pub struct Machine {
     tool_state: Option<Tool>,
     distance_mode: Option<Distance>,
@@ -8,6 +11,8 @@ pub struct Machine {
     pub tool_off_action: Vec<GCode>,
 }
 
+// TODO: Documentation
+// Assigns reasonable default settings that apply to most gcode applications.
 impl Default for Machine {
     fn default() -> Self {
         Self {
@@ -33,7 +38,10 @@ impl Default for Machine {
     }
 }
 
+// TODO: Documentation
+// Implements the state machine functions to export Gcode.
 impl Machine {
+    // Outputs gcode to turn the tool on.
     pub fn tool_on(&mut self) -> Vec<GCode> {
         if self.tool_state == Some(Tool::Off) || self.tool_state == None {
             self.tool_state = Some(Tool::On);
@@ -43,6 +51,7 @@ impl Machine {
         }
     }
 
+    // Outputs gcode to turn the tool off.
     pub fn tool_off(&mut self) -> Vec<GCode> {
         if self.tool_state == Some(Tool::On) || self.tool_state == None {
             self.tool_state = Some(Tool::Off);
@@ -52,6 +61,7 @@ impl Machine {
         }
     }
 
+    // Outputs gcode for how distance should be measured: relative or absolute.
     pub fn distance(&mut self, is_absolute: bool) -> Vec<GCode> {
         if is_absolute {
             self.absolute()
@@ -60,6 +70,7 @@ impl Machine {
         }
     }
 
+    // Outputs gcode command to use absolute motion
     pub fn absolute(&mut self) -> Vec<GCode> {
         if self.distance_mode == Some(Distance::Incremental) || self.distance_mode == None {
             self.distance_mode = Some(Distance::Absolute);
@@ -69,6 +80,7 @@ impl Machine {
         }
     }
 
+    // Outputs gcode command to use relative motion
     pub fn incremental(&mut self) -> Vec<GCode> {
         if self.distance_mode == Some(Distance::Absolute) || self.distance_mode == None {
             self.distance_mode = Some(Distance::Incremental);
@@ -76,5 +88,35 @@ impl Machine {
         } else {
             vec![]
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tool_on() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_tool_off() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_distance() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_absolute() {
+        panic!("TODO: basic passing test");
+    }
+
+    #[test]
+    fn test_incremental() {
+        panic!("TODO: basic passing test");
     }
 }
