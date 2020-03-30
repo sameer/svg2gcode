@@ -1,77 +1,209 @@
-/// TODO: Documentation
-
 use std::io::{self, Write};
-use std::ops::AddAssign;
 
-// TODO: Documentation
-#[derive(Clone, PartialEq, Eq)]
-pub enum Direction {
-    Clockwise,
-    AntiClockwise,
+/// Fields are the basic unit of GCode.
+trait Field {
+    /// An uppercase letter
+    const LETTER: char;
+    /// A number if the field has a fixed number.
+    const NUMBER: Option<u16>;
+    /// A fraction if the field has a fixed fraction following a fixed number.
+    const FRACTION: Option<u16>;
+
+    fn from_arguments<'a>(arguments: &[Argument<'a>]) -> Self;
+    fn into_arguments<'a>(&'a self) -> Vec<Argument<'a>>;
 }
 
-// TODO: Documentation
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub enum Tool {
-    Off,
-    On,
+/// Arguments, described by a letter and a value, belong to a field.
+pub struct Argument<'a> {
+    letter: char,
+    value: &'a str,
 }
 
-// TODO: Documentation
-#[derive(Clone, PartialEq)]
-pub enum Distance {
-    Absolute,
-    Incremental,
-}
+macro_rules! field {
+    ($(#[$outer:meta])* $fieldName: ident {$letter: pat, $number: pat, $fraction: pat, {$($(#[$inner:meta])* $argument: ident : $type: ty), *} }) => {
+        $(#[$outer])*
+        struct $fieldName {
+            $(
+                $(#[$inner])*
+                $argument: Option<$type>,
+            )*
+        }
 
-// TODO: Documentation
-#[derive(Default, PartialEq, Clone)]
-pub struct Program(Vec<GCode>);
-
-// TODO: Documentation
-impl std::ops::Deref for Program {
-    type Target = [GCode];
-
-    // TODO: Documentation
-    fn deref(&self) -> &Self::Target {
-        self.0.deref()
-    }
-}
-
-// TODO: Documentation
-impl AddAssign for Program {
-    fn add_assign(&mut self, mut other: Program) {
-        self.0.extend(other.0.drain(..));
-    }
-}
-
-// TODO: Documentation
-impl From<Vec<GCode>> for Program {
-    fn from(v: Vec<GCode>) -> Self {
-        Self(v)
-    }
-}
-
-// TODO: Documentation
-impl Program {
-    pub fn push(&mut self, g: GCode) {
-        self.0.push(g)
-    }
-}
-
-// TODO: Documentation
-macro_rules! write_if_some {
-    ($w:expr, $s:expr, $v:ident) => {
-        if let Some(v) = $v {
-            write!($w, $s, v)
-        } else {
-            Ok(())
+        paste::item! {
+            impl Field for $fieldName {
+                const LETTER: char = $letter;
+                const NUMBER: Option<u16> = $number;
+                const FRACTION: Option<u16> = $fraction;
+                fn from_arguments<'a>(arguments: &[Argument<'a>]) -> Self {
+                    let mut field = Self {
+                        $($argument: None,)*
+                    };
+                    for arg in arguments.iter() {
+                        $(if arg.letter == stringify!([<$argument:upper>]).chars().next().unwrap() {
+                            field.$argument = Some(arg.value.parse().unwrap());
+                        })*
+                    }
+                    field
+                }
+                fn into_arguments<'a>(&'a self) -> Vec<Argument<'a>> {
+                    let mut args = vec![];
+                    $(
+                        if let Some(value) = self.$argument {
+                            args.push(Argument {
+                                letter: stringify!([<$argument:upper>]).chars().next().unwrap(),
+                                value: &value.to_string()
+                            });
+                        }
+                     )*
+                    args
+                }
+            }
         }
     };
 }
 
-// TODO: Documentation
-// Rudimentary regular expression GCode validator.
+field!(
+    /// Moves the head at the fastest possible speed to the desired speed.
+    /// Never enter a cut with rapid positioning.
+    /// Some older machines may "dog leg" rapid positioning, moving one axis at a time.
+    RapidPositioning {
+    'G', Some(0), None, {
+        x: f64,
+        y: f64,
+        z: f64,
+        e: f64,
+        f: f64,
+        h: f64,
+        r: f64,
+        s: f64,
+        a: f64,
+        b: f64,
+        c: f64
+    }
+});
+
+field!(
+    /// Typically used for "cutting" motion
+    LinearInterpolation {
+    'G', Some(1), None, {
+        x: f64,
+        y: f64,
+        z: f64,
+        e: f64,
+        f: f64,
+        h: f64,
+        r: f64,
+        s: f64,
+        a: f64,
+        b: f64,
+        c: f64
+    }
+});
+
+field!(
+    /// This will keep the axes unmoving for the period of time in seconds specified by the P number.
+    Dwell {
+    'G', Some(4), None, {
+        /// Time in seconds
+        p: f64
+    }
+});
+
+field!(
+    /// Use inches for length units
+    UnitsInches {
+    'G', Some(20), None, {}
+});
+
+field!(
+    /// Use millimeters for length units
+    UnitsMillimeters {
+    'G', Some(21), None, {}
+});
+
+field!(
+    /// In absolute distance mode, axis numbers usually represent positions in terms of the currently active coordinate system. 
+    AbsoluteDistanceMode {
+    'G', Some(90), None, {}
+});
+
+field!(
+    /// In incremental distance mode, axis numbers usually represent increments from the current values of the numbers.
+    IncrementalDistanceMode {
+    'G', Some(91), None, {}
+});
+
+field!(
+    /// Start spinning the spindle clockwise with speed `p`
+    StartSpindleClockwise {
+        'M', Some(3), None, {
+            /// Speed
+            p: f64
+        }
+    }
+);
+
+field!(
+    /// Start spinning the spindle counterclockwise with speed `p`
+    StartSpindleCounterclockwise {
+        'M', Some(4), None, {
+            /// Speed
+            p: f64
+        }
+    }
+);
+
+field!(
+    /// Stop spinning the spindle
+    StopSpindle {
+        'M', Some(5), None, {}
+    }
+);
+
+field!(
+    /// Signals the end of a program
+    ProgramEnd {
+        'M', Some(20), None, {}
+    }
+);
+
+/// Checksums are used by some GCode generators at the end of each line
+struct Checksum {
+    /// Checksum value
+    value: u8,
+}
+
+impl Field for Checksum {
+    const LETTER: char = '*';
+    const NUMBER: Option<u16> = None;
+    const FRACTION: Option<u16> = None;
+    fn from_arguments<'a>(arguments: &[Argument<'a>]) -> Self {
+        Self { value: 0 }
+    }
+    fn into_arguments(&self) -> Vec<Argument> {
+        vec![]
+    }
+}
+
+/// A line number is the letter N followed by an integer (with no sign) between 0 and 99999 written with no more than five digits
+struct LineNumber {
+    /// Line number
+    value: u16,
+}
+
+impl Field for LineNumber {
+    const LETTER: char = 'N';
+    const NUMBER: Option<u16> = None;
+    const FRACTION: Option<u16> = None;
+    fn from_arguments<'a>(arguments: &[Argument<'a>]) -> Self {
+        Self { value: 0 }
+    }
+    fn into_arguments(&self) -> Vec<Argument> {
+        vec![]
+    }
+}
+
+/// Rudimentary regular expression GCode validator.
 pub fn validate_gcode(gcode: &&str) -> bool {
     use regex::Regex;
     let re = Regex::new(r##"^(?:(?:%|\(.*\)|(?:[A-Z^E^U][+-]?\d+(?:\.\d*)?))\h*)*$"##).unwrap();
@@ -79,137 +211,26 @@ pub fn validate_gcode(gcode: &&str) -> bool {
 }
 
 // TODO: Documentation
-#[derive(Clone, PartialEq)]
-pub enum GCode {
-    RapidPositioning {
-        x: Option<f64>,
-        y: Option<f64>,
-    },
-    LinearInterpolation {
-        x: Option<f64>,
-        y: Option<f64>,
-        z: Option<f64>,
-        f: Option<f64>,
-    },
-    Dwell {
-        p: f64,
-    },
-    UnitsInches,
-    UnitsMillimeters,
-    ProgramEnd,
-    StartSpindle {
-        d: Direction,
-        s: f64,
-    },
-    StopSpindle,
-    DistanceMode(Distance),
-    Comment(Box<String>),
-    Raw(Box<String>),
-}
-
-// TODO: Documentation
 // TODO: This function is too large
 pub fn program2gcode<W: Write>(p: &Program, mut w: W) -> io::Result<()> {
-    use GCode::*;
+    
     let mut last_feedrate: Option<f64> = None;
-    for code in p.iter() {
-        match code {
-            RapidPositioning { x, y } => {
-                if let (None, None) = (x, y) {
-                    continue;
-                }
-                write!(w, "G0")?;
-                write_if_some!(w, " X{}", x)?;
-                write_if_some!(w, " Y{}", y)?;
-                writeln!(w)?;
-            }
-            LinearInterpolation { x, y, z, f } => {
-                if let (None, None, None, None) = (x, y, z, f) {
-                    continue;
-                }
+    let letter = '*';
+    let number = Some(0);
+    let fraction = None;
 
-                let f = match (last_feedrate, f) {
-                    (None, None) => {
-                        return Err(io::Error::new(
-                            io::ErrorKind::Other,
-                            "Linear interpolation without previously set feedrate",
-                        ))
-                    }
-                    (Some(last), Some(new)) => {
-                        if (last - *new).abs() < std::f64::EPSILON {
-                            last_feedrate = Some(*new);
-                            Some(new)
-                        } else {
-                            None
-                        }
-                    }
-                    (None, Some(new)) => {
-                        last_feedrate = Some(*new);
-                        Some(new)
-                    }
-                    (Some(_), None) => None,
-                };
-                write!(w, "G1")?;
-                write_if_some!(w, " X{}", x)?;
-                write_if_some!(w, " Y{}", y)?;
-                write_if_some!(w, " Z{}", z)?;
-                write_if_some!(w, " F{}", f)?;
-                writeln!(w)?;
-            }
-            Dwell { p } => {
-                writeln!(w, "G4 P{}", p)?;
-            }
-            UnitsInches => {
-                writeln!(w, "G20")?;
-            }
-            UnitsMillimeters => {
-                writeln!(w, "G21")?;
-            }
-            ProgramEnd => {
-                writeln!(w, "M20")?;
-            }
-            StartSpindle { d, s } => {
-                let d = match d {
-                    Direction::Clockwise => 3,
-                    Direction::AntiClockwise => 4,
-                };
-                writeln!(w, "M{} S{}", d, s)?;
-            }
-            StopSpindle => {
-                writeln!(w, "M5")?;
-            }
-            DistanceMode(mode) => {
-                writeln!(
-                    w,
-                    "G{}",
-                    match mode {
-                        Distance::Absolute => 90,
-                        Distance::Incremental => 91,
-                    }
-                )?;
-            }
-            Comment(name) => {
-                writeln!(w, "({})", name)?;
-            }
-            Raw(raw) => {
-                writeln!(w, "{}", raw)?;
-            }
-        }
+    macro_rules! match_field {
+        ($($fieldName: ident)*) => {
+                match (letter, number, fraction) {
+                    $(($fieldName::LETTER, $fieldName::NUMBER, $fieldName::FRACTION) => {
+                        Some($fieldName::from_arguments(arguments))
+                    },)*
+                    _ => {None}
+                }
+        };
+    }
+    for code in p.iter() {
+        match_field!(LineNumber);
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_validate_gcode() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_program2gcode() {
-        panic!("TODO: basic passing test");
-    }
 }

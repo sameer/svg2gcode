@@ -1,9 +1,27 @@
-/// TODO: Documentation
-
 use crate::code::*;
 
-// TODO: Documentation
-// Generic machine state simulation, assuming nothing is known about the machine when initialized.
+//// Direction of the machine spindle
+#[derive(Clone, PartialEq, Eq)]
+pub enum Direction {
+    Clockwise,
+    Counterclockwise,
+}
+
+/// Whether the tool is active (i.ee. cutting)
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum Tool {
+    Off,
+    On,
+}
+
+/// The distance mode for movement commands
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum Distance {
+    Absolute,
+    Relative,
+}
+
+/// Generic machine state simulation, assuming nothing is known about the machine when initialized.
 pub struct Machine {
     tool_state: Option<Tool>,
     distance_mode: Option<Distance>,
@@ -11,9 +29,8 @@ pub struct Machine {
     pub tool_off_action: Vec<GCode>,
 }
 
-// TODO: Documentation
-// Assigns reasonable default settings that apply to most gcode applications.
-impl Default for Machine {
+/// Assigns reasonable default settings that apply to most gcode applications.
+impl Machine {
     fn default() -> Self {
         Self {
             tool_state: None,
@@ -66,13 +83,13 @@ impl Machine {
         if is_absolute {
             self.absolute()
         } else {
-            self.incremental()
+            self.relative()
         }
     }
 
     // Outputs gcode command to use absolute motion
     pub fn absolute(&mut self) -> Vec<GCode> {
-        if self.distance_mode == Some(Distance::Incremental) || self.distance_mode == None {
+        if self.distance_mode == Some(Distance::Relative) || self.distance_mode == None {
             self.distance_mode = Some(Distance::Absolute);
             vec![GCode::DistanceMode(Distance::Absolute)]
         } else {
@@ -80,43 +97,14 @@ impl Machine {
         }
     }
 
-    // Outputs gcode command to use relative motion
-    pub fn incremental(&mut self) -> Vec<GCode> {
+    /// Set the distance mode to relative
+    pub fn relative(&mut self) -> Vec<GCode> {
         if self.distance_mode == Some(Distance::Absolute) || self.distance_mode == None {
-            self.distance_mode = Some(Distance::Incremental);
-            vec![GCode::DistanceMode(Distance::Incremental)]
+            self.distance_mode = Some(Distance::Relative);
+            vec![GCode::DistanceMode(Distance::Relative)]
         } else {
             vec![]
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_tool_on() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_tool_off() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_distance() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_absolute() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_incremental() {
-        panic!("TODO: basic passing test");
-    }
-}

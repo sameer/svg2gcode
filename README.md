@@ -46,3 +46,7 @@ cat out.gcode
 
 * What about a generic PPD driver for using a plotter as a printer? I thought about doing something like this where you package ghostscript + inkscape + svg2gcode but since plotter dimensions and capabilities vary, this is an exercise left to the reader for now.
 
+## Reference Documents
+
+* [RepRap G-code](https://reprap.org/wiki/G-code)
+* [G-Code and M-Code Reference List for Milling](https://www.cnccookbook.com/g-code-m-code-reference-list-cnc-mills/)
