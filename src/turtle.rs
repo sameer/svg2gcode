@@ -1,14 +1,12 @@
 /// TODO: Documentation
-
-use crate::code::GCode;
+use crate::code::*;
 use crate::machine::Machine;
-use lyon_geom::euclid::{Angle, default::Transform2D};
+use lyon_geom::euclid::{default::Transform2D, Angle};
 use lyon_geom::math::{point, vector, F64Point};
 use lyon_geom::{ArcFlags, CubicBezierSegment, QuadraticBezierSegment, SvgArc};
 
-/// Turtle graphics simulator for paths that outputs the GCode enum
-/// representation for each operation.  Handles trasforms, scaling, position
-/// offsets, etc.  See https://www.w3.org/TR/SVG/paths.html
+/// Turtle graphics simulator for paths that outputs the gcode representation for each operation.
+/// Handles trasforms, scaling, position, offsets, etc.  See https://www.w3.org/TR/SVG/paths.html
 pub struct Turtle {
     curpos: F64Point,
     initpos: F64Point,
@@ -19,33 +17,25 @@ pub struct Turtle {
     prev_ctrl: Option<F64Point>,
 }
 
-// TODO: Documentation
-impl Default for Turtle {
-    fn default() -> Self {
+impl Turtle {
+    /// Create a turtle at the origin with no scaling or transform
+    pub fn new(machine: Machine) -> Self {
         Self {
             curpos: point(0.0, 0.0),
             initpos: point(0.0, 0.0),
             curtran: Transform2D::identity(),
             scaling: None,
             transtack: vec![],
-            mach: Machine::default(),
+            mach: machine,
             prev_ctrl: None,
         }
     }
 }
 
-// TODO: Documentation
-impl From<Machine> for Turtle {
-    fn from(m: Machine) -> Self {
-        let mut t = Self::default();
-        t.mach = m;
-        t
-    }
-}
-
-// TODO: Documentation
 impl Turtle {
-    pub fn move_to<X, Y>(&mut self, abs: bool, x: X, y: Y) -> Vec<GCode>
+    /// Move the turtle to the given absolute/relative coordinates in the current transform
+    /// https://www.w3.org/TR/SVG/paths.html#PathDataMovetoCommands
+    pub fn move_to<X, Y>(&mut self, abs: bool, x: X, y: Y) -> Vec<Command>
     where
         X: Into<Option<f64>>,
         Y: Into<Option<f64>>,
@@ -67,21 +57,41 @@ impl Turtle {
         self.initpos = to;
         self.prev_ctrl = None;
 
-        vec![
-            self.mach.tool_off(),
-            self.mach.absolute(),
-            vec![GCode::RapidPositioning {
-                x: to.x.into(),
-                y: to.y.into(),
-            }],
-        ]
-        .drain(..)
-        .flatten()
-        .collect()
+        self.mach
+            .tool_off()
+            .iter()
+            .chain(self.mach.absolute().iter())
+            .chain(std::iter::once(&command!(CommandWord::RapidPositioning, {
+                x : to.x as f64,
+                y : to.y as f64,
+            })))
+            .map(Clone::clone)
+            .collect()
     }
 
-    // TODO: Documentation
-    pub fn close<Z, F>(&mut self, z: Z, f: F) -> Vec<GCode>
+    fn linear_interpolation(x: f64, y: f64, z: Option<f64>, f: Option<f64>) -> Command {
+        let mut linear_interpolation = command!(CommandWord::LinearInterpolation, {
+            x: x,
+            y: y,
+        });
+        if let Some(z) = z {
+            linear_interpolation.push(Word {
+                letter: 'Z',
+                value: z,
+            });
+        }
+        if let Some(f) = f {
+            linear_interpolation.push(Word {
+                letter: 'F',
+                value: f,
+            });
+        }
+        linear_interpolation
+    }
+
+    /// Close an SVG path, cutting back to its initial position
+    /// https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand
+    pub fn close<Z, F>(&mut self, z: Z, f: F) -> Vec<Command>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -96,23 +106,24 @@ impl Turtle {
             return vec![];
         }
         self.curpos = self.initpos;
-        vec![
-            self.mach.tool_on(),
-            self.mach.absolute(),
-            vec![GCode::LinearInterpolation {
-                x: self.initpos.x.into(),
-                y: self.initpos.y.into(),
-                z: z.into(),
-                f: f.into(),
-            }],
-        ]
-        .drain(..)
-        .flatten()
-        .collect()
+
+        self.mach
+            .tool_on()
+            .iter()
+            .chain(self.mach.absolute().iter())
+            .chain(std::iter::once(&Self::linear_interpolation(
+                self.initpos.x.into(),
+                self.initpos.y.into(),
+                z.into(),
+                f.into(),
+            )))
+            .map(Clone::clone)
+            .collect()
     }
 
-    // TODO: Documentation
-    pub fn line<X, Y, Z, F>(&mut self, abs: bool, x: X, y: Y, z: Z, f: F) -> Vec<GCode>
+    /// Draw a line from the current position in the current transform to the specified position
+    /// https://www.w3.org/TR/SVG/paths.html#PathDataLinetoCommands
+    pub fn line<X, Y, Z, F>(&mut self, abs: bool, x: X, y: Y, z: Z, f: F) -> Vec<Command>
     where
         X: Into<Option<f64>>,
         Y: Into<Option<f64>>,
@@ -135,41 +146,45 @@ impl Turtle {
         self.curpos = to;
         self.prev_ctrl = None;
 
-        vec![
-            self.mach.tool_on(),
-            self.mach.absolute(),
-            vec![GCode::LinearInterpolation {
-                x: to.x.into(),
-                y: to.y.into(),
-                z: z.into(),
-                f: f.into(),
-            }],
-        ]
-        .drain(..)
-        .flatten()
-        .collect()
+        self.mach
+            .tool_on()
+            .iter()
+            .chain(self.mach.absolute().iter())
+            .chain(std::iter::once(&Self::linear_interpolation(
+                to.x.into(),
+                to.y.into(),
+                z.into(),
+                f.into(),
+            )))
+            .map(Clone::clone)
+            .collect()
     }
 
+    /// Draw a cubic bezier curve segment
+    /// The public bezier functions call this command after converting to a cubic bezier segment
+    /// https://www.w3.org/TR/SVG/paths.html#PathDataCubicBezierCommands
     fn bezier<Z: Into<Option<f64>>, F: Into<Option<f64>>>(
         &mut self,
         cbs: CubicBezierSegment<f64>,
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<GCode> {
+    ) -> Vec<Command> {
         let z = z.into();
         let f = f.into();
         let last_point = std::cell::Cell::new(self.curpos);
-        let mut cubic = vec![];
-        cbs.flattened(tolerance).for_each(|point| {
-            cubic.push(GCode::LinearInterpolation {
-                x: point.x.into(),
-                y: point.y.into(),
-                z,
-                f,
-            });
-            last_point.set(point);
-        });
+        let mut cubic: Vec<Command> = cbs
+            .flattened(tolerance)
+            .map(|point| {
+                last_point.set(point);
+                Self::linear_interpolation(
+                    point.x.into(),
+                    point.y.into(),
+                    z.into(),
+                    f.into(),
+                )
+            })
+            .collect();
         self.curpos = last_point.get();
         // See https://www.w3.org/TR/SVG/paths.html#ReflectedControlPoints
         self.prev_ctrl = point(
@@ -178,14 +193,17 @@ impl Turtle {
         )
         .into();
 
-        vec![self.mach.tool_on(), self.mach.absolute(), cubic]
-            .drain(..)
-            .flatten()
+        self.mach
+            .tool_on()
+            .iter()
+            .chain(self.mach.absolute().iter())
+            .chain(cubic.iter())
+            .map(Clone::clone)
             .collect()
     }
 
-    // TODO: Documentation
-    // TODO: Function too long
+    /// Draw a cubic curve from the current point to (x, y) with specified control points (x1, y1) and (x2, y2)
+    /// https://www.w3.org/TR/SVG/paths.html#PathDataCubicBezierCommands
     pub fn cubic_bezier<Z, F>(
         &mut self,
         abs: bool,
@@ -198,7 +216,7 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<GCode>
+    ) -> Vec<Command>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -227,7 +245,8 @@ impl Turtle {
         self.bezier(cbs, tolerance, z, f)
     }
 
-    // TODO: Documentation
+    /// Draw a shorthand/smooth cubic bezier segment, where the first control point was already given
+    /// https://www.w3.org/TR/SVG/paths.html#PathDataCubicBezierCommands
     pub fn smooth_cubic_bezier<Z, F>(
         &mut self,
         abs: bool,
@@ -238,7 +257,7 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<GCode>
+    ) -> Vec<Command>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -265,7 +284,8 @@ impl Turtle {
         self.bezier(cbs, tolerance, z, f)
     }
 
-    // TODO: Documentation
+    /// Draw a shorthand/smooth cubic bezier segment, where the control point was already given
+    /// https://www.w3.org/TR/SVG/paths.html#PathDataQuadraticBezierCommands
     pub fn smooth_quadratic_bezier<Z, F>(
         &mut self,
         abs: bool,
@@ -274,7 +294,7 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<GCode>
+    ) -> Vec<Command>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -293,7 +313,8 @@ impl Turtle {
         self.bezier(qbs.to_cubic(), tolerance, z, f)
     }
 
-    // TODO: Documentation
+    /// Draw a quadratic bezier segment
+    /// https://www.w3.org/TR/SVG/paths.html#PathDataQuadraticBezierCommands
     pub fn quadratic_bezier<Z, F>(
         &mut self,
         abs: bool,
@@ -304,7 +325,7 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<GCode>
+    ) -> Vec<Command>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -325,7 +346,8 @@ impl Turtle {
         self.bezier(qbs.to_cubic(), tolerance, z, f)
     }
 
-    // TODO: Documentation
+    /// Draw an elliptical arc curve
+    /// https://www.w3.org/TR/SVG/paths.html#PathDataEllipticalArcCommands
     pub fn elliptical<Z, F>(
         &mut self,
         abs: bool,
@@ -339,7 +361,7 @@ impl Turtle {
         z: Z,
         f: F,
         tolerance: f64,
-    ) -> Vec<GCode>
+    ) -> Vec<Command>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -374,24 +396,29 @@ impl Turtle {
 
         let mut ellipse = vec![];
         sarc.for_each_flattened(tolerance, &mut |point: F64Point| {
-            ellipse.push(GCode::LinearInterpolation {
-                x: point.x.into(),
-                y: point.y.into(),
-                z,
-                f,
-            });
+            ellipse.push(Self::linear_interpolation(
+                point.x.into(),
+                point.y.into(),
+                z.into(),
+                f.into(),
+            ));
             last_point.set(point);
         });
         self.curpos = last_point.get();
         self.prev_ctrl = None;
 
-        vec![self.mach.tool_on(), self.mach.absolute(), ellipse]
-            .drain(..)
-            .flatten()
+        self.mach
+            .tool_on()
+            .iter()
+            .chain(self.mach.absolute().iter())
+            .chain(ellipse.iter())
+            .map(Clone::clone)
             .collect()
     }
 
-    // TODO: Documentation
+    /// Push a new scaling-only transform onto the stack
+    /// This is useful for handling things like the viewBox
+    /// https://www.w3.org/TR/SVG/coords.html#ViewBoxAttribute
     pub fn stack_scaling(&mut self, scaling: Transform2D<f64>) {
         self.curtran = self.curtran.post_transform(&scaling);
         if let Some(ref current_scaling) = self.scaling {
@@ -401,7 +428,9 @@ impl Turtle {
         }
     }
 
-    // TODO: Documentation
+    /// Push a generic transform onto the stack
+    /// Could be any valid CSS transform https://drafts.csswg.org/css-transforms-1/#typedef-transform-function
+    /// https://www.w3.org/TR/SVG/coords.html#InterfaceSVGTransform
     pub fn push_transform(&mut self, trans: Transform2D<f64>) {
         self.transtack.push(self.curtran);
         if let Some(ref scaling) = self.scaling {
@@ -415,7 +444,8 @@ impl Turtle {
         }
     }
 
-    // TODO: Documentation
+    /// Pop a generic transform off the stack, returning to the previous transform state
+    /// This means that most recent transform went out of scope
     pub fn pop_transform(&mut self) {
         self.curtran = self
             .transtack
@@ -423,81 +453,11 @@ impl Turtle {
             .expect("popped when no transforms left");
     }
 
-    // TODO: Documentation
+    /// Reset the position of the turtle to the origin in the current transform stack
     pub fn reset(&mut self) {
         self.curpos = point(0.0, 0.0);
         self.curpos = self.curtran.transform_point(self.curpos);
         self.prev_ctrl = None;
         self.initpos = self.curpos;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_move_to() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_close() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_line() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_bezier() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_cubic_bezier() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_smooth_cubic_bezier() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_smooth_quadratic_bezier() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_quadratic_bezier() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_elliptical() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_stack_scaling() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_push_transform() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_pop_transform() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_reset() {
-        panic!("TODO: basic passing test");
     }
 }

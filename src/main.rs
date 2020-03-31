@@ -17,6 +17,7 @@ use std::io::{self, Read};
 use lyon_geom::{euclid, math};
 use svgdom::{AttributeId, AttributeValue, ElementId, ElementType, PathSegment};
 
+#[macro_use]
 mod code;
 mod machine;
 mod turtle;
@@ -60,7 +61,7 @@ fn main() -> io::Result<()> {
     };
 
     let mut opts = ProgramOptions::default();
-    let mut mach = Machine::default();
+    let mut mach = Machine::new(CommandVec::default(), CommandVec::default());
 
     if let Some(tolerance) = matches.value_of("tolerance").and_then(|x| x.parse().ok()) {
         opts.tolerance = tolerance;
@@ -72,17 +73,17 @@ fn main() -> io::Result<()> {
         opts.dpi = dpi;
     }
 
-    if let Some(tool_on_action) = matches.value_of("tool_on_action").filter(validate_gcode) {
-        mach.tool_on_action = vec![GCode::Raw(Box::new(tool_on_action.to_string()))];
-    }
-    if let Some(tool_off_action) = matches.value_of("tool_off_action").filter(validate_gcode) {
-        mach.tool_off_action = vec![GCode::Raw(Box::new(tool_off_action.to_string()))];
-    }
+    // if let Some(tool_on_action) = matches.value_of("tool_on_action").filter(validate_gcode) {
+    //     mach.tool_on_action = vec![GCode::Raw(Box::new(tool_on_action.to_string()))];
+    // }
+    // if let Some(tool_off_action) = matches.value_of("tool_off_action").filter(validate_gcode) {
+    //     mach.tool_off_action = vec![GCode::Raw(Box::new(tool_off_action.to_string()))];
+    // }
 
     let doc = svgdom::Document::from_str(&input).expect("Invalid or unsupported SVG file");
 
     let prog = svg2program(&doc, opts, mach);
-    program2gcode(&prog, File::create("out.gcode")?)
+    program2gcode(prog, File::create("out.gcode")?)
 }
 
 // TODO: Documentation
@@ -105,15 +106,16 @@ impl Default for ProgramOptions {
 
 // TODO: Documentation
 // TODO: This function is much too large
-fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> Program {
-    let mut p = Program::default();
-    let mut t = Turtle::from(mach);
+fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> Vec<Command> {
+    let mut p = vec![];
+    let mut t = Turtle::new(mach);
 
     let mut namestack: Vec<String> = vec![];
 
-    p.push(GCode::UnitsMillimeters);
-    p += t.mach.tool_off().into();
-    p += t.move_to(true, 0.0, 0.0).into();
+    p.push(command!(CommandWord::UnitsMillimeters, {}));
+    p.append(&mut t.mach.tool_off());
+    p.append(&mut
+    t.move_to(true, 0.0, 0.0));
 
     for edge in doc.root().traverse() {
         let (node, is_start) = match edge {
@@ -149,7 +151,7 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
         }
         if let ElementId::G = id {
             if is_start {
-                namestack.push(node.id().to_string());
+                namestack.push(format!("{}#{}", node.tag_name(), node.id().to_string()));
             } else {
                 namestack.pop();
             }
@@ -180,13 +182,16 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
                         let prefix: String =
                             namestack.iter().fold(String::new(), |mut acc, name| {
                                 acc += name;
-                                acc += "-->";
+                                acc += " => ";
                                 acc
                             });
-                        p.push(GCode::Comment(Box::new(prefix + &node.id())));
+                        p.push(command!(
+                            CommandWord::Comment(Box::new(prefix + &node.id())),
+                            {}
+                        ));
                         t.reset();
                         for segment in path.iter() {
-                            let segment_gcode = match segment {
+                            p.append(&mut match segment {
                                 PathSegment::MoveTo { abs, x, y } => t.move_to(*abs, *x, *y),
                                 PathSegment::ClosePath { abs } => {
                                     // Ignore abs, should have identical effect: https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand
@@ -273,8 +278,7 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
                                     opts.feedrate,
                                     opts.tolerance,
                                 ),
-                            };
-                            p += segment_gcode.into();
+                            });
                         }
                     }
                 }
@@ -285,13 +289,13 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> P
         }
     }
 
-    p += t.mach.tool_off().into();
-    p += t.mach.absolute().into();
-    p.push(GCode::RapidPositioning {
-        x: 0.0.into(),
-        y: 0.0.into(),
-    });
-    p.push(GCode::ProgramEnd);
+    p.append(&mut t.mach.tool_off());
+    p.append(&mut t.mach.absolute());
+    p.push(command!(CommandWord::RapidPositioning, {
+        x: 0.0,
+        y: 0.0,
+    }));
+    p.push(command!(CommandWord::ProgramEnd, {}));
 
     p
 }
@@ -312,19 +316,4 @@ fn length_to_mm(l: svgdom::Length, dpi: f64) -> f64 {
     };
 
     length.get::<millimeter>()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_svg2program() {
-        panic!("TODO: basic passing test");
-    }
-
-    #[test]
-    fn test_length_to_mm() {
-        panic!("TODO: basic passing test");
-    }
 }
