@@ -77,13 +77,13 @@ impl Turtle {
         if let Some(z) = z {
             linear_interpolation.push(Word {
                 letter: 'Z',
-                value: z,
+                value: Value::Float(z),
             });
         }
         if let Some(f) = f {
             linear_interpolation.push(Word {
                 letter: 'F',
-                value: f,
+                value: Value::Float(f),
             });
         }
         linear_interpolation

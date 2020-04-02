@@ -3,7 +3,7 @@ name = "svg2gcode"
 version = "0.0.1"
 authors = ["Sameer Puri <purisame@spuri.io>"]
 edition = "2018"
-description = "Convert paths in SVG files to GCode for a pen plotter"
+description = "Convert paths in SVG files to GCode for a pen plotter or laser engraver"
 
 [dependencies]
 svgdom = "0"

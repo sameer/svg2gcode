@@ -1,5 +1,3 @@
-/// TODO: documentation
-
 #[macro_use]
 extern crate clap;
 extern crate env_logger;
@@ -26,9 +24,8 @@ use code::*;
 use machine::*;
 use turtle::*;
 
-// TODO: Documentation
 fn main() -> io::Result<()> {
-    if env::var("RUST_LOG").is_err() {
+    if let Err(_) = env::var("RUST_LOG") {
         env::set_var("RUST_LOG", "svg2gcode=info")
     }
     env_logger::init();
@@ -36,12 +33,15 @@ fn main() -> io::Result<()> {
         (version: crate_version!())
         (author: crate_authors!())
         (about: crate_description!())
-        (@arg FILE: "Selects the input SVG file to use, else reading from stdin")
-        (@arg tolerance: --tolerance "Sets the interpolation tolerance for curves")
-        (@arg feedrate: --feedrate "Sets the machine feed rate")
-        (@arg dpi: --dpi "Sets the DPI for SVGs with units in pt, pc, etc. (default 72.0)")
-        (@arg tool_on_action: --tool_on_action "Sets the tool on GCode sequence")
-        (@arg tool_off_action: --tool_off_action "Sets the tool off GCode sequence")
+        (@arg FILE: "A file path for an SVG, else reads from stdin")
+        (@arg tolerance: --tolerance +takes_value "Curve interpolation tolerance (default: 0.002mm)")
+        (@arg feedrate: --feedrate +takes_value  "Machine feed rate in mm/min (default: 300mm/min)")
+        (@arg dpi: --dpi +takes_value "Dots per inch (DPI) for pixels, points, picas, etc. (default: 96dpi)")
+        (@arg tool_on_sequence: --on +takes_value +required "Tool on GCode sequence")
+        (@arg tool_off_sequence: --off +takes_value +required "Tool off GCode sequence")
+        (@arg begin_sequence: --begin +takes_value "Optional GCode begin sequence (i.e. change to a tool)")
+        (@arg end_sequence: --end +takes_value "Optional GCode end sequence, prior to program end (i.e. change to a tool)")
+        (@arg out: --out -o +takes_value "Output file path (overwrites old files), else writes to stdout")
     )
     .get_matches();
 
@@ -54,68 +54,69 @@ fn main() -> io::Result<()> {
             input
         }
         None => {
+            info!("Reading from stdin");
             let mut input = String::new();
             io::stdin().read_to_string(&mut input)?;
             input
         }
     };
 
-    let mut opts = ProgramOptions::default();
-    let mut mach = Machine::new(CommandVec::default(), CommandVec::default());
+    let opts = ProgramOptions {
+        tolerance: matches
+            .value_of("tolerance")
+            .map(|x| x.parse().expect("could not parse tolerance"))
+            .unwrap_or(0.002),
+        feedrate: matches
+            .value_of("feedrate")
+            .map(|x| x.parse().expect("could not parse feedrate"))
+            .unwrap_or(300.0),
+        dpi: matches
+            .value_of("dpi")
+            .map(|x| x.parse().expect("could not parse DPI"))
+            .unwrap_or(96.0),
+    };
 
-    if let Some(tolerance) = matches.value_of("tolerance").and_then(|x| x.parse().ok()) {
-        opts.tolerance = tolerance;
-    }
-    if let Some(feedrate) = matches.value_of("feedrate").and_then(|x| x.parse().ok()) {
-        opts.feedrate = feedrate;
-    }
-    if let Some(dpi) = matches.value_of("dpi").and_then(|x| x.parse().ok()) {
-        opts.dpi = dpi;
-    }
-
-    // if let Some(tool_on_action) = matches.value_of("tool_on_action").filter(validate_gcode) {
-    //     mach.tool_on_action = vec![GCode::Raw(Box::new(tool_on_action.to_string()))];
-    // }
-    // if let Some(tool_off_action) = matches.value_of("tool_off_action").filter(validate_gcode) {
-    //     mach.tool_off_action = vec![GCode::Raw(Box::new(tool_off_action.to_string()))];
-    // }
+    let mach = Machine::new(
+        matches.value_of("tool_on_sequence").map(parse_gcode).unwrap_or_default(),
+        matches.value_of("tool_off_sequence").map(parse_gcode).unwrap_or_default(),
+        matches
+            .value_of("begin_sequence")
+            .map(parse_gcode)
+            .unwrap_or_default(),
+        matches.value_of("end_sequence").map(parse_gcode).unwrap_or_default(),
+    );
 
     let doc = svgdom::Document::from_str(&input).expect("Invalid or unsupported SVG file");
 
     let prog = svg2program(&doc, opts, mach);
-    program2gcode(prog, File::create("out.gcode")?)
-}
-
-// TODO: Documentation
-struct ProgramOptions {
-    tolerance: f64,
-    feedrate: f64,
-    dpi: f64,
-}
-
-// Sets the baseline options for the machine.
-impl Default for ProgramOptions {
-    fn default() -> Self {
-        ProgramOptions {
-            tolerance: 0.002, // See https://github.com/gnea/grbl/wiki/Grbl-v1.1-Configuration#12--arc-tolerance-mm
-            feedrate: 3000.0,
-            dpi: 72.0,
-        }
+    if let Some(out_path) = matches.value_of("out") {
+        program2gcode(prog, File::create(out_path)?)
+    } else {
+        program2gcode(prog, std::io::stdout())
     }
 }
 
-// TODO: Documentation
-// TODO: This function is much too large
+/// High-level output options
+struct ProgramOptions {
+    /// Curve interpolation tolerance in millimeters
+    tolerance: f64,
+    /// Feedrate in millimeters / minute
+    feedrate: f64,
+    /// Dots per inch for pixels, picas, points, etc.
+    dpi: f64,
+}
+
 fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> Vec<Command> {
-    let mut p = vec![];
     let mut t = Turtle::new(mach);
 
+    let mut p = vec![
+        command!(CommandWord::UnitsMillimeters, {}),
+        command!(CommandWord::FeedRateUnitsPerMinute, {}),
+    ];
     let mut namestack: Vec<String> = vec![];
-
-    p.push(command!(CommandWord::UnitsMillimeters, {}));
-    p.append(&mut t.mach.tool_off());
-    p.append(&mut
-    t.move_to(true, 0.0, 0.0));
+    p.append(&mut t.mach.program_begin());
+    p.append(&mut t.mach.absolute());
+    p.append(&mut t.move_to(true, 0.0, 0.0));
 
     for edge in doc.root().traverse() {
         let (node, is_start) = match edge {
@@ -193,8 +194,8 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
                         for segment in path.iter() {
                             p.append(&mut match segment {
                                 PathSegment::MoveTo { abs, x, y } => t.move_to(*abs, *x, *y),
-                                PathSegment::ClosePath { abs } => {
-                                    // Ignore abs, should have identical effect: https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand
+                                PathSegment::ClosePath { abs: _ } => {
+                                    // Ignore abs, should have identical effect: [9.3.4. The "closepath" command]("https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand)
                                     t.close(None, opts.feedrate)
                                 }
                                 PathSegment::LineTo { abs, x, y } => {
@@ -291,16 +292,17 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
 
     p.append(&mut t.mach.tool_off());
     p.append(&mut t.mach.absolute());
-    p.push(command!(CommandWord::RapidPositioning, {
-        x: 0.0,
-        y: 0.0,
-    }));
+    p.append(&mut t.move_to(true, 0.0, 0.0));
+    p.append(&mut t.mach.program_end());
     p.push(command!(CommandWord::ProgramEnd, {}));
 
     p
 }
 
-// TODO: Documentation
+/// Convenience function for converting absolute lengths to millimeters
+/// Absolute lengths are listed in [CSS 4 §6.2](https://www.w3.org/TR/css-values/#absolute-lengths)
+/// Relative lengths in [CSS 4 §6.1](https://www.w3.org/TR/css-values/#relative-lengths) are not supported and will cause a panic.
+/// A default DPI of 96 is used as per [CSS 4 §7.4](https://www.w3.org/TR/css-values/#resolution), which you can adjust with --dpi
 fn length_to_mm(l: svgdom::Length, dpi: f64) -> f64 {
     use svgdom::LengthUnit::*;
     use uom::si::f64::Length;
@@ -310,9 +312,16 @@ fn length_to_mm(l: svgdom::Length, dpi: f64) -> f64 {
         Cm => Length::new::<centimeter>(l.num),
         Mm => Length::new::<millimeter>(l.num),
         In => Length::new::<inch>(l.num),
-        Pt => Length::new::<point_printers>(l.num) * dpi / 72.0, // See https://github.com/iliekturtles/uom/blob/5cad47d4e67c902304c4c2b7feeb9c3d34fdffba/src/si/length.rs#L61
-        Pc => Length::new::<pica_printers>(l.num) * dpi / 72.0, // See https://github.com/iliekturtles/uom/blob/5cad47d4e67c902304c4c2b7feeb9c3d34fdffba/src/si/length.rs#L58
-        _ => Length::new::<millimeter>(l.num),
+        Pc => Length::new::<pica_computer>(l.num) * dpi / 96.0,
+        Pt => Length::new::<point_computer>(l.num) * dpi / 96.0,
+        Px => Length::new::<inch>(l.num * dpi / 96.0),
+        other => {
+            warn!(
+                "Converting from '{:?}' to millimeters is not supported, treating as millimeters",
+                other
+            );
+            Length::new::<millimeter>(l.num)
+        }
     };
 
     length.get::<millimeter>()

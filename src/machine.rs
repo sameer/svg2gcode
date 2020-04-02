@@ -29,23 +29,32 @@ pub struct Machine {
     distance_mode: Option<Distance>,
     tool_on_action: Vec<Command>,
     tool_off_action: Vec<Command>,
+    program_begin_sequence: Vec<Command>,
+    program_end_sequence: Vec<Command>,
 }
 
 impl Machine {
     /// Create a generic machine, given a tool on/off GCode sequence.
-    pub fn new(tool_on_action: CommandVec, tool_off_action: CommandVec) -> Self {
+    pub fn new(
+        tool_on_action: Vec<Word>,
+        tool_off_action: Vec<Word>,
+        program_begin_sequence: Vec<Word>,
+        program_end_sequence: Vec<Word>,
+    ) -> Self {
         Self {
             tool_state: None,
             distance_mode: None,
-            tool_on_action: tool_on_action.into_iter().collect(),
-            tool_off_action: tool_off_action.into_iter().collect()
+            tool_on_action: CommandVecIntoIterator::from(tool_on_action).collect(),
+            tool_off_action: CommandVecIntoIterator::from(tool_off_action).collect(),
+            program_begin_sequence: CommandVecIntoIterator::from(program_begin_sequence).collect(),
+            program_end_sequence: CommandVecIntoIterator::from(program_end_sequence).collect(),
         }
     }
 }
 
 impl Machine {
     /// Output gcode to turn the tool on.
-    pub fn tool_on(& mut self) -> Vec<Command> {
+    pub fn tool_on(&mut self) -> Vec<Command> {
         if self.tool_state == Some(Tool::Off) || self.tool_state == None {
             self.tool_state = Some(Tool::On);
             self.tool_on_action.clone()
@@ -63,6 +72,10 @@ impl Machine {
             vec![]
         }
     }
+
+    pub fn program_begin(&self) -> Vec<Command> { self.program_begin_sequence.clone() }
+    pub fn program_end(&self) -> Vec<Command> { self.program_end_sequence.clone() }
+
     /// Output relative distance field if mode was absolute or unknown.
     pub fn absolute(&mut self) -> Vec<Command> {
         if self.distance_mode == Some(Distance::Relative) || self.distance_mode == None {
@@ -83,4 +96,3 @@ impl Machine {
         }
     }
 }
-

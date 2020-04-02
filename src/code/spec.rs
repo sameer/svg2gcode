@@ -1,69 +1,48 @@
-use core::convert::TryFrom;
-use std::io::{self, Write};
-
-/// Collapses GCode words into higher-level commands
-/// Relies on the first word being a command.
-pub struct CommandVec {
-    pub inner: Vec<Word>,
-}
-
-impl Default for CommandVec {
-    fn default() -> Self {
-        Self {
-            inner: vec![]
-        }
-    }
-}
-
-impl IntoIterator for CommandVec {
-    type Item = Command;
-    type IntoIter = CommandVecIntoIterator;
-    fn into_iter(self) -> Self::IntoIter {
-        CommandVecIntoIterator {
-            vec: self,
-            index: 0,
-        }
-    }
-}
-
-pub struct CommandVecIntoIterator {
-    vec: CommandVec,
-    index: usize,
-}
-
-impl Iterator for CommandVecIntoIterator {
-    type Item = Command;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.vec.inner.len() == self.index {
-            return None;
-        }
-        
-        let mut i = self.index + 1;
-        while i < self.vec.inner.len() {
-            if CommandWord::is_command(&self.vec.inner[i]) {
-                break;
-            }
-            i += 1;
-        }
-        Command::try_from(&self.vec.inner[self.index..i]).ok()
-    }
-}
+use std::convert::TryFrom;
 
 /// Fundamental unit of GCode: a value preceded by a descriptive letter.
-/// A float is used here to encompass all the possible variations of a value.
-/// Some flavors of GCode may allow strings, but that is currently not supported.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Word {
     pub letter: char,
-    pub value: f64,
+    pub value: Value,
 }
 
+/// All the possible variations of a word's value.
+/// Fractional is needed to support commands like G91.1 which would be changed by float arithmetic.
+/// Some flavors of GCode also allow for strings.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Value {
+    Fractional(u32, Option<u32>),
+    Float(f64),
+    String(Box<String>)
+}
+
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Fractional(number, Some(fraction)) => {
+                write!(f, "{}.{}", number, fraction)
+            },
+            Self::Fractional(number, None) => {
+                write!(f, "{}", number)
+            },
+            Self::Float(float) => {
+                write!(f, "{}", float)
+            },
+            Self::String(string) => {
+                write!(f, "\"{}\"", string)
+            }
+        }
+    }
+}
+
+/// A macro for quickly instantiating a float-valued command
 #[macro_export]
 macro_rules! command {
     ($commandWord: expr, {$($argument: ident : $value: expr,)*}) => {
         paste::expr! (Command::new($commandWord, vec![$(Word {
             letter: stringify!([<$argument:upper>]).chars().next().unwrap(),
-            value: $value as f64,
+            value: Value::Float($value),
         },)*]))
     };
 }
@@ -124,6 +103,9 @@ macro_rules! commands {
             impl TryFrom<&[Word]> for Command {
                 type Error = ();
                 fn try_from(words: &[Word]) -> Result<Self, ()> {
+                    if words.len() == 0 {
+                        return Err(());
+                    }
                     let command_word = CommandWord::try_from(&words[0])?;
                     let mut arguments = Vec::with_capacity(words.len() - 1);
                     for i in 1..words.len() {
@@ -162,13 +144,9 @@ macro_rules! commands {
         paste::item! {
             impl CommandWord {
                 pub fn is_command(word: &Word) -> bool {
-                    let number = word.value as u16;
-                    let fraction_numeric =
-                        f64::from_bits(word.value.fract().to_bits() & 0x00_00_FF_FF_FF_FF_FF_FF) as u16;
-                    let fraction = if fraction_numeric == 0 {
-                        None
-                    } else {
-                        Some(fraction_numeric)
+                    let (number, fraction) = match &word.value {
+                        Value::Fractional(number, fraction) => (number, fraction),
+                        _other => return false
                     };
                     match (word.letter, number, fraction) {
                         $(($letter, $number, $fraction) => true,)*
@@ -183,18 +161,14 @@ macro_rules! commands {
             impl TryFrom<&Word> for CommandWord {
                 type Error = ();
                 fn try_from(word: &Word) -> Result<Self, ()> {
-                    let number = word.value as u16;
-                    let fraction_numeric =
-                        f64::from_bits(word.value.fract().to_bits() & 0x00_00_FF_FF_FF_FF_FF_FF) as u16;
-                    let fraction = if fraction_numeric == 0 {
-                        None
-                    } else {
-                        Some(fraction_numeric)
+                    let (number, fraction) = match &word.value {
+                        Value::Fractional(number, fraction) => (number, fraction),
+                        _other => return Err(())
                     };
                     match (word.letter, number, fraction) {
                         $(($letter, $number, $fraction) => Ok(Self::$commandName),)*
-                        ('*', checksum, None) => Ok(Self::Checksum(checksum as u8)),
-                        ('N', line_number, None) => Ok(Self::LineNumber(line_number)),
+                        ('*', checksum, None) => Ok(Self::Checksum(*checksum as u8)),
+                        ('N', line_number, None) => Ok(Self::LineNumber(*line_number as u16)),
                         (_, _, _) => Err(())
                     }
                 }
@@ -208,20 +182,20 @@ macro_rules! commands {
                             Self::$commandName {} => Word {
                                 letter: $letter,
                                 // TODO: fix fraction
-                                value: $number as f64 + ($fraction.unwrap_or(0) as f64)
+                                value: Value::Fractional($number, $fraction)
                             },
                         )*
                         Self::Checksum(value) => Word {
                             letter: '*',
-                            value: value as f64
+                            value: Value::Fractional(value as u32, None)
                         },
                         Self::LineNumber(value) => Word {
                             letter: 'N',
-                            value: value as f64
+                            value: Value::Fractional(value as u32, None)
                         },
-                        Self::Comment(_string) => Word {
+                        Self::Comment(string) => Word {
                             letter: ';',
-                            value: 0.0
+                            value: Value::String(string)
                         }
                     }
                 }
@@ -288,6 +262,9 @@ commands!(
     RelativeDistanceMode {
         'G', 91, None, {}
     },
+    FeedRateUnitsPerMinute {
+        'G', 94, None, {}
+    },
     /// Start spinning the spindle clockwise with speed `p`
     StartSpindleClockwise {
         'M', 3, None, {
@@ -311,33 +288,3 @@ commands!(
         'M', 20, None, {}
     },
 );
-
-/// Rudimentary regular expression GCode validator
-pub fn validate_gcode(gcode: &&str) -> bool {
-    use regex::Regex;
-    let re = Regex::new(r##"^(?:(?:%|\(.*\)|(?:[A-Z^E^U][+-]?\d+(?:\.\d*)?))\h*)*$"##).unwrap();
-    gcode.lines().all(|line| re.is_match(line))
-}
-
-/// Writes a GCode program (or sequence) to a Writer
-pub fn program2gcode<W: Write>(program: Vec<Command>, mut w: W) -> io::Result<()> {
-    for command in program.into_iter() {
-        match &command.command_word {
-            CommandWord::Comment(string) => {
-                writeln!(w, ";{}", string)?;
-            },
-            _other => {
-                let words: Vec<Word> = command.into();
-                let mut it = words.iter();
-                if let Some(command_word) = it.next() {
-                    write!(w, "{}{}", command_word.letter, command_word.value)?;
-                    for word in it {
-                        write!(w, " {}{} ", word.letter, word.value)?;
-                    }
-                    writeln!(w, "")?;
-                }
-            }
-        }
-    }
-    Ok(())
-}

@@ -25,7 +25,7 @@ Convert any SVG 1.1 path to gcode for a pen plotter, laser engraver, etc.
 ### Input
 
 ```bash
-cargo run --release -- examples/Vanderbilt_Commodores_logo.svg
+cargo run -- examples/Vanderbilt_Commodores_logo.svg --off 'M4' --on 'M5' -o out.gcode
 ```
 
 ![Vanderbilt Commodores Logo](examples/Vanderbilt_Commodores_logo.svg)
