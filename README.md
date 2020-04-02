@@ -11,10 +11,14 @@ Convert any SVG 1.1 path to gcode for a pen plotter, laser engraver, etc.
 - [x] Px, pc, in to mm
 - [x] Configurable DPI for px/pc to mm
 - [ ] Sort paths by distance to reduce G0 distances
-- [ ] Configurable start/end sequence
+- [x] Configurable start/end sequence
+- [ ] Comments in GCode input
+- [ ] Rustdocs
+- [ ] End-to-end tests
 
 ## Known bugs & whether fixed
 - [ ] Smooth curves should not use the control point when the previous curve is not of the same type (quadratic -> smooth cubic, cubic -> smooth quadratic)
+    - This is just a nit, it shouldn't matter if the SVG is correct
 - [x] Image coordinates mirrored in the y-axis because SVGs uses upper left corner as (0,0) while GCode uses lower left as (0,0)
 - [x] Close path command connects back to (0.0, 0.0) instead of the last move
 - [ ] Ellipse paths are dubious -- large_arc, sweep may need to be inverted
@@ -25,7 +29,7 @@ Convert any SVG 1.1 path to gcode for a pen plotter, laser engraver, etc.
 ### Input
 
 ```bash
-cargo run -- examples/Vanderbilt_Commodores_logo.svg --off 'M4' --on 'M5' -o out.gcode
+cargo run -- --release examples/Vanderbilt_Commodores_logo.svg --off 'M4' --on 'M5' -o out.gcode
 ```
 
 ![Vanderbilt Commodores Logo](examples/Vanderbilt_Commodores_logo.svg)
@@ -44,7 +48,7 @@ cat out.gcode
 
 * Are shapes, fill patterns supported? All objects can be converted to paths in Inkscape with `Object to Path` for use with this program. Not sure how practical fill patterns would be -- if you have ideas, feel free to open as issue or a PR.
 
-* What about a generic PPD driver for using a plotter as a printer? I thought about doing something like this where you package ghostscript + inkscape + svg2gcode but since plotter dimensions and capabilities vary, this is an exercise left to the reader for now.
+* What about a generic PPD driver for using a plotter as a printer? I thought about doing something like this where you package ghostscript + inkscape + svg2gcode but that would take a lot of time
 
 ## Reference Documents
 
