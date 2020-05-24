@@ -48,7 +48,7 @@ macro_rules! command {
 }
 
 macro_rules! commands {
-    ($($(#[$outer:meta])* $commandName: ident {$letter: pat, $number: pat, $fraction: pat, {$($(#[$inner:meta])* $argument: ident), *} },)*) => {
+    ($($(#[$outer:meta])* $commandName: ident {$letter: expr, $number: expr, $fraction: path, {$($(#[$inner:meta])* $argument: ident), *} },)*) => {
 
         /// Commands are the operational unit of GCode
         /// They consist of an identifying word followed by arguments
@@ -58,72 +58,66 @@ macro_rules! commands {
             arguments: Vec<Word>
         }
 
-        paste::item! {
-            impl Command {
-                pub fn new(command_word: CommandWord, mut arguments: Vec<Word>) -> Self {
-                    Self {
-                        command_word: command_word.clone(),
-                        arguments: arguments.drain(..).filter(|w| {
-                            match command_word {
-                                $(CommandWord::$commandName => match w.letter.to_lowercase() {
-                                    $($argument => true,)*
-                                    _ => false
-                                },)*
+        impl Command {
+            pub fn new(command_word: CommandWord, mut arguments: Vec<Word>) -> Self {
+                Self {
+                    command_word: command_word.clone(),
+                    arguments: arguments.drain(..).filter(|w| {
+                        match command_word {
+                            $(CommandWord::$commandName => match w.letter.to_lowercase() {
+                                $($argument => true,)*
                                 _ => false
-                            }
-                        }).collect()
-                    }
+                            },)*
+                            _ => false
+                        }
+                    }).collect()
                 }
+            }
 
-                pub fn push(&mut self, argument: Word) {
-                    match self.command_word {
-                        $(CommandWord::$commandName => match argument.letter.to_lowercase() {
+            pub fn push(&mut self, argument: Word) {
+                match self.command_word {
+                    $(CommandWord::$commandName => match argument.letter.to_lowercase() {
+                        $($argument => {
+                            self.arguments.push(argument);
+                        })*
+                        _ => {}
+                    },)*
+                    _ => {}
+                }
+            }
+        }
+
+        impl Into<Vec<Word>> for Command {
+            fn into(self) -> Vec<Word> {
+                let mut args = self.arguments;
+                args.insert(0, self.command_word.into());
+                args
+            }
+        }
+
+        impl TryFrom<&[Word]> for Command {
+            type Error = ();
+            fn try_from(words: &[Word]) -> Result<Self, ()> {
+                if words.len() == 0 {
+                    return Err(());
+                }
+                let command_word = CommandWord::try_from(&words[0])?;
+                let mut arguments = Vec::with_capacity(words.len() - 1);
+                for i in 1..words.len() {
+                    match command_word {
+                        $(CommandWord::$commandName => match words[i].letter.to_lowercase() {
                             $($argument => {
-                                self.arguments.push(argument);
+                                arguments.push(words[i].clone());
                             })*
                             _ => {}
                         },)*
                         _ => {}
                     }
                 }
-            }
-        }
-
-        paste::item! {
-            impl Into<Vec<Word>> for Command {
-                fn into(self) -> Vec<Word> {
-                    let mut args = self.arguments;
-                    args.insert(0, self.command_word.into());
-                    args
-                }
-            }
-        }
-
-        paste::item! {
-            impl TryFrom<&[Word]> for Command {
-                type Error = ();
-                fn try_from(words: &[Word]) -> Result<Self, ()> {
-                    if words.len() == 0 {
-                        return Err(());
-                    }
-                    let command_word = CommandWord::try_from(&words[0])?;
-                    let mut arguments = Vec::with_capacity(words.len() - 1);
-                    for i in 1..words.len() {
-                        match command_word {
-                            $(CommandWord::$commandName => match words[i].letter.to_lowercase() {
-                                $($argument => {
-                                    arguments.push(words[i].clone());
-                                })*
-                                _ => {}
-                            },)*
-                            _ => {}
-                        }
-                    }
-                    Ok(Self {
-                        command_word,
-                        arguments
-                    })
-                }
+                Ok(Self {
+                    command_word,
+                    arguments
+                })
             }
         }
 
@@ -141,62 +135,58 @@ macro_rules! commands {
             Checksum(u8),
         }
 
-        paste::item! {
-            impl CommandWord {
-                pub fn is_command(word: &Word) -> bool {
-                    let (number, fraction) = match &word.value {
-                        Value::Fractional(number, fraction) => (number, fraction),
-                        _other => return false
-                    };
-                    match (word.letter, number, fraction) {
-                        $(($letter, $number, $fraction) => true,)*
-                        ('*', _checksum, None) => true,
-                        ('N', _line_number, None) => true,
-                        (_, _, _) => false
-                    }
+        impl CommandWord {
+            pub fn is_command(word: &Word) -> bool {
+                let (number, fraction) = match &word.value {
+                    Value::Fractional(number, fraction) => (number, fraction),
+                    _other => return false
+                };
+                match (word.letter, number, fraction) {
+                    $(($letter, $number, $fraction) => true,)*
+                    ('*', _checksum, None) => true,
+                    ('N', _line_number, None) => true,
+                    (_, _, _) => false
                 }
             }
         }
-        paste::item! {
-            impl TryFrom<&Word> for CommandWord {
-                type Error = ();
-                fn try_from(word: &Word) -> Result<Self, ()> {
-                    let (number, fraction) = match &word.value {
-                        Value::Fractional(number, fraction) => (number, fraction),
-                        _other => return Err(())
-                    };
-                    match (word.letter, number, fraction) {
-                        $(($letter, $number, $fraction) => Ok(Self::$commandName),)*
-                        ('*', checksum, None) => Ok(Self::Checksum(*checksum as u8)),
-                        ('N', line_number, None) => Ok(Self::LineNumber(*line_number as u16)),
-                        (_, _, _) => Err(())
-                    }
+
+        impl TryFrom<&Word> for CommandWord {
+            type Error = ();
+            fn try_from(word: &Word) -> Result<Self, ()> {
+                let (number, fraction) = match &word.value {
+                    Value::Fractional(number, fraction) => (number, fraction),
+                    _other => return Err(())
+                };
+                match (word.letter, number, fraction) {
+                    $(($letter, $number, $fraction) => Ok(Self::$commandName),)*
+                    ('*', checksum, None) => Ok(Self::Checksum(*checksum as u8)),
+                    ('N', line_number, None) => Ok(Self::LineNumber(*line_number as u16)),
+                    (_, _, _) => Err(())
                 }
             }
         }
-        paste::item!{
-            impl Into<Word> for CommandWord {
-                fn into(self) -> Word {
-                    match self {
-                        $(
-                            Self::$commandName {} => Word {
-                                letter: $letter,
-                                // TODO: fix fraction
-                                value: Value::Fractional($number, $fraction)
-                            },
-                        )*
-                        Self::Checksum(value) => Word {
-                            letter: '*',
-                            value: Value::Fractional(value as u32, None)
+
+        impl Into<Word> for CommandWord {
+            fn into(self) -> Word {
+                match self {
+                    $(
+                        Self::$commandName {} => Word {
+                            letter: $letter,
+                            // TODO: fix fraction
+                            value: Value::Fractional($number, $fraction)
                         },
-                        Self::LineNumber(value) => Word {
-                            letter: 'N',
-                            value: Value::Fractional(value as u32, None)
-                        },
-                        Self::Comment(string) => Word {
-                            letter: ';',
-                            value: Value::String(string)
-                        }
+                    )*
+                    Self::Checksum(value) => Word {
+                        letter: '*',
+                        value: Value::Fractional(value as u32, None)
+                    },
+                    Self::LineNumber(value) => Word {
+                        letter: 'N',
+                        value: Value::Fractional(value as u32, None)
+                    },
+                    Self::Comment(string) => Word {
+                        letter: ';',
+                        value: Value::String(string)
                     }
                 }
             }
