@@ -13,7 +13,7 @@ pub struct Turtle {
     curtran: Transform2D<f64>,
     scaling: Option<Transform2D<f64>>,
     transtack: Vec<Transform2D<f64>>,
-    pub mach: Machine,
+    pub machine: Machine,
     prev_ctrl: Option<F64Point>,
 }
 
@@ -26,7 +26,7 @@ impl Turtle {
             curtran: Transform2D::identity(),
             scaling: None,
             transtack: vec![],
-            mach: machine,
+            machine,
             prev_ctrl: None,
         }
     }
@@ -57,10 +57,10 @@ impl Turtle {
         self.initpos = to;
         self.prev_ctrl = None;
 
-        self.mach
+        self.machine
             .tool_off()
             .iter()
-            .chain(self.mach.absolute().iter())
+            .chain(self.machine.absolute().iter())
             .chain(std::iter::once(&command!(CommandWord::RapidPositioning, {
                 x : to.x as f64,
                 y : to.y as f64,
@@ -107,10 +107,10 @@ impl Turtle {
         }
         self.curpos = self.initpos;
 
-        self.mach
+        self.machine
             .tool_on()
             .iter()
-            .chain(self.mach.absolute().iter())
+            .chain(self.machine.absolute().iter())
             .chain(std::iter::once(&Self::linear_interpolation(
                 self.initpos.x.into(),
                 self.initpos.y.into(),
@@ -146,10 +146,10 @@ impl Turtle {
         self.curpos = to;
         self.prev_ctrl = None;
 
-        self.mach
+        self.machine
             .tool_on()
             .iter()
-            .chain(self.mach.absolute().iter())
+            .chain(self.machine.absolute().iter())
             .chain(std::iter::once(&Self::linear_interpolation(
                 to.x.into(),
                 to.y.into(),
@@ -193,10 +193,10 @@ impl Turtle {
         )
         .into();
 
-        self.mach
+        self.machine
             .tool_on()
             .iter()
-            .chain(self.mach.absolute().iter())
+            .chain(self.machine.absolute().iter())
             .chain(cubic.iter())
             .map(Clone::clone)
             .collect()
@@ -407,10 +407,10 @@ impl Turtle {
         self.curpos = last_point.get();
         self.prev_ctrl = None;
 
-        self.mach
+        self.machine
             .tool_on()
             .iter()
-            .chain(self.mach.absolute().iter())
+            .chain(self.machine.absolute().iter())
             .chain(ellipse.iter())
             .map(Clone::clone)
             .collect()

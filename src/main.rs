@@ -62,7 +62,7 @@ fn main() -> io::Result<()> {
         }
     };
 
-    let opts = ProgramOptions {
+    let options = ProgramOptions {
         tolerance: matches
             .value_of("tolerance")
             .map(|x| x.parse().expect("could not parse tolerance"))
@@ -83,9 +83,8 @@ fn main() -> io::Result<()> {
             .map(|coords| (coords[0], coords[1]))
             .unwrap_or((0.,0.))
     };
-    println!("{:?}", opts);
 
-    let mach = Machine::new(
+    let machine = Machine::new(
         matches.value_of("tool_on_sequence").map(parse_gcode).unwrap_or_default(),
         matches.value_of("tool_off_sequence").map(parse_gcode).unwrap_or_default(),
         matches
@@ -95,13 +94,13 @@ fn main() -> io::Result<()> {
         matches.value_of("end_sequence").map(parse_gcode).unwrap_or_default(),
     );
 
-    let doc = svgdom::Document::from_str(&input).expect("Invalid or unsupported SVG file");
+    let document = svgdom::Document::from_str(&input).expect("Invalid or unsupported SVG file");
 
-    let prog = svg2program(&doc, opts, mach);
+    let program = svg2program(&document, options, machine);
     if let Some(out_path) = matches.value_of("out") {
-        program2gcode(prog, File::create(out_path)?)
+        program2gcode(program, File::create(out_path)?)
     } else {
-        program2gcode(prog, std::io::stdout())
+        program2gcode(program, std::io::stdout())
     }
 }
 
@@ -118,16 +117,17 @@ struct ProgramOptions {
 }
 
 fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> Vec<Command> {
-    let mut t = Turtle::new(mach);
+    let mut turtle = Turtle::new(mach);
 
-    let mut p = vec![
+    let mut program = vec![
         command!(CommandWord::UnitsMillimeters, {}),
         command!(CommandWord::FeedRateUnitsPerMinute, {}),
     ];
-    let mut namestack: Vec<String> = vec![];
-    p.append(&mut t.mach.program_begin());
-    p.append(&mut t.mach.absolute());
-    p.append(&mut t.move_to(true, 0.0, 0.0));
+    program.append(&mut turtle.machine.program_begin());
+    program.append(&mut turtle.machine.absolute());
+    program.append(&mut turtle.move_to(true, 0.0, 0.0));
+
+    let mut name_stack: Vec<String> = vec![];
 
     for edge in doc.root().traverse() {
         let (node, is_start) = match edge {
@@ -141,41 +141,42 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
             continue;
         };
 
-        let attrs = node.attributes();
+        let attributes = node.attributes();
         if let (ElementId::Svg, true) = (id, is_start) {
-            if let Some(&AttributeValue::ViewBox(vbox)) = attrs.get_value(AttributeId::ViewBox) {
-                t.stack_scaling(
-                    euclid::Transform2D::create_scale(1. / vbox.w, 1. / vbox.h)
-                        .post_translate(math::vector(vbox.x, vbox.y)),
+            if let Some(&AttributeValue::ViewBox(view_box)) = attributes.get_value(AttributeId::ViewBox) {
+                turtle.stack_scaling(
+                    euclid::Transform2D::create_scale(1. / view_box.w, 1. / view_box.h)
+                        .post_translate(math::vector(view_box.x, view_box.y)),
                 );
             }
             if let (Some(&AttributeValue::Length(width)), Some(&AttributeValue::Length(height))) = (
-                attrs.get_value(AttributeId::Width),
-                attrs.get_value(AttributeId::Height),
+                attributes.get_value(AttributeId::Width),
+                attributes.get_value(AttributeId::Height),
             ) {
                 let width_in_mm = length_to_mm(width, opts.dpi);
                 let height_in_mm = length_to_mm(height, opts.dpi);
-                t.stack_scaling(
+                turtle.stack_scaling(
                     euclid::Transform2D::create_scale(width_in_mm, -height_in_mm)
                         .post_translate(math::vector(0.0, height_in_mm)),
                 );
             }
         }
+        // Display named elements in GCode comments
         if let ElementId::G = id {
             if is_start {
-                namestack.push(format!("{}#{}", node.tag_name(), node.id().to_string()));
+                name_stack.push(format!("{}#{}", node.tag_name(), node.id().to_string()));
             } else {
-                namestack.pop();
+                name_stack.pop();
             }
         }
-        if let Some(&AttributeValue::Transform(ref trans)) = attrs.get_value(AttributeId::Transform)
+        if let Some(&AttributeValue::Transform(ref transform)) = attributes.get_value(AttributeId::Transform)
         {
             if is_start {
-                t.push_transform(lyon_geom::euclid::Transform2D::row_major(
-                    trans.a, trans.b, trans.c, trans.d, trans.e, trans.f,
+                turtle.push_transform(lyon_geom::euclid::Transform2D::row_major(
+                    transform.a, transform.b, transform.c, transform.d, transform.e, transform.f,
                 ));
             } else {
-                t.pop_transform();
+                turtle.pop_transform();
             }
         }
 
@@ -190,33 +191,33 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
         if node.is_graphic() && is_start && !is_clip_path {
             match id {
                 ElementId::Path => {
-                    if let Some(&AttributeValue::Path(ref path)) = attrs.get_value(AttributeId::D) {
+                    if let Some(&AttributeValue::Path(ref path)) = attributes.get_value(AttributeId::D) {
                         let prefix: String =
-                            namestack.iter().fold(String::new(), |mut acc, name| {
+                            name_stack.iter().fold(String::new(), |mut acc, name| {
                                 acc += name;
                                 acc += " => ";
                                 acc
                             });
-                        p.push(command!(
+                        program.push(command!(
                             CommandWord::Comment(Box::new(prefix + &node.id())),
                             {}
                         ));
-                        t.reset();
+                        turtle.reset();
                         for segment in path.iter() {
-                            p.append(&mut match segment {
-                                PathSegment::MoveTo { abs, x, y } => t.move_to(*abs, *x, *y),
+                            program.append(&mut match segment {
+                                PathSegment::MoveTo { abs, x, y } => turtle.move_to(*abs, *x, *y),
                                 PathSegment::ClosePath { abs: _ } => {
                                     // Ignore abs, should have identical effect: [9.3.4. The "closepath" command]("https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand)
-                                    t.close(None, opts.feedrate)
+                                    turtle.close(None, opts.feedrate)
                                 }
                                 PathSegment::LineTo { abs, x, y } => {
-                                    t.line(*abs, *x, *y, None, opts.feedrate)
+                                    turtle.line(*abs, *x, *y, None, opts.feedrate)
                                 }
                                 PathSegment::HorizontalLineTo { abs, x } => {
-                                    t.line(*abs, *x, None, None, opts.feedrate)
+                                    turtle.line(*abs, *x, None, None, opts.feedrate)
                                 }
                                 PathSegment::VerticalLineTo { abs, y } => {
-                                    t.line(*abs, None, *y, None, opts.feedrate)
+                                    turtle.line(*abs, None, *y, None, opts.feedrate)
                                 }
                                 PathSegment::CurveTo {
                                     abs,
@@ -226,7 +227,7 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
                                     y2,
                                     x,
                                     y,
-                                } => t.cubic_bezier(
+                                } => turtle.cubic_bezier(
                                     *abs,
                                     *x1,
                                     *y1,
@@ -238,7 +239,7 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
                                     None,
                                     opts.feedrate,
                                 ),
-                                PathSegment::SmoothCurveTo { abs, x2, y2, x, y } => t
+                                PathSegment::SmoothCurveTo { abs, x2, y2, x, y } => turtle
                                     .smooth_cubic_bezier(
                                         *abs,
                                         *x2,
@@ -249,7 +250,7 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
                                         None,
                                         opts.feedrate,
                                     ),
-                                PathSegment::Quadratic { abs, x1, y1, x, y } => t.quadratic_bezier(
+                                PathSegment::Quadratic { abs, x1, y1, x, y } => turtle.quadratic_bezier(
                                     *abs,
                                     *x1,
                                     *y1,
@@ -259,7 +260,7 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
                                     None,
                                     opts.feedrate,
                                 ),
-                                PathSegment::SmoothQuadratic { abs, x, y } => t
+                                PathSegment::SmoothQuadratic { abs, x, y } => turtle
                                     .smooth_quadratic_bezier(
                                         *abs,
                                         *x,
@@ -277,7 +278,7 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
                                     sweep,
                                     x,
                                     y,
-                                } => t.elliptical(
+                                } => turtle.elliptical(
                                     *abs,
                                     *rx,
                                     *ry,
@@ -301,13 +302,13 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
         }
     }
 
-    p.append(&mut t.mach.tool_off());
-    p.append(&mut t.mach.absolute());
-    p.append(&mut t.move_to(true, 0.0, 0.0));
-    p.append(&mut t.mach.program_end());
-    p.push(command!(CommandWord::ProgramEnd, {}));
+    program.append(&mut turtle.machine.tool_off());
+    program.append(&mut turtle.machine.absolute());
+    program.append(&mut turtle.move_to(true, 0.0, 0.0));
+    program.append(&mut turtle.machine.program_end());
+    program.push(command!(CommandWord::ProgramEnd, {}));
 
-    p
+    program
 }
 
 /// Convenience function for converting absolute lengths to millimeters
