@@ -476,6 +476,14 @@ impl Turtle {
             .expect("popped when no transforms left");
     }
 
+    /// Remove all transforms, returning to true absolute coordinates
+    pub fn pop_all_transforms(&mut self) {
+        while self.transform_stack.len() != 0 {
+            self.pop_transform();
+        }
+        self.current_transform = Transform2D::identity();
+    }
+
     /// Reset the position of the turtle to the origin in the current transform stack
     pub fn reset(&mut self) {
         self.current_position = point(0.0, 0.0);

@@ -1,0 +1,63 @@
+use crate::gcode::CommandWord::*;
+use crate::gcode::*;
+use lyon_geom::math::{point, vector, F64Point};
+
+pub fn set_origin(commands: &mut [Command], origin: F64Point) {
+    let offset = get_bounding_box(commands).0.to_vector() + origin.to_vector();
+
+    let mut is_relative = false;
+    let mut current_position = point(0f64, 0f64);
+
+    for i in 0..commands.len() {
+        match &commands[i].word() {
+            RapidPositioning | LinearInterpolation => {
+                let x: f64 = (&commands[i].get('X').unwrap().value).into();
+                let y: f64 = (&commands[i].get('Y').unwrap().value).into();
+                if is_relative {
+                    current_position += vector(x, y);
+                } else {
+                    current_position = point(x, y);
+                    commands[i].set('X', Value::Float((current_position + offset).x));
+                    commands[i].set('Y', Value::Float((current_position + offset).y));
+                }
+            },
+            AbsoluteDistanceMode => {
+                is_relative = false;
+            }
+            RelativeDistanceMode => {
+                is_relative = true;
+            }
+            _ => {}
+        }
+    }
+}
+
+fn get_bounding_box(commands: &[Command]) -> (F64Point, F64Point) {
+    let (mut minimum, mut maximum) = (point(0f64, 0f64), point(0f64, 0f64));
+    let mut is_relative = false;
+    let mut current_position = point(0f64, 0f64);
+    for i in 0..commands.len() {
+        let command = &commands[i];
+        match command.word() {
+            AbsoluteDistanceMode => {
+                is_relative = false;
+            }
+            RelativeDistanceMode => {
+                is_relative = true;
+            }
+            LinearInterpolation | RapidPositioning => {
+                let x: f64 = (&command.get('x').unwrap().value).into();
+                let y: f64 = (&command.get('y').unwrap().value).into();
+                if is_relative {
+                    current_position += vector(x, y)
+                } else {
+                    current_position = point(x, y);
+                }
+                minimum = minimum.min(current_position);
+                maximum = maximum.max(current_position);
+            }
+            _ => (),
+        }
+    }
+    (minimum, maximum)
+}

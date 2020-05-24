@@ -17,6 +17,15 @@ pub enum Value {
     String(Box<String>),
 }
 
+impl Into<f64> for &Value {
+    fn into(self) -> f64 {
+        match self {
+            Value::Float(f) => *f,
+            _ => panic!("Unwrapping a non-float")
+        }
+    }
+}
+
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -44,7 +53,7 @@ macro_rules! commands {
 
         /// Commands are the operational unit of GCode
         /// They consist of an identifying word followed by arguments
-        #[derive(Clone, PartialEq)]
+        #[derive(Clone, PartialEq, Debug)]
         pub struct Command {
             command_word: CommandWord,
             arguments: Vec<Word>
@@ -75,6 +84,25 @@ macro_rules! commands {
                         _ => {}
                     },)*
                     _ => {}
+                }
+            }
+
+            pub fn word<'a>(&'a self) -> &'a CommandWord {
+                &self.command_word
+            }
+
+            pub fn get<'a>(&'a self, letter: char) -> Option<&'a Word> {
+                let letter = letter.to_ascii_uppercase();
+                self.arguments.iter().find(|arg| arg.letter == letter)
+            }
+
+            pub fn set(&mut self, letter: char, value: Value) {
+                let letter = letter.to_ascii_uppercase();
+                for i in 0..self.arguments.len() {
+                    if self.arguments[i].letter == letter {
+                        self.arguments[i].value = value;
+                        break;
+                    }
                 }
             }
         }
@@ -113,7 +141,7 @@ macro_rules! commands {
             }
         }
 
-        #[derive(Clone, PartialEq, Eq)]
+        #[derive(Clone, PartialEq, Eq, Debug)]
         pub enum CommandWord {
             $(
                 $(#[$outer])*

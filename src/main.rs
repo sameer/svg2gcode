@@ -22,6 +22,9 @@ mod machine;
 /// Provides an interface for drawing lines in GCode
 /// This concept is referred to as [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics).
 mod turtle;
+/// Operations that are easier to implement after GCode is generated, or would
+/// over-complicate SVG conversion
+mod postprocess;
 
 fn main() -> io::Result<()> {
     if let Err(_) = env::var("RUST_LOG") {
@@ -41,7 +44,7 @@ fn main() -> io::Result<()> {
         (@arg begin_sequence: --begin +takes_value "Optional GCode begin sequence (i.e. change to a tool)")
         (@arg end_sequence: --end +takes_value "Optional GCode end sequence, prior to program end (i.e. change to a tool)")
         (@arg out: --out -o +takes_value "Output file path (overwrites old files), else writes to stdout")
-        (@arg origin: --origin +takes_value "Set where the bottom left corner of the SVG will be placed (e.g. 0,0)")
+        (@arg origin: --origin +takes_value "Set where the bottom left corner of the SVG will be placed (default: 0,0)")
     )
     .get_matches();
 
@@ -74,13 +77,6 @@ fn main() -> io::Result<()> {
             .value_of("dpi")
             .map(|x| x.parse().expect("could not parse DPI"))
             .unwrap_or(96.0),
-        origin: matches
-            .value_of("origin")
-            .map(|coords| coords.split(','))
-            .map(|coords| coords.map(|point| point.parse().expect("could not parse coordinate")))
-            .map(|coords| coords.collect::<Vec<f64>>())
-            .map(|coords| (coords[0], coords[1]))
-            .unwrap_or((0., 0.)),
     };
 
     let machine = machine::Machine::new(
@@ -104,7 +100,17 @@ fn main() -> io::Result<()> {
 
     let document = svgdom::Document::from_str(&input).expect("Invalid or unsupported SVG file");
 
-    let program = converter::svg2program(&document, options, machine);
+    let mut program = converter::svg2program(&document, options, machine);
+
+    let origin = matches
+        .value_of("origin")
+        .map(|coords| coords.split(','))
+        .map(|coords| coords.map(|point| point.parse().expect("could not parse coordinate")))
+        .map(|coords| coords.collect::<Vec<f64>>())
+        .map(|coords| (coords[0], coords[1]))
+        .unwrap_or((0., 0.));
+    postprocess::set_origin(&mut program, lyon_geom::math::point(origin.0, origin.1));
+
     if let Some(out_path) = matches.value_of("out") {
         gcode::program2gcode(program, File::create(out_path)?)
     } else {

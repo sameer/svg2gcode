@@ -16,7 +16,6 @@ pub struct ProgramOptions {
     pub feedrate: f64,
     /// Dots per inch for pixels, picas, points, etc.
     pub dpi: f64,
-    pub origin: (f64, f64),
 }
 
 pub fn svg2program(doc: &svgdom::Document, options: ProgramOptions, mach: Machine) -> Vec<Command> {
@@ -215,7 +214,8 @@ pub fn svg2program(doc: &svgdom::Document, options: ProgramOptions, mach: Machin
             }
         }
     }
-
+    // Critical step for actually move the machine back to the origin
+    turtle.pop_all_transforms();
     program.append(&mut turtle.machine.tool_off());
     program.append(&mut turtle.machine.absolute());
     program.append(&mut turtle.move_to(true, 0.0, 0.0));
