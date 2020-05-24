@@ -8,7 +8,7 @@ pub enum Direction {
     Counterclockwise,
 }
 
-/// Whether the tool is active (i.ee. cutting)
+/// Whether the tool is active (i.e. cutting)
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Tool {
     Off,

@@ -42,6 +42,7 @@ fn main() -> io::Result<()> {
         (@arg begin_sequence: --begin +takes_value "Optional GCode begin sequence (i.e. change to a tool)")
         (@arg end_sequence: --end +takes_value "Optional GCode end sequence, prior to program end (i.e. change to a tool)")
         (@arg out: --out -o +takes_value "Output file path (overwrites old files), else writes to stdout")
+        (@arg origin: --origin +takes_value "Set where the bottom left corner of the SVG will be placed (e.g. 0,0)")
     )
     .get_matches();
 
@@ -74,7 +75,15 @@ fn main() -> io::Result<()> {
             .value_of("dpi")
             .map(|x| x.parse().expect("could not parse DPI"))
             .unwrap_or(96.0),
+        origin: matches
+            .value_of("origin")
+            .map(|coords| coords.split(','))
+            .map(|coords| coords.map(|point| point.parse().expect("could not parse coordinate")))
+            .map(|coords| coords.collect::<Vec<f64>>())
+            .map(|coords| (coords[0], coords[1]))
+            .unwrap_or((0.,0.))
     };
+    println!("{:?}", opts);
 
     let mach = Machine::new(
         matches.value_of("tool_on_sequence").map(parse_gcode).unwrap_or_default(),
@@ -97,6 +106,7 @@ fn main() -> io::Result<()> {
 }
 
 /// High-level output options
+#[derive(Debug)]
 struct ProgramOptions {
     /// Curve interpolation tolerance in millimeters
     tolerance: f64,
@@ -104,6 +114,7 @@ struct ProgramOptions {
     feedrate: f64,
     /// Dots per inch for pixels, picas, points, etc.
     dpi: f64,
+    origin: (f64, f64)
 }
 
 fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> Vec<Command> {
