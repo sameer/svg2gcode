@@ -8,26 +8,26 @@ use lyon_geom::{ArcFlags, CubicBezierSegment, QuadraticBezierSegment, SvgArc};
 /// Turtle graphics simulator for paths that outputs the gcode representation for each operation.
 /// Handles trasforms, scaling, position, offsets, etc.  See https://www.w3.org/TR/SVG/paths.html
 pub struct Turtle {
-    curpos: F64Point,
-    initpos: F64Point,
-    curtran: Transform2D<f64>,
+    current_position: F64Point,
+    initial_position: F64Point,
+    current_transform: Transform2D<f64>,
     scaling: Option<Transform2D<f64>>,
-    transtack: Vec<Transform2D<f64>>,
+    transform_stack: Vec<Transform2D<f64>>,
     pub machine: Machine,
-    prev_ctrl: Option<F64Point>,
+    previous_control: Option<F64Point>,
 }
 
 impl Turtle {
     /// Create a turtle at the origin with no scaling or transform
     pub fn new(machine: Machine) -> Self {
         Self {
-            curpos: point(0.0, 0.0),
-            initpos: point(0.0, 0.0),
-            curtran: Transform2D::identity(),
+            current_position: point(0.0, 0.0),
+            initial_position: point(0.0, 0.0),
+            current_transform: Transform2D::identity(),
             scaling: None,
-            transtack: vec![],
+            transform_stack: vec![],
             machine,
-            prev_ctrl: None,
+            previous_control: None,
         }
     }
 }
@@ -40,22 +40,22 @@ impl Turtle {
         X: Into<Option<f64>>,
         Y: Into<Option<f64>>,
     {
-        let invtran = self.curtran.inverse().unwrap();
-        let origcurpos = invtran.transform_point(self.curpos);
+        let inverse_transform = self.current_transform.inverse().unwrap();
+        let original_current_position = inverse_transform.transform_point(self.current_position);
         let x = x
             .into()
-            .map(|x| if abs { x } else { origcurpos.x + x })
-            .unwrap_or(origcurpos.x);
+            .map(|x| if abs { x } else { original_current_position.x + x })
+            .unwrap_or(original_current_position.x);
         let y = y
             .into()
-            .map(|y| if abs { y } else { origcurpos.y + y })
-            .unwrap_or(origcurpos.y);
+            .map(|y| if abs { y } else { original_current_position.y + y })
+            .unwrap_or(original_current_position.y);
 
         let mut to = point(x, y);
-        to = self.curtran.transform_point(to);
-        self.curpos = to;
-        self.initpos = to;
-        self.prev_ctrl = None;
+        to = self.current_transform.transform_point(to);
+        self.current_position = to;
+        self.initial_position = to;
+        self.previous_control = None;
 
         self.machine
             .tool_off()
@@ -98,22 +98,22 @@ impl Turtle {
     {
         // See https://www.w3.org/TR/SVG/paths.html#Segment-CompletingClosePath
         // which could result in a G91 G1 X0 Y0
-        if (self.curpos - self.initpos)
+        if (self.current_position - self.initial_position)
             .abs()
             .lower_than(vector(std::f64::EPSILON, std::f64::EPSILON))
             .all()
         {
             return vec![];
         }
-        self.curpos = self.initpos;
+        self.current_position = self.initial_position;
 
         self.machine
             .tool_on()
             .iter()
             .chain(self.machine.absolute().iter())
             .chain(std::iter::once(&Self::linear_interpolation(
-                self.initpos.x.into(),
-                self.initpos.y.into(),
+                self.initial_position.x.into(),
+                self.initial_position.y.into(),
                 z.into(),
                 f.into(),
             )))
@@ -130,21 +130,21 @@ impl Turtle {
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
     {
-        let invtran = self.curtran.inverse().unwrap();
-        let origcurpos = invtran.transform_point(self.curpos);
+        let inverse_transform = self.current_transform.inverse().unwrap();
+        let original_current_position = inverse_transform.transform_point(self.current_position);
         let x = x
             .into()
-            .map(|x| if abs { x } else { origcurpos.x + x })
-            .unwrap_or(origcurpos.x);
+            .map(|x| if abs { x } else { original_current_position.x + x })
+            .unwrap_or(original_current_position.x);
         let y = y
             .into()
-            .map(|y| if abs { y } else { origcurpos.y + y })
-            .unwrap_or(origcurpos.y);
+            .map(|y| if abs { y } else { original_current_position.y + y })
+            .unwrap_or(original_current_position.y);
 
         let mut to = point(x, y);
-        to = self.curtran.transform_point(to);
-        self.curpos = to;
-        self.prev_ctrl = None;
+        to = self.current_transform.transform_point(to);
+        self.current_position = to;
+        self.previous_control = None;
 
         self.machine
             .tool_on()
@@ -172,8 +172,8 @@ impl Turtle {
     ) -> Vec<Command> {
         let z = z.into();
         let f = f.into();
-        let last_point = std::cell::Cell::new(self.curpos);
-        let mut cubic: Vec<Command> = cbs
+        let last_point = std::cell::Cell::new(self.current_position);
+        let cubic: Vec<Command> = cbs
             .flattened(tolerance)
             .map(|point| {
                 last_point.set(point);
@@ -185,11 +185,11 @@ impl Turtle {
                 )
             })
             .collect();
-        self.curpos = last_point.get();
+        self.current_position = last_point.get();
         // See https://www.w3.org/TR/SVG/paths.html#ReflectedControlPoints
-        self.prev_ctrl = point(
-            2.0 * self.curpos.x - cbs.ctrl2.x,
-            2.0 * self.curpos.y - cbs.ctrl2.y,
+        self.previous_control = point(
+            2.0 * self.current_position.x - cbs.ctrl2.x,
+            2.0 * self.current_position.y - cbs.ctrl2.y,
         )
         .into();
 
@@ -221,20 +221,20 @@ impl Turtle {
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
     {
-        let from = self.curpos;
+        let from = self.current_position;
         let mut ctrl1 = point(x1, y1);
         let mut ctrl2 = point(x2, y2);
         let mut to = point(x, y);
         if !abs {
-            let invtran = self.curtran.inverse().unwrap();
-            let origcurpos = invtran.transform_point(self.curpos);
-            ctrl1 += origcurpos.to_vector();
-            ctrl2 += origcurpos.to_vector();
-            to += origcurpos.to_vector();
+            let inverse_transform = self.current_transform.inverse().unwrap();
+            let original_current_position = inverse_transform.transform_point(self.current_position);
+            ctrl1 += original_current_position.to_vector();
+            ctrl2 += original_current_position.to_vector();
+            to += original_current_position.to_vector();
         }
-        ctrl1 = self.curtran.transform_point(ctrl1);
-        ctrl2 = self.curtran.transform_point(ctrl2);
-        to = self.curtran.transform_point(to);
+        ctrl1 = self.current_transform.transform_point(ctrl1);
+        ctrl2 = self.current_transform.transform_point(ctrl2);
+        to = self.current_transform.transform_point(to);
         let cbs = lyon_geom::CubicBezierSegment {
             from,
             ctrl1,
@@ -262,18 +262,18 @@ impl Turtle {
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
     {
-        let from = self.curpos;
-        let ctrl1 = self.prev_ctrl.unwrap_or(self.curpos);
+        let from = self.current_position;
+        let ctrl1 = self.previous_control.unwrap_or(self.current_position);
         let mut ctrl2 = point(x2, y2);
         let mut to = point(x, y);
         if !abs {
-            let invtran = self.curtran.inverse().unwrap();
-            let origcurpos = invtran.transform_point(self.curpos);
-            ctrl2 += origcurpos.to_vector();
-            to += origcurpos.to_vector();
+            let inverse_transform = self.current_transform.inverse().unwrap();
+            let original_current_position = inverse_transform.transform_point(self.current_position);
+            ctrl2 += original_current_position.to_vector();
+            to += original_current_position.to_vector();
         }
-        ctrl2 = self.curtran.transform_point(ctrl2);
-        to = self.curtran.transform_point(to);
+        ctrl2 = self.current_transform.transform_point(ctrl2);
+        to = self.current_transform.transform_point(to);
         let cbs = lyon_geom::CubicBezierSegment {
             from,
             ctrl1,
@@ -299,15 +299,15 @@ impl Turtle {
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
     {
-        let from = self.curpos;
-        let ctrl = self.prev_ctrl.unwrap_or(self.curpos);
+        let from = self.current_position;
+        let ctrl = self.previous_control.unwrap_or(self.current_position);
         let mut to = point(x, y);
         if !abs {
-            let invtran = self.curtran.inverse().unwrap();
-            let origcurpos = invtran.transform_point(self.curpos);
-            to += origcurpos.to_vector();
+            let inverse_transform = self.current_transform.inverse().unwrap();
+            let original_current_position = inverse_transform.transform_point(self.current_position);
+            to += original_current_position.to_vector();
         }
-        to = self.curtran.transform_point(to);
+        to = self.current_transform.transform_point(to);
         let qbs = QuadraticBezierSegment { from, ctrl, to };
 
         self.bezier(qbs.to_cubic(), tolerance, z, f)
@@ -330,17 +330,17 @@ impl Turtle {
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
     {
-        let from = self.curpos;
+        let from = self.current_position;
         let mut ctrl = point(x1, y1);
         let mut to = point(x, y);
         if !abs {
-            let invtran = self.curtran.inverse().unwrap();
-            let origcurpos = invtran.transform_point(self.curpos);
-            to += origcurpos.to_vector();
-            ctrl += origcurpos.to_vector();
+            let inverse_transform = self.current_transform.inverse().unwrap();
+            let original_current_position = inverse_transform.transform_point(self.current_position);
+            to += original_current_position.to_vector();
+            ctrl += original_current_position.to_vector();
         }
-        ctrl = self.curtran.transform_point(ctrl);
-        to = self.curtran.transform_point(to);
+        ctrl = self.current_transform.transform_point(ctrl);
+        to = self.current_transform.transform_point(to);
         let qbs = QuadraticBezierSegment { from, ctrl, to };
 
         self.bezier(qbs.to_cubic(), tolerance, z, f)
@@ -369,18 +369,18 @@ impl Turtle {
         let z = z.into();
         let f = f.into();
 
-        let from = self.curpos;
+        let from = self.current_position;
         let mut to: F64Point = point(x, y);
-        to = self.curtran.transform_point(to);
+        to = self.current_transform.transform_point(to);
         if !abs {
-            to -= vector(self.curtran.m31, self.curtran.m32);
-            to += self.curpos.to_vector();
+            to -= vector(self.current_transform.m31, self.current_transform.m32);
+            to += self.current_position.to_vector();
         }
 
         let mut radii = vector(rx, ry);
-        radii = self.curtran.transform_vector(radii);
+        radii = self.current_transform.transform_vector(radii);
 
-        let sarc = SvgArc {
+        let arc = SvgArc {
             from,
             to,
             radii,
@@ -392,10 +392,10 @@ impl Turtle {
                 sweep,
             },
         };
-        let last_point = std::cell::Cell::new(self.curpos);
+        let last_point = std::cell::Cell::new(self.current_position);
 
         let mut ellipse = vec![];
-        sarc.for_each_flattened(tolerance, &mut |point: F64Point| {
+        arc.for_each_flattened(tolerance, &mut |point: F64Point| {
             ellipse.push(Self::linear_interpolation(
                 point.x.into(),
                 point.y.into(),
@@ -404,8 +404,8 @@ impl Turtle {
             ));
             last_point.set(point);
         });
-        self.curpos = last_point.get();
-        self.prev_ctrl = None;
+        self.current_position = last_point.get();
+        self.previous_control = None;
 
         self.machine
             .tool_on()
@@ -420,7 +420,7 @@ impl Turtle {
     /// This is useful for handling things like the viewBox
     /// https://www.w3.org/TR/SVG/coords.html#ViewBoxAttribute
     pub fn stack_scaling(&mut self, scaling: Transform2D<f64>) {
-        self.curtran = self.curtran.post_transform(&scaling);
+        self.current_transform = self.current_transform.post_transform(&scaling);
         if let Some(ref current_scaling) = self.scaling {
             self.scaling = Some(current_scaling.post_transform(&scaling));
         } else {
@@ -432,32 +432,32 @@ impl Turtle {
     /// Could be any valid CSS transform https://drafts.csswg.org/css-transforms-1/#typedef-transform-function
     /// https://www.w3.org/TR/SVG/coords.html#InterfaceSVGTransform
     pub fn push_transform(&mut self, trans: Transform2D<f64>) {
-        self.transtack.push(self.curtran);
+        self.transform_stack.push(self.current_transform);
         if let Some(ref scaling) = self.scaling {
-            self.curtran = self
-                .curtran
+            self.current_transform = self
+                .current_transform
                 .post_transform(&scaling.inverse().unwrap())
                 .pre_transform(&trans)
                 .post_transform(&scaling);
         } else {
-            self.curtran = self.curtran.post_transform(&trans);
+            self.current_transform = self.current_transform.post_transform(&trans);
         }
     }
 
     /// Pop a generic transform off the stack, returning to the previous transform state
     /// This means that most recent transform went out of scope
     pub fn pop_transform(&mut self) {
-        self.curtran = self
-            .transtack
+        self.current_transform = self
+            .transform_stack
             .pop()
             .expect("popped when no transforms left");
     }
 
     /// Reset the position of the turtle to the origin in the current transform stack
     pub fn reset(&mut self) {
-        self.curpos = point(0.0, 0.0);
-        self.curpos = self.curtran.transform_point(self.curpos);
-        self.prev_ctrl = None;
-        self.initpos = self.curpos;
+        self.current_position = point(0.0, 0.0);
+        self.current_position = self.current_transform.transform_point(self.current_position);
+        self.previous_control = None;
+        self.initial_position = self.current_position;
     }
 }

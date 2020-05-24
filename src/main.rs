@@ -116,7 +116,7 @@ struct ProgramOptions {
     origin: (f64, f64)
 }
 
-fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> Vec<Command> {
+fn svg2program(doc: &svgdom::Document, options: ProgramOptions, mach: Machine) -> Vec<Command> {
     let mut turtle = Turtle::new(mach);
 
     let mut program = vec![
@@ -153,8 +153,8 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
                 attributes.get_value(AttributeId::Width),
                 attributes.get_value(AttributeId::Height),
             ) {
-                let width_in_mm = length_to_mm(width, opts.dpi);
-                let height_in_mm = length_to_mm(height, opts.dpi);
+                let width_in_mm = length_to_mm(width, options.dpi);
+                let height_in_mm = length_to_mm(height, options.dpi);
                 turtle.stack_scaling(
                     euclid::Transform2D::create_scale(width_in_mm, -height_in_mm)
                         .post_translate(math::vector(0.0, height_in_mm)),
@@ -208,16 +208,16 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
                                 PathSegment::MoveTo { abs, x, y } => turtle.move_to(*abs, *x, *y),
                                 PathSegment::ClosePath { abs: _ } => {
                                     // Ignore abs, should have identical effect: [9.3.4. The "closepath" command]("https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand)
-                                    turtle.close(None, opts.feedrate)
+                                    turtle.close(None, options.feedrate)
                                 }
                                 PathSegment::LineTo { abs, x, y } => {
-                                    turtle.line(*abs, *x, *y, None, opts.feedrate)
+                                    turtle.line(*abs, *x, *y, None, options.feedrate)
                                 }
                                 PathSegment::HorizontalLineTo { abs, x } => {
-                                    turtle.line(*abs, *x, None, None, opts.feedrate)
+                                    turtle.line(*abs, *x, None, None, options.feedrate)
                                 }
                                 PathSegment::VerticalLineTo { abs, y } => {
-                                    turtle.line(*abs, None, *y, None, opts.feedrate)
+                                    turtle.line(*abs, None, *y, None, options.feedrate)
                                 }
                                 PathSegment::CurveTo {
                                     abs,
@@ -235,9 +235,9 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
                                     *y2,
                                     *x,
                                     *y,
-                                    opts.tolerance,
+                                    options.tolerance,
                                     None,
-                                    opts.feedrate,
+                                    options.feedrate,
                                 ),
                                 PathSegment::SmoothCurveTo { abs, x2, y2, x, y } => turtle
                                     .smooth_cubic_bezier(
@@ -246,9 +246,9 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
                                         *y2,
                                         *x,
                                         *y,
-                                        opts.tolerance,
+                                        options.tolerance,
                                         None,
-                                        opts.feedrate,
+                                        options.feedrate,
                                     ),
                                 PathSegment::Quadratic { abs, x1, y1, x, y } => turtle.quadratic_bezier(
                                     *abs,
@@ -256,18 +256,18 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
                                     *y1,
                                     *x,
                                     *y,
-                                    opts.tolerance,
+                                    options.tolerance,
                                     None,
-                                    opts.feedrate,
+                                    options.feedrate,
                                 ),
                                 PathSegment::SmoothQuadratic { abs, x, y } => turtle
                                     .smooth_quadratic_bezier(
                                         *abs,
                                         *x,
                                         *y,
-                                        opts.tolerance,
+                                        options.tolerance,
                                         None,
-                                        opts.feedrate,
+                                        options.feedrate,
                                     ),
                                 PathSegment::EllipticalArc {
                                     abs,
@@ -288,8 +288,8 @@ fn svg2program(doc: &svgdom::Document, opts: ProgramOptions, mach: Machine) -> V
                                     *x,
                                     *y,
                                     None,
-                                    opts.feedrate,
-                                    opts.tolerance,
+                                    options.feedrate,
+                                    options.tolerance,
                                 ),
                             });
                         }
