@@ -44,11 +44,23 @@ impl Turtle {
         let original_current_position = inverse_transform.transform_point(self.current_position);
         let x = x
             .into()
-            .map(|x| if abs { x } else { original_current_position.x + x })
+            .map(|x| {
+                if abs {
+                    x
+                } else {
+                    original_current_position.x + x
+                }
+            })
             .unwrap_or(original_current_position.x);
         let y = y
             .into()
-            .map(|y| if abs { y } else { original_current_position.y + y })
+            .map(|y| {
+                if abs {
+                    y
+                } else {
+                    original_current_position.y + y
+                }
+            })
             .unwrap_or(original_current_position.y);
 
         let mut to = point(x, y);
@@ -134,11 +146,23 @@ impl Turtle {
         let original_current_position = inverse_transform.transform_point(self.current_position);
         let x = x
             .into()
-            .map(|x| if abs { x } else { original_current_position.x + x })
+            .map(|x| {
+                if abs {
+                    x
+                } else {
+                    original_current_position.x + x
+                }
+            })
             .unwrap_or(original_current_position.x);
         let y = y
             .into()
-            .map(|y| if abs { y } else { original_current_position.y + y })
+            .map(|y| {
+                if abs {
+                    y
+                } else {
+                    original_current_position.y + y
+                }
+            })
             .unwrap_or(original_current_position.y);
 
         let mut to = point(x, y);
@@ -177,12 +201,7 @@ impl Turtle {
             .flattened(tolerance)
             .map(|point| {
                 last_point.set(point);
-                Self::linear_interpolation(
-                    point.x.into(),
-                    point.y.into(),
-                    z.into(),
-                    f.into(),
-                )
+                Self::linear_interpolation(point.x.into(), point.y.into(), z.into(), f.into())
             })
             .collect();
         self.current_position = last_point.get();
@@ -227,7 +246,8 @@ impl Turtle {
         let mut to = point(x, y);
         if !abs {
             let inverse_transform = self.current_transform.inverse().unwrap();
-            let original_current_position = inverse_transform.transform_point(self.current_position);
+            let original_current_position =
+                inverse_transform.transform_point(self.current_position);
             ctrl1 += original_current_position.to_vector();
             ctrl2 += original_current_position.to_vector();
             to += original_current_position.to_vector();
@@ -268,7 +288,8 @@ impl Turtle {
         let mut to = point(x, y);
         if !abs {
             let inverse_transform = self.current_transform.inverse().unwrap();
-            let original_current_position = inverse_transform.transform_point(self.current_position);
+            let original_current_position =
+                inverse_transform.transform_point(self.current_position);
             ctrl2 += original_current_position.to_vector();
             to += original_current_position.to_vector();
         }
@@ -304,7 +325,8 @@ impl Turtle {
         let mut to = point(x, y);
         if !abs {
             let inverse_transform = self.current_transform.inverse().unwrap();
-            let original_current_position = inverse_transform.transform_point(self.current_position);
+            let original_current_position =
+                inverse_transform.transform_point(self.current_position);
             to += original_current_position.to_vector();
         }
         to = self.current_transform.transform_point(to);
@@ -335,7 +357,8 @@ impl Turtle {
         let mut to = point(x, y);
         if !abs {
             let inverse_transform = self.current_transform.inverse().unwrap();
-            let original_current_position = inverse_transform.transform_point(self.current_position);
+            let original_current_position =
+                inverse_transform.transform_point(self.current_position);
             to += original_current_position.to_vector();
             ctrl += original_current_position.to_vector();
         }
@@ -456,7 +479,9 @@ impl Turtle {
     /// Reset the position of the turtle to the origin in the current transform stack
     pub fn reset(&mut self) {
         self.current_position = point(0.0, 0.0);
-        self.current_position = self.current_transform.transform_point(self.current_position);
+        self.current_position = self
+            .current_transform
+            .transform_point(self.current_position);
         self.previous_control = None;
         self.initial_position = self.current_position;
     }

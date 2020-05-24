@@ -14,24 +14,16 @@ pub struct Word {
 pub enum Value {
     Fractional(u32, Option<u32>),
     Float(f64),
-    String(Box<String>)
+    String(Box<String>),
 }
 
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Fractional(number, Some(fraction)) => {
-                write!(f, "{}.{}", number, fraction)
-            },
-            Self::Fractional(number, None) => {
-                write!(f, "{}", number)
-            },
-            Self::Float(float) => {
-                write!(f, "{}", float)
-            },
-            Self::String(string) => {
-                write!(f, "{}", string)
-            }
+            Self::Fractional(number, Some(fraction)) => write!(f, "{}.{}", number, fraction),
+            Self::Fractional(number, None) => write!(f, "{}", number),
+            Self::Float(float) => write!(f, "{}", float),
+            Self::String(string) => write!(f, "{}", string),
         }
     }
 }

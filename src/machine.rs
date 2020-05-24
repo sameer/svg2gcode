@@ -1,4 +1,3 @@
-#[macro_use]
 use crate::gcode::*;
 
 //// Direction of the machine spindle
@@ -73,8 +72,12 @@ impl Machine {
         }
     }
 
-    pub fn program_begin(&self) -> Vec<Command> { self.program_begin_sequence.clone() }
-    pub fn program_end(&self) -> Vec<Command> { self.program_end_sequence.clone() }
+    pub fn program_begin(&self) -> Vec<Command> {
+        self.program_begin_sequence.clone()
+    }
+    pub fn program_end(&self) -> Vec<Command> {
+        self.program_end_sequence.clone()
+    }
 
     /// Output relative distance field if mode was absolute or unknown.
     pub fn absolute(&mut self) -> Vec<Command> {
