@@ -52,5 +52,6 @@ cat out.gcode
 
 ## Reference Documents
 
+* [W3 SVG2 Specification](https://www.w3.org/TR/SVG/Overview.html)
 * [RepRap G-code](https://reprap.org/wiki/G-code)
 * [G-Code and M-Code Reference List for Milling](https://www.cnccookbook.com/g-code-m-code-reference-list-cnc-mills/)
