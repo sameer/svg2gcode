@@ -1,5 +1,5 @@
 #[macro_use]
-use crate::code::*;
+use crate::gcode::*;
 
 //// Direction of the machine spindle
 #[derive(Clone, PartialEq, Eq)]

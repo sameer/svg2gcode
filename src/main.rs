@@ -16,11 +16,11 @@ use lyon_geom::{euclid, math};
 use svgdom::{AttributeId, AttributeValue, ElementId, ElementType, PathSegment};
 
 #[macro_use]
-mod code;
+mod gcode;
 mod machine;
 mod turtle;
 
-use code::*;
+use gcode::*;
 use machine::*;
 use turtle::*;
 

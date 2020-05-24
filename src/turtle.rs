@@ -1,5 +1,5 @@
 /// TODO: Documentation
-use crate::code::*;
+use crate::gcode::*;
 use crate::machine::Machine;
 use lyon_geom::euclid::{default::Transform2D, Angle};
 use lyon_geom::math::{point, vector, F64Point};
