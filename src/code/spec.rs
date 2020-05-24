@@ -30,7 +30,7 @@ impl std::fmt::Display for Value {
                 write!(f, "{}", float)
             },
             Self::String(string) => {
-                write!(f, "\"{}\"", string)
+                write!(f, "{}", string)
             }
         }
     }
