@@ -53,5 +53,8 @@ cat out.gcode
 ## Reference Documents
 
 * [W3 SVG2 Specification](https://www.w3.org/TR/SVG/Overview.html)
+* [CSS absolute lengths](https://www.w3.org/TR/css-values/#absolute-lengths)
+* [CSS font-relative lengths](https://www.w3.org/TR/css-values/#font-relative-lengths)
+* [CSS compatible units](https://www.w3.org/TR/css-values/#compat)
 * [RepRap G-code](https://reprap.org/wiki/G-code)
 * [G-Code and M-Code Reference List for Milling](https://www.cnccookbook.com/g-code-m-code-reference-list-cnc-mills/)
