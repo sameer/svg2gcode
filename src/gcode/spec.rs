@@ -21,7 +21,7 @@ impl Into<f64> for &Value {
     fn into(self) -> f64 {
         match self {
             Value::Float(f) => *f,
-            _ => panic!("Unwrapping a non-float")
+            _ => panic!("Unwrapping a non-float"),
         }
     }
 }

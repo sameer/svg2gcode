@@ -8,14 +8,14 @@ pub enum Direction {
 }
 
 /// Whether the tool is active (i.e. cutting)
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Tool {
     Off,
     On,
 }
 
 /// The distance mode for movement commands
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Distance {
     Absolute,
     Relative,
@@ -23,6 +23,7 @@ pub enum Distance {
 
 /// Generic machine state simulation, assuming nothing is known about the machine when initialized.
 /// This is used to reduce output GCode verbosity and run repetitive actions.
+#[derive(Debug)]
 pub struct Machine {
     tool_state: Option<Tool>,
     distance_mode: Option<Distance>,

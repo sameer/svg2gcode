@@ -1,5 +1,13 @@
-use lyon_geom::{euclid, math};
-use svgdom::{AttributeId, AttributeValue, ElementId, ElementType, PathSegment};
+use std::str::FromStr;
+
+use lyon_geom::{
+    euclid::{default::Transform2D, Angle, Transform3D},
+    math,
+};
+use roxmltree::{Document, Node};
+use svgtypes::{
+    LengthListParser, PathParser, PathSegment, TransformListParser, TransformListToken, ViewBox,
+};
 
 #[macro_use]
 use crate::*;
@@ -18,7 +26,7 @@ pub struct ProgramOptions {
     pub dpi: f64,
 }
 
-pub fn svg2program(doc: &svgdom::Document, options: ProgramOptions, mach: Machine) -> Vec<Command> {
+pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Vec<Command> {
     let mut turtle = Turtle::new(mach);
 
     let mut program = vec![
@@ -29,192 +37,97 @@ pub fn svg2program(doc: &svgdom::Document, options: ProgramOptions, mach: Machin
     program.append(&mut turtle.machine.absolute());
     program.append(&mut turtle.move_to(true, 0.0, 0.0));
 
+    // Depth-first SVG DOM traversal
+    let mut node_stack = vec![(doc.root(), doc.root().children())];
     let mut name_stack: Vec<String> = vec![];
 
-    for edge in doc.root().traverse() {
-        let (node, is_start) = match edge {
-            svgdom::NodeEdge::Start(node) => (node, true),
-            svgdom::NodeEdge::End(node) => (node, false),
-        };
-
-        let id = if let svgdom::QName::Id(id) = *node.tag_name() {
-            id
-        } else {
-            continue;
-        };
-
-        let attributes = node.attributes();
-        if let (ElementId::Svg, true) = (id, is_start) {
-            if let Some(&AttributeValue::ViewBox(view_box)) =
-                attributes.get_value(AttributeId::ViewBox)
-            {
-                turtle.stack_scaling(
-                    euclid::Transform2D::create_scale(1. / view_box.w, 1. / view_box.h)
-                        .post_translate(math::vector(view_box.x, view_box.y)),
-                );
+    while let Some((parent, mut children)) = node_stack.pop() {
+        let node: Node = match children.next() {
+            Some(child) => {
+                node_stack.push((parent, children));
+                child
             }
-            if let (Some(&AttributeValue::Length(width)), Some(&AttributeValue::Length(height))) = (
-                attributes.get_value(AttributeId::Width),
-                attributes.get_value(AttributeId::Height),
-            ) {
-                let width_in_mm = length_to_mm(width, options.dpi);
-                let height_in_mm = length_to_mm(height, options.dpi);
-                turtle.stack_scaling(
-                    euclid::Transform2D::create_scale(width_in_mm, -height_in_mm)
-                        .post_translate(math::vector(0.0, height_in_mm)),
-                );
-            }
-        }
-        // Display named elements in GCode comments
-        if let ElementId::G = id {
-            if is_start {
-                name_stack.push(format!("{}#{}", node.tag_name(), node.id().to_string()));
-            } else {
+            None => {
+                if parent.has_attribute("viewBox")
+                    || parent.has_attribute("transform")
+                    || parent.has_attribute("width")
+                    || parent.has_attribute("height")
+                {
+                    turtle.pop_transform();
+                }
                 name_stack.pop();
+                continue;
             }
+        };
+
+        if node.node_type() != roxmltree::NodeType::Element {
+            debug!("Encountered a non-element: {:?}", node);
+            continue;
         }
-        if let Some(&AttributeValue::Transform(ref transform)) =
-            attributes.get_value(AttributeId::Transform)
-        {
-            if is_start {
-                turtle.push_transform(lyon_geom::euclid::Transform2D::row_major(
-                    transform.a,
-                    transform.b,
-                    transform.c,
-                    transform.d,
-                    transform.e,
-                    transform.f,
-                ));
+
+        if node.tag_name().name() == "clipPath" {
+            warn!("Clip paths are not supported: {:?}", node);
+            continue;
+        }
+
+        let mut transforms = vec![];
+        if let Some(view_box) = node.attribute("viewBox") {
+            let view_box = ViewBox::from_str(view_box).expect("could not parse viewBox");
+            transforms.push(
+                Transform2D::create_scale(1. / view_box.w, 1. / view_box.h)
+                    .post_translate(math::vector(view_box.x, view_box.y)),
+            );
+        }
+
+        if let Some(transform) = width_and_height_into_transform(&options, &node) {
+            transforms.push(transform);
+        }
+
+        if let Some(transform) = node.attribute("transform") {
+            let parser = TransformListParser::from(transform);
+            transforms.append(
+                &mut parser
+                    .map(|token| {
+                        token.expect("could not parse a transform in a list of transforms")
+                    })
+                    .map(svg_transform_into_euclid_transform)
+                    .collect(),
+            )
+        }
+
+        if transforms.len() != 0 {
+            let transform = transforms
+                .iter()
+                .fold(Transform2D::identity(), |acc, t| acc.post_transform(t));
+            turtle.push_transform(transform);
+        }
+
+        if node.tag_name().name() == "path" {
+            if let Some(d) = node.attribute("d") {
+                turtle.reset();
+                let mut comment = String::new();
+                name_stack.iter().for_each(|name| {
+                    comment += name;
+                    comment += " > ";
+                });
+                comment += &node_name(&node);
+                program.push(command!(CommandWord::Comment(Box::new(comment)), {}));
+                program.append(&mut apply_path(&mut turtle, &options, d));
             } else {
-                turtle.pop_transform();
+                warn!("There is a path node containing no actual path: {:?}", node);
             }
         }
 
-        let is_clip_path = node.ancestors().any(|ancestor| {
-            if let svgdom::QName::Id(ancestor_id) = *ancestor.tag_name() {
-                ancestor_id == ElementId::ClipPath
-            } else {
-                false
-            }
-        });
-
-        if node.is_graphic() && is_start && !is_clip_path {
-            match id {
-                ElementId::Path => {
-                    if let Some(&AttributeValue::Path(ref path)) =
-                        attributes.get_value(AttributeId::D)
-                    {
-                        let prefix: String =
-                            name_stack.iter().fold(String::new(), |mut acc, name| {
-                                acc += name;
-                                acc += " => ";
-                                acc
-                            });
-                        program.push(command!(
-                            CommandWord::Comment(Box::new(prefix + &node.id())),
-                            {}
-                        ));
-                        turtle.reset();
-                        for segment in path.iter() {
-                            program.append(&mut match segment {
-                                PathSegment::MoveTo { abs, x, y } => turtle.move_to(*abs, *x, *y),
-                                PathSegment::ClosePath { abs: _ } => {
-                                    // Ignore abs, should have identical effect: [9.3.4. The "closepath" command]("https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand)
-                                    turtle.close(None, options.feedrate)
-                                }
-                                PathSegment::LineTo { abs, x, y } => {
-                                    turtle.line(*abs, *x, *y, None, options.feedrate)
-                                }
-                                PathSegment::HorizontalLineTo { abs, x } => {
-                                    turtle.line(*abs, *x, None, None, options.feedrate)
-                                }
-                                PathSegment::VerticalLineTo { abs, y } => {
-                                    turtle.line(*abs, None, *y, None, options.feedrate)
-                                }
-                                PathSegment::CurveTo {
-                                    abs,
-                                    x1,
-                                    y1,
-                                    x2,
-                                    y2,
-                                    x,
-                                    y,
-                                } => turtle.cubic_bezier(
-                                    *abs,
-                                    *x1,
-                                    *y1,
-                                    *x2,
-                                    *y2,
-                                    *x,
-                                    *y,
-                                    options.tolerance,
-                                    None,
-                                    options.feedrate,
-                                ),
-                                PathSegment::SmoothCurveTo { abs, x2, y2, x, y } => turtle
-                                    .smooth_cubic_bezier(
-                                        *abs,
-                                        *x2,
-                                        *y2,
-                                        *x,
-                                        *y,
-                                        options.tolerance,
-                                        None,
-                                        options.feedrate,
-                                    ),
-                                PathSegment::Quadratic { abs, x1, y1, x, y } => turtle
-                                    .quadratic_bezier(
-                                        *abs,
-                                        *x1,
-                                        *y1,
-                                        *x,
-                                        *y,
-                                        options.tolerance,
-                                        None,
-                                        options.feedrate,
-                                    ),
-                                PathSegment::SmoothQuadratic { abs, x, y } => turtle
-                                    .smooth_quadratic_bezier(
-                                        *abs,
-                                        *x,
-                                        *y,
-                                        options.tolerance,
-                                        None,
-                                        options.feedrate,
-                                    ),
-                                PathSegment::EllipticalArc {
-                                    abs,
-                                    rx,
-                                    ry,
-                                    x_axis_rotation,
-                                    large_arc,
-                                    sweep,
-                                    x,
-                                    y,
-                                } => turtle.elliptical(
-                                    *abs,
-                                    *rx,
-                                    *ry,
-                                    *x_axis_rotation,
-                                    *large_arc,
-                                    *sweep,
-                                    *x,
-                                    *y,
-                                    None,
-                                    options.feedrate,
-                                    options.tolerance,
-                                ),
-                            });
-                        }
-                    }
-                }
-                _ => {
-                    warn!("Node <{} id=\"{}\" .../> is not supported", id, node.id());
-                }
-            }
+        if node.has_children() {
+            node_stack.push((node, node.children()));
+            name_stack.push(node_name(&node));
+        } else if transforms.len() != 0 {
+            // Pop transform early, since this is the only element that has it
+            turtle.pop_transform();
         }
     }
-    // Critical step for actually move the machine back to the origin
+
+    // Critical step for actually moving the machine back to the origin, just in case SVG is malformed
     turtle.pop_all_transforms();
     program.append(&mut turtle.machine.tool_off());
     program.append(&mut turtle.machine.absolute());
@@ -225,12 +138,157 @@ pub fn svg2program(doc: &svgdom::Document, options: ProgramOptions, mach: Machin
     program
 }
 
+fn node_name(node: &Node) -> String {
+    let mut name = node.tag_name().name().to_string();
+    if let Some(id) = node.attribute("id") {
+        name += "#";
+        name += id;
+    }
+    name
+}
+
+fn width_and_height_into_transform(
+    options: &ProgramOptions,
+    node: &Node,
+) -> Option<Transform2D<f64>> {
+    if let (Some(mut width), Some(mut height)) = (
+        node.attribute("width").map(LengthListParser::from),
+        node.attribute("height").map(LengthListParser::from),
+    ) {
+        let width = width
+            .next()
+            .expect("no width in width property")
+            .expect("cannot parse width");
+        let height = height
+            .next()
+            .expect("no height in height property")
+            .expect("cannot parse height");
+        let width_in_mm = length_to_mm(width, options.dpi);
+        let height_in_mm = length_to_mm(height, options.dpi);
+
+        Some(
+            Transform2D::create_scale(width_in_mm, -height_in_mm)
+                .post_translate(math::vector(0f64, height_in_mm)),
+        )
+    } else {
+        None
+    }
+}
+
+fn apply_path<'a>(turtle: &mut Turtle, options: &ProgramOptions, path: &'a str) -> Vec<Command> {
+    use PathSegment::*;
+    PathParser::from(path)
+        .map(|segment| segment.expect("could not parse path segment"))
+        .map(|segment| {
+            match segment {
+                MoveTo { abs, x, y } => turtle.move_to(abs, x, y),
+                ClosePath { abs: _ } => {
+                    // Ignore abs, should have identical effect: [9.3.4. The "closepath" command]("https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand)
+                    turtle.close(None, options.feedrate)
+                }
+                LineTo { abs, x, y } => turtle.line(abs, x, y, None, options.feedrate),
+                HorizontalLineTo { abs, x } => turtle.line(abs, x, None, None, options.feedrate),
+                VerticalLineTo { abs, y } => turtle.line(abs, None, y, None, options.feedrate),
+                CurveTo {
+                    abs,
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    x,
+                    y,
+                } => turtle.cubic_bezier(
+                    abs,
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    x,
+                    y,
+                    options.tolerance,
+                    None,
+                    options.feedrate,
+                ),
+                SmoothCurveTo { abs, x2, y2, x, y } => turtle.smooth_cubic_bezier(
+                    abs,
+                    x2,
+                    y2,
+                    x,
+                    y,
+                    options.tolerance,
+                    None,
+                    options.feedrate,
+                ),
+                Quadratic { abs, x1, y1, x, y } => turtle.quadratic_bezier(
+                    abs,
+                    x1,
+                    y1,
+                    x,
+                    y,
+                    options.tolerance,
+                    None,
+                    options.feedrate,
+                ),
+                SmoothQuadratic { abs, x, y } => turtle.smooth_quadratic_bezier(
+                    abs,
+                    x,
+                    y,
+                    options.tolerance,
+                    None,
+                    options.feedrate,
+                ),
+                EllipticalArc {
+                    abs,
+                    rx,
+                    ry,
+                    x_axis_rotation,
+                    large_arc,
+                    sweep,
+                    x,
+                    y,
+                } => turtle.elliptical(
+                    abs,
+                    rx,
+                    ry,
+                    x_axis_rotation,
+                    large_arc,
+                    sweep,
+                    x,
+                    y,
+                    None,
+                    options.feedrate,
+                    options.tolerance,
+                ),
+            }
+        })
+        .flatten()
+        .collect()
+}
+
+fn svg_transform_into_euclid_transform(svg_transform: TransformListToken) -> Transform2D<f64> {
+    use TransformListToken::*;
+    match svg_transform {
+        Matrix { a, b, c, d, e, f } => Transform2D::row_major(a, b, c, d, e, f),
+        Translate { tx, ty } => Transform2D::create_translation(tx, ty),
+        Scale { sx, sy } => Transform2D::create_scale(sx, sy),
+        Rotate { angle } => Transform2D::create_rotation(Angle::degrees(angle)),
+        SkewX { angle } => {
+            warn!("Skew X might not be implemented correctly, please check the GCode output.");
+            Transform3D::create_skew(Angle::degrees(angle), Angle::degrees(0f64)).to_2d()
+        }
+        SkewY { angle } => {
+            warn!("Skew Y might not be implemented correctly, please check the GCode output.");
+            Transform3D::create_skew(Angle::degrees(0f64), Angle::degrees(angle)).to_2d()
+        }
+    }
+}
+
 /// Convenience function for converting absolute lengths to millimeters
 /// Absolute lengths are listed in [CSS 4 §6.2](https://www.w3.org/TR/css-values/#absolute-lengths)
 /// Relative lengths in [CSS 4 §6.1](https://www.w3.org/TR/css-values/#relative-lengths) are not supported and will cause a panic.
 /// A default DPI of 96 is used as per [CSS 4 §7.4](https://www.w3.org/TR/css-values/#resolution), which you can adjust with --dpi
-fn length_to_mm(l: svgdom::Length, dpi: f64) -> f64 {
-    use svgdom::LengthUnit::*;
+fn length_to_mm(l: svgtypes::Length, dpi: f64) -> f64 {
+    use svgtypes::LengthUnit::*;
     use uom::si::f64::Length;
     use uom::si::length::*;
 

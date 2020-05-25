@@ -6,25 +6,24 @@ use lyon_geom::math::{point, vector, F64Point};
 use lyon_geom::{ArcFlags, CubicBezierSegment, QuadraticBezierSegment, SvgArc};
 
 /// Turtle graphics simulator for paths that outputs the gcode representation for each operation.
-/// Handles trasforms, scaling, position, offsets, etc.  See https://www.w3.org/TR/SVG/paths.html
+/// Handles transforms, position, offsets, etc.  See https://www.w3.org/TR/SVG/paths.html
+#[derive(Debug)]
 pub struct Turtle {
     current_position: F64Point,
     initial_position: F64Point,
     current_transform: Transform2D<f64>,
-    scaling: Option<Transform2D<f64>>,
     transform_stack: Vec<Transform2D<f64>>,
     pub machine: Machine,
     previous_control: Option<F64Point>,
 }
 
 impl Turtle {
-    /// Create a turtle at the origin with no scaling or transform
+    /// Create a turtle at the origin with no transform
     pub fn new(machine: Machine) -> Self {
         Self {
             current_position: point(0.0, 0.0),
             initial_position: point(0.0, 0.0),
             current_transform: Transform2D::identity(),
-            scaling: None,
             transform_stack: vec![],
             machine,
             previous_control: None,
@@ -439,32 +438,12 @@ impl Turtle {
             .collect()
     }
 
-    /// Push a new scaling-only transform onto the stack
-    /// This is useful for handling things like the viewBox
-    /// https://www.w3.org/TR/SVG/coords.html#ViewBoxAttribute
-    pub fn stack_scaling(&mut self, scaling: Transform2D<f64>) {
-        self.current_transform = self.current_transform.post_transform(&scaling);
-        if let Some(ref current_scaling) = self.scaling {
-            self.scaling = Some(current_scaling.post_transform(&scaling));
-        } else {
-            self.scaling = Some(scaling);
-        }
-    }
-
     /// Push a generic transform onto the stack
     /// Could be any valid CSS transform https://drafts.csswg.org/css-transforms-1/#typedef-transform-function
     /// https://www.w3.org/TR/SVG/coords.html#InterfaceSVGTransform
     pub fn push_transform(&mut self, trans: Transform2D<f64>) {
         self.transform_stack.push(self.current_transform);
-        if let Some(ref scaling) = self.scaling {
-            self.current_transform = self
-                .current_transform
-                .post_transform(&scaling.inverse().unwrap())
-                .pre_transform(&trans)
-                .post_transform(&scaling);
-        } else {
-            self.current_transform = self.current_transform.post_transform(&trans);
-        }
+        self.current_transform = self.current_transform.post_transform(&trans);
     }
 
     /// Pop a generic transform off the stack, returning to the previous transform state
@@ -485,6 +464,7 @@ impl Turtle {
     }
 
     /// Reset the position of the turtle to the origin in the current transform stack
+    /// Used for starting a new path
     pub fn reset(&mut self) {
         self.current_position = point(0.0, 0.0);
         self.current_position = self

@@ -1,12 +1,7 @@
 #[macro_use]
 extern crate clap;
-extern crate env_logger;
 #[macro_use]
 extern crate log;
-extern crate lyon_geom;
-extern crate regex;
-extern crate svgdom;
-extern crate uom;
 
 use std::env;
 use std::fs::File;
@@ -19,12 +14,12 @@ mod converter;
 mod gcode;
 /// Emulates the state of an arbitrary machine that can run GCode
 mod machine;
-/// Provides an interface for drawing lines in GCode
-/// This concept is referred to as [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics).
-mod turtle;
 /// Operations that are easier to implement after GCode is generated, or would
 /// over-complicate SVG conversion
 mod postprocess;
+/// Provides an interface for drawing lines in GCode
+/// This concept is referred to as [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics).
+mod turtle;
 
 fn main() -> io::Result<()> {
     if let Err(_) = env::var("RUST_LOG") {
@@ -98,7 +93,7 @@ fn main() -> io::Result<()> {
             .unwrap_or_default(),
     );
 
-    let document = svgdom::Document::from_str(&input).expect("Invalid or unsupported SVG file");
+    let document = roxmltree::Document::parse(&input).expect("Invalid or unsupported SVG file");
 
     let mut program = converter::svg2program(&document, options, machine);
 
