@@ -3,7 +3,7 @@ use crate::gcode::*;
 use lyon_geom::math::{point, vector, F64Point};
 
 pub fn set_origin(commands: &mut [Command], origin: F64Point) {
-    let offset = get_bounding_box(commands).0.to_vector() + origin.to_vector();
+    let offset = -get_bounding_box(commands).0.to_vector() + origin.to_vector();
 
     let mut is_relative = false;
     let mut current_position = point(0f64, 0f64);
@@ -20,7 +20,7 @@ pub fn set_origin(commands: &mut [Command], origin: F64Point) {
                     commands[i].set('X', Value::Float((current_position + offset).x));
                     commands[i].set('Y', Value::Float((current_position + offset).y));
                 }
-            },
+            }
             AbsoluteDistanceMode => {
                 is_relative = false;
             }
@@ -46,8 +46,8 @@ fn get_bounding_box(commands: &[Command]) -> (F64Point, F64Point) {
                 is_relative = true;
             }
             LinearInterpolation | RapidPositioning => {
-                let x: f64 = (&command.get('x').unwrap().value).into();
-                let y: f64 = (&command.get('y').unwrap().value).into();
+                let x: f64 = (&command.get('X').unwrap().value).into();
+                let y: f64 = (&command.get('Y').unwrap().value).into();
                 if is_relative {
                     current_position += vector(x, y)
                 } else {
