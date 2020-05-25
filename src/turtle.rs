@@ -123,8 +123,8 @@ impl Turtle {
             .iter()
             .chain(self.machine.absolute().iter())
             .chain(std::iter::once(&Self::linear_interpolation(
-                self.initial_position.x.into(),
-                self.initial_position.y.into(),
+                self.initial_position.x,
+                self.initial_position.y,
                 z.into(),
                 f.into(),
             )))
@@ -174,8 +174,8 @@ impl Turtle {
             .iter()
             .chain(self.machine.absolute().iter())
             .chain(std::iter::once(&Self::linear_interpolation(
-                to.x.into(),
-                to.y.into(),
+                to.x,
+                to.y,
                 z.into(),
                 f.into(),
             )))
@@ -200,7 +200,7 @@ impl Turtle {
             .flattened(tolerance)
             .map(|point| {
                 last_point.set(point);
-                Self::linear_interpolation(point.x.into(), point.y.into(), z.into(), f.into())
+                Self::linear_interpolation(point.x, point.y, z, f)
             })
             .collect();
         self.current_position = last_point.get();
@@ -419,10 +419,10 @@ impl Turtle {
         let mut ellipse = vec![];
         arc.for_each_flattened(tolerance, &mut |point: F64Point| {
             ellipse.push(Self::linear_interpolation(
-                point.x.into(),
-                point.y.into(),
-                z.into(),
-                f.into(),
+                point.x,
+                point.y,
+                z,
+                f,
             ));
             last_point.set(point);
         });
@@ -457,9 +457,7 @@ impl Turtle {
 
     /// Remove all transforms, returning to true absolute coordinates
     pub fn pop_all_transforms(&mut self) {
-        while self.transform_stack.len() != 0 {
-            self.pop_transform();
-        }
+        self.transform_stack.clear();
         self.current_transform = Transform2D::identity();
     }
 

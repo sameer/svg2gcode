@@ -8,17 +8,17 @@ pub fn set_origin(commands: &mut [Command], origin: F64Point) {
     let mut is_relative = false;
     let mut current_position = point(0f64, 0f64);
 
-    for i in 0..commands.len() {
-        match &commands[i].word() {
+    for command in commands {
+        match command.word() {
             RapidPositioning | LinearInterpolation => {
-                let x: f64 = (&commands[i].get('X').unwrap().value).into();
-                let y: f64 = (&commands[i].get('Y').unwrap().value).into();
+                let x: f64 = (&command.get('X').unwrap().value).into();
+                let y: f64 = (&command.get('Y').unwrap().value).into();
                 if is_relative {
                     current_position += vector(x, y);
                 } else {
                     current_position = point(x, y);
-                    commands[i].set('X', Value::Float((current_position + offset).x));
-                    commands[i].set('Y', Value::Float((current_position + offset).y));
+                    command.set('X', Value::Float((current_position + offset).x));
+                    command.set('Y', Value::Float((current_position + offset).y));
                 }
             }
             AbsoluteDistanceMode => {
@@ -36,8 +36,7 @@ fn get_bounding_box(commands: &[Command]) -> (F64Point, F64Point) {
     let (mut minimum, mut maximum) = (point(0f64, 0f64), point(0f64, 0f64));
     let mut is_relative = false;
     let mut current_position = point(0f64, 0f64);
-    for i in 0..commands.len() {
-        let command = &commands[i];
+    for command in commands {
         match command.word() {
             AbsoluteDistanceMode => {
                 is_relative = false;

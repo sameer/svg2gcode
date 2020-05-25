@@ -95,7 +95,7 @@ pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Ve
             )
         }
 
-        if transforms.len() != 0 {
+        if !transforms.is_empty() {
             let transform = transforms
                 .iter()
                 .fold(Transform2D::identity(), |acc, t| acc.post_transform(t));
@@ -121,7 +121,7 @@ pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Ve
         if node.has_children() {
             node_stack.push((node, node.children()));
             name_stack.push(node_name(&node));
-        } else if transforms.len() != 0 {
+        } else if !transforms.is_empty() {
             // Pop transform early, since this is the only element that has it
             turtle.pop_transform();
         }

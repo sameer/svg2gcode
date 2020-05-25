@@ -66,7 +66,7 @@ pub fn parse_gcode(gcode: &str) -> Vec<Word> {
     if let Some(l) = letter {
         vec.push(Word {
             letter: l,
-            value: parse_value(&gcode[value_range.clone()]),
+            value: parse_value(&gcode[value_range]),
         });
     }
     vec
@@ -78,7 +78,7 @@ fn parse_value(word: &str) -> Value {
     } else {
         let index_of_dot = word.find('.');
         Value::Fractional(
-            word[..index_of_dot.unwrap_or(word.len())]
+            word[..index_of_dot.unwrap_or_else(|| word.len())]
                 .parse::<u32>()
                 .unwrap(),
             index_of_dot.map(|j| word[j + 1..].parse::<u32>().unwrap()),

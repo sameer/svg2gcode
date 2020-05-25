@@ -87,11 +87,11 @@ macro_rules! commands {
                 }
             }
 
-            pub fn word<'a>(&'a self) -> &'a CommandWord {
+            pub fn word(&'_ self) -> &'_ CommandWord {
                 &self.command_word
             }
 
-            pub fn get<'a>(&'a self, letter: char) -> Option<&'a Word> {
+            pub fn get(&'_ self, letter: char) -> Option<&'_ Word> {
                 let letter = letter.to_ascii_uppercase();
                 self.arguments.iter().find(|arg| arg.letter == letter)
             }

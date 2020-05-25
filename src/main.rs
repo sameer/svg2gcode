@@ -22,7 +22,7 @@ mod postprocess;
 mod turtle;
 
 fn main() -> io::Result<()> {
-    if let Err(_) = env::var("RUST_LOG") {
+    if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "svg2gcode=info")
     }
     env_logger::init();
