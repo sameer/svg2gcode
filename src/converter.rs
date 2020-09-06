@@ -74,8 +74,8 @@ pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Ve
         if let Some(view_box) = node.attribute("viewBox") {
             let view_box = ViewBox::from_str(view_box).expect("could not parse viewBox");
             transforms.push(
-                Transform2D::create_scale(1. / view_box.w, 1. / view_box.h)
-                    .post_translate(math::vector(view_box.x, view_box.y)),
+                Transform2D::scale(1. / view_box.w, 1. / view_box.h)
+                    .then_translate(math::vector(view_box.x, view_box.y)),
             );
         }
 
@@ -98,7 +98,7 @@ pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Ve
         if !transforms.is_empty() {
             let transform = transforms
                 .iter()
-                .fold(Transform2D::identity(), |acc, t| acc.post_transform(t));
+                .fold(Transform2D::identity(), |acc, t| acc.then(t));
             turtle.push_transform(transform);
         }
 
@@ -167,8 +167,8 @@ fn width_and_height_into_transform(
         let height_in_mm = length_to_mm(height, options.dpi);
 
         Some(
-            Transform2D::create_scale(width_in_mm, -height_in_mm)
-                .post_translate(math::vector(0f64, height_in_mm)),
+            Transform2D::scale(width_in_mm, -height_in_mm)
+                .then_translate(math::vector(0f64, height_in_mm)),
         )
     } else {
         None
@@ -268,17 +268,17 @@ fn apply_path<'a>(turtle: &mut Turtle, options: &ProgramOptions, path: &'a str) 
 fn svg_transform_into_euclid_transform(svg_transform: TransformListToken) -> Transform2D<f64> {
     use TransformListToken::*;
     match svg_transform {
-        Matrix { a, b, c, d, e, f } => Transform2D::row_major(a, b, c, d, e, f),
-        Translate { tx, ty } => Transform2D::create_translation(tx, ty),
-        Scale { sx, sy } => Transform2D::create_scale(sx, sy),
-        Rotate { angle } => Transform2D::create_rotation(Angle::degrees(angle)),
+        Matrix { a, b, c, d, e, f } => Transform2D::new(a, b, c, d, e, f),
+        Translate { tx, ty } => Transform2D::translation(tx, ty),
+        Scale { sx, sy } => Transform2D::scale(sx, sy),
+        Rotate { angle } => Transform2D::rotation(Angle::degrees(angle)),
         SkewX { angle } => {
             warn!("Skew X might not be implemented correctly, please check the GCode output.");
-            Transform3D::create_skew(Angle::degrees(angle), Angle::degrees(0f64)).to_2d()
+            Transform3D::skew(Angle::degrees(angle), Angle::degrees(0f64)).to_2d()
         }
         SkewY { angle } => {
             warn!("Skew Y might not be implemented correctly, please check the GCode output.");
-            Transform3D::create_skew(Angle::degrees(0f64), Angle::degrees(angle)).to_2d()
+            Transform3D::skew(Angle::degrees(0f64), Angle::degrees(angle)).to_2d()
         }
     }
 }

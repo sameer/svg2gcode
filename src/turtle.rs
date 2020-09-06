@@ -418,12 +418,7 @@ impl Turtle {
 
         let mut ellipse = vec![];
         arc.for_each_flattened(tolerance, &mut |point: F64Point| {
-            ellipse.push(Self::linear_interpolation(
-                point.x,
-                point.y,
-                z,
-                f,
-            ));
+            ellipse.push(Self::linear_interpolation(point.x, point.y, z, f));
             last_point.set(point);
         });
         self.current_position = last_point.get();
@@ -443,7 +438,7 @@ impl Turtle {
     /// https://www.w3.org/TR/SVG/coords.html#InterfaceSVGTransform
     pub fn push_transform(&mut self, trans: Transform2D<f64>) {
         self.transform_stack.push(self.current_transform);
-        self.current_transform = self.current_transform.post_transform(&trans);
+        self.current_transform = self.current_transform.then(&trans);
     }
 
     /// Pop a generic transform off the stack, returning to the previous transform state

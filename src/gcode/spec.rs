@@ -264,7 +264,7 @@ commands!(
     UnitsMillimeters {
         'G', 21, None, {}
     },
-    /// In absolute distance mode, axis numbers usually represent positions in terms of the currently active coordinate system. 
+    /// In absolute distance mode, axis numbers usually represent positions in terms of the currently active coordinate system.
     AbsoluteDistanceMode {
         'G', 90, None, {}
     },
