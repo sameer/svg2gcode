@@ -23,7 +23,7 @@ pub enum Distance {
 
 /// Generic machine state simulation, assuming nothing is known about the machine when initialized.
 /// This is used to reduce output GCode verbosity and run repetitive actions.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Machine {
     tool_state: Option<Tool>,
     distance_mode: Option<Distance>,

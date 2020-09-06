@@ -26,6 +26,16 @@ pub struct ProgramOptions {
     pub dpi: f64,
 }
 
+impl Default for ProgramOptions {
+    fn default() -> Self {
+        Self {
+            tolerance: 0.002,
+            feedrate: 300.0,
+            dpi: 96.0,
+        }
+    }
+}
+
 pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Vec<Command> {
     let mut turtle = Turtle::new(mach);
 

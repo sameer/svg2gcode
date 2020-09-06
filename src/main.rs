@@ -21,6 +21,9 @@ mod postprocess;
 /// This concept is referred to as [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics).
 mod turtle;
 
+use converter::ProgramOptions;
+use machine::Machine;
+
 fn main() -> io::Result<()> {
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "svg2gcode=info")
@@ -110,5 +113,26 @@ fn main() -> io::Result<()> {
         gcode::program2gcode(program, File::create(out_path)?)
     } else {
         gcode::program2gcode(program, std::io::stdout())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn square_produces_expected_gcode() {
+        let shapes = include_str!("../tests/square.svg");
+        let options = ProgramOptions::default();
+        let machine = Machine::default();
+        let document = roxmltree::Document::parse(&shapes).unwrap();
+
+        let program = converter::svg2program(&document, options, machine);
+        let mut actual = vec![];
+        assert!(gcode::program2gcode(program, &mut actual).is_ok());
+        assert_eq!(
+            String::from_utf8(actual).unwrap(),
+            include_str!("../tests/square.gcode")
+        )
     }
 }
