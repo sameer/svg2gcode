@@ -1,0 +1,12 @@
+G21
+G94
+G90
+G0 X0  Y0
+;svg#svg8 > g#layer1 > path#path838
+G0 X1  Y9
+G1 X9  Y9  F300
+G1 X9  Y1  F300
+G1 X1  Y1  F300
+G1 X1  Y9  F300
+G0 X0  Y0
+M20

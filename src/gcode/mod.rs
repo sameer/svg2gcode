@@ -94,8 +94,11 @@ pub fn program2gcode<W: Write>(program: Vec<Command>, mut w: W) -> io::Result<()
         let mut it = words.iter();
         if let Some(command_word) = it.next() {
             write!(w, "{}{}", command_word.letter, command_word.value)?;
-            for word in it {
-                write!(w, " {}{} ", word.letter, word.value)?;
+            for (i, word) in it.enumerate() {
+                write!(w, " {}{}", word.letter, word.value)?;
+                if i != words.len() - 2 {
+                    write!(w, " ");
+                }
             }
             writeln!(w, "")?;
         }
