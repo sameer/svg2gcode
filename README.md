@@ -1,6 +1,7 @@
 # svg2gcode
 
-[![Build Status](https://travis-ci.com/sameer/svg2gcode.svg?branch=master)](https://travis-ci.com/sameer/svg2gcode)
+![svg2gcode](https://github.com/sameer/svg2gcode/workflows/svg2gcode/badge.svg)
+[![codecov](https://codecov.io/gh/sameer/svg2gcode/branch/master/graph/badge.svg)](https://codecov.io/gh/sameer/svg2gcode)
 
 Convert any SVG 1.1 path to gcode for a pen plotter, laser engraver, etc.
 
