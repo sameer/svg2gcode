@@ -97,7 +97,7 @@ pub fn program2gcode<W: Write>(program: Vec<Command>, mut w: W) -> io::Result<()
             for (i, word) in it.enumerate() {
                 write!(w, " {}{}", word.letter, word.value)?;
                 if i != words.len() - 2 {
-                    write!(w, " ");
+                    write!(w, " ")?;
                 }
             }
             writeln!(w, "")?;
