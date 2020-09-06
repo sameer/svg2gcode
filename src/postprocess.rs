@@ -2,6 +2,7 @@ use crate::gcode::CommandWord::*;
 use crate::gcode::*;
 use lyon_geom::math::{point, vector, F64Point};
 
+/// Moves all the commands so that they are beyond a specified position
 pub fn set_origin(commands: &mut [Command], origin: F64Point) {
     let offset = -get_bounding_box(commands).0.to_vector() + origin.to_vector();
 

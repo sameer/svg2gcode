@@ -1,4 +1,3 @@
-/// TODO: Documentation
 use crate::gcode::*;
 use crate::machine::Machine;
 use lyon_geom::euclid::{default::Transform2D, Angle};
