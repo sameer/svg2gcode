@@ -45,7 +45,7 @@ cat out.gcode
 
 ## FAQ / Interesting details
 
-* Turn a 3D printer for plotting: (thanks @jeevank for sharing this) https://medium.com/@urish/how-to-turn-your-3d-printer-into-a-plotter-in-one-hour-d6fe14559f1a
+* Use a 3D printer for plotting: (thanks @jeevank for sharing this) https://medium.com/@urish/how-to-turn-your-3d-printer-into-a-plotter-in-one-hour-d6fe14559f1a
 
 * Convert a PDF to GCode: follow [this guide using Inkscape to convert a PDF to an SVG](https://en.wikipedia.org/wiki/Wikipedia:Graphics_Lab/Resources/PDF_conversion_to_SVG#Conversion_with_Inkscape), then use it with svg2gcode
 
