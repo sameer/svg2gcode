@@ -1,6 +1,8 @@
 use crate::gcode::CommandWord::*;
 use crate::gcode::*;
-use lyon_geom::math::{point, vector, F64Point};
+use lyon_geom::{point, vector, Point};
+
+type F64Point = Point<f64>;
 
 /// Moves all the commands so that they are beyond a specified position
 pub fn set_origin(commands: &mut [Command], origin: F64Point) {

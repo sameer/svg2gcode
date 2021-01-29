@@ -113,7 +113,7 @@ fn main() -> io::Result<()> {
         .map(|coords| coords.collect::<Vec<f64>>())
         .map(|coords| (coords[0], coords[1]))
         .unwrap_or((0., 0.));
-    postprocess::set_origin(&mut program, lyon_geom::math::point(origin.0, origin.1));
+    postprocess::set_origin(&mut program, lyon_geom::point(origin.0, origin.1));
 
     if let Some(out_path) = matches.value_of("out") {
         gcode::program2gcode(program, File::create(out_path)?)
@@ -132,7 +132,7 @@ mod test {
         let document = roxmltree::Document::parse(input).unwrap();
 
         let mut program = converter::svg2program(&document, options, machine);
-        postprocess::set_origin(&mut program, lyon_geom::math::point(0., 0.));
+        postprocess::set_origin(&mut program, lyon_geom::point(0., 0.));
 
         let mut actual = vec![];
         assert!(gcode::program2gcode(program, &mut actual).is_ok());

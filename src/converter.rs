@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use lyon_geom::{
     euclid::{default::Transform2D, Angle, Transform3D},
-    math,
+    vector,
 };
 use roxmltree::{Document, Node};
 use svgtypes::{
@@ -85,7 +85,7 @@ pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Ve
             let view_box = ViewBox::from_str(view_box).expect("could not parse viewBox");
             transforms.push(
                 Transform2D::scale(1. / view_box.w, 1. / view_box.h)
-                    .then_translate(math::vector(view_box.x, view_box.y)),
+                    .then_translate(vector(view_box.x, view_box.y)),
             );
         }
 
@@ -178,7 +178,7 @@ fn width_and_height_into_transform(
 
         Some(
             Transform2D::scale(width_in_mm, -height_in_mm)
-                .then_translate(math::vector(0f64, height_in_mm)),
+                .then_translate(vector(0f64, height_in_mm)),
         )
     } else {
         None

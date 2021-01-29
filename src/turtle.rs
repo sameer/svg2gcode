@@ -1,8 +1,10 @@
 use crate::gcode::*;
 use crate::machine::Machine;
 use lyon_geom::euclid::{default::Transform2D, Angle};
-use lyon_geom::math::{point, vector, F64Point};
+use lyon_geom::{point, vector, Point};
 use lyon_geom::{ArcFlags, CubicBezierSegment, QuadraticBezierSegment, SvgArc};
+
+type F64Point = Point<f64>;
 
 /// Turtle graphics simulator for paths that outputs the gcode representation for each operation.
 /// Handles transforms, position, offsets, etc.  See https://www.w3.org/TR/SVG/paths.html
