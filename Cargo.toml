@@ -1,7 +1,7 @@
 [package]
 name = "svg2gcode"
 version = "0.0.2"
-authors = ["Sameer Puri <purisame@spuri.io>"]
+authors = ["Sameer Puri <sameer@purisa.me>"]
 edition = "2018"
 description = "Convert paths in SVG files to GCode for a pen plotter, laser engraver, or other machine."
 

@@ -35,17 +35,17 @@ struct Opt {
     /// Dots per inch (DPI) for pixels, points, picas, etc.
     #[structopt(long, default_value = "96")]
     dpi: f64,
-    #[structopt(short = "on", long)]
+    #[structopt(alias = "tool_on_sequence", long = "on")]
     /// Tool on GCode sequence
     tool_on_sequence: Option<String>,
-    #[structopt(short = "off", long)]
+    #[structopt(alias = "tool_off_sequence", long = "off")]
     /// Tool off GCode sequence
     tool_off_sequence: Option<String>,
     /// Optional GCode begin sequence (i.e. change to a cutter tool)
-    #[structopt(short = "begin", long)]
+    #[structopt(alias = "begin_sequence", long = "begin")]
     begin_sequence: Option<String>,
     /// Optional GCode end sequence, prior to program end (i.e. put away a cutter tool)
-    #[structopt(short = "end", long)]
+    #[structopt(alias = "end_sequence", long = "end")]
     end_sequence: Option<String>,
     /// A file path for an SVG, else reads from stdin
     file: Option<PathBuf>,
