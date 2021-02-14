@@ -1,17 +1,24 @@
-use crate::gcode::*;
-
-//// Direction of the machine spindle
-#[derive(Clone, PartialEq, Eq)]
-pub enum Direction {
-    Clockwise,
-    Counterclockwise,
-}
+use g_code::{
+    command,
+    emit::Token,
+    parse::{ast::Snippet, token::Field},
+};
 
 /// Whether the tool is active (i.e. cutting)
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Tool {
     Off,
     On,
+}
+
+impl std::ops::Not for Tool {
+    type Output = Self;
+    fn not(self) -> Self {
+        match self {
+            Self::Off => Self::On,
+            Self::On => Self::Off,
+        }
+    }
 }
 
 /// The distance mode for movement commands
@@ -21,80 +28,87 @@ pub enum Distance {
     Relative,
 }
 
-/// Generic machine state simulation, assuming nothing is known about the machine when initialized.
-/// This is used to reduce output GCode verbosity and run repetitive actions.
-#[derive(Debug, Default)]
-pub struct Machine {
-    tool_state: Option<Tool>,
-    distance_mode: Option<Distance>,
-    tool_on_action: Vec<Command>,
-    tool_off_action: Vec<Command>,
-    program_begin_sequence: Vec<Command>,
-    program_end_sequence: Vec<Command>,
-}
-
-impl Machine {
-    /// Create a generic machine, given a tool on/off GCode sequence.
-    pub fn new(
-        tool_on_action: Vec<Word>,
-        tool_off_action: Vec<Word>,
-        program_begin_sequence: Vec<Word>,
-        program_end_sequence: Vec<Word>,
-    ) -> Self {
-        Self {
-            tool_state: None,
-            distance_mode: None,
-            tool_on_action: CommandVecIntoIterator::from(tool_on_action).collect(),
-            tool_off_action: CommandVecIntoIterator::from(tool_off_action).collect(),
-            program_begin_sequence: CommandVecIntoIterator::from(program_begin_sequence).collect(),
-            program_end_sequence: CommandVecIntoIterator::from(program_end_sequence).collect(),
+impl std::ops::Not for Distance {
+    type Output = Self;
+    fn not(self) -> Self {
+        match self {
+            Self::Absolute => Self::Relative,
+            Self::Relative => Self::Absolute,
         }
     }
 }
 
-impl Machine {
+/// Generic machine state simulation, assuming nothing is known about the machine when initialized.
+/// This is used to reduce output GCode verbosity and run repetitive actions.
+#[derive(Debug)]
+pub struct Machine<'input> {
+    pub(crate) tool_state: Option<Tool>,
+    pub(crate) distance_mode: Option<Distance>,
+    pub(crate) tool_on_action: Option<Snippet<'input>>,
+    pub(crate) tool_off_action: Option<Snippet<'input>>,
+    pub(crate) program_begin_sequence: Option<Snippet<'input>>,
+    pub(crate) program_end_sequence: Option<Snippet<'input>>,
+}
+
+impl<'input> Machine<'input> {
     /// Output gcode to turn the tool on.
-    pub fn tool_on(&mut self) -> Vec<Command> {
+    pub fn tool_on<'a>(&'a mut self) -> Vec<Token> {
         if self.tool_state == Some(Tool::Off) || self.tool_state == None {
             self.tool_state = Some(Tool::On);
-            self.tool_on_action.clone()
+            self.tool_on_action
+                .iter()
+                .flat_map(|s| s.iter_fields())
+                .map(|f: &Field| Token::from(f))
+                .collect()
         } else {
             vec![]
         }
     }
 
     /// Output gcode to turn the tool off.
-    pub fn tool_off(&mut self) -> Vec<Command> {
+    pub fn tool_off<'a>(&'a mut self) -> Vec<Token> {
         if self.tool_state == Some(Tool::On) || self.tool_state == None {
             self.tool_state = Some(Tool::Off);
-            self.tool_off_action.clone()
+            self.tool_on_action
+                .iter()
+                .flat_map(|s| s.iter_fields())
+                .map(|f: &Field| Token::from(f))
+                .collect()
         } else {
             vec![]
         }
     }
 
-    pub fn program_begin(&self) -> Vec<Command> {
-        self.program_begin_sequence.clone()
+    pub fn program_begin<'a>(&'a self) -> Vec<Token> {
+        self.program_begin_sequence
+            .iter()
+            .flat_map(|s| s.iter_fields())
+            .map(|f: &Field| Token::from(f))
+            .collect()
     }
-    pub fn program_end(&self) -> Vec<Command> {
-        self.program_end_sequence.clone()
-    }
-
-    /// Output relative distance field if mode was absolute or unknown.
-    pub fn absolute(&mut self) -> Vec<Command> {
-        if self.distance_mode == Some(Distance::Relative) || self.distance_mode == None {
-            self.distance_mode = Some(Distance::Absolute);
-            vec![command!(CommandWord::AbsoluteDistanceMode, {})]
-        } else {
-            vec![]
-        }
+    pub fn program_end<'a>(&'a self) -> Vec<Token> {
+        self.program_end_sequence
+            .iter()
+            .flat_map(|s| s.iter_fields())
+            .map(|f: &Field| Token::from(f))
+            .collect()
     }
 
     /// Output absolute distance field if mode was relative or unknown.
-    pub fn relative(&mut self) -> Vec<Command> {
+    pub fn absolute(&mut self) -> Vec<Token> {
+        if self.distance_mode == Some(Distance::Relative) || self.distance_mode == None {
+            self.distance_mode = Some(Distance::Absolute);
+            command!(AbsoluteDistanceMode {}).as_token_vec()
+        } else {
+            vec![]
+        }
+    }
+
+    /// Output relative distance field if mode was absolute or unknown.
+    pub fn relative(&mut self) -> Vec<Token> {
         if self.distance_mode == Some(Distance::Absolute) || self.distance_mode == None {
             self.distance_mode = Some(Distance::Relative);
-            vec![command!(CommandWord::RelativeDistanceMode, {})]
+            command!(RelativeDistanceMode {}).as_token_vec()
         } else {
             vec![]
         }

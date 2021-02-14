@@ -1,5 +1,8 @@
-use crate::gcode::*;
 use crate::machine::Machine;
+use g_code::{
+    command,
+    emit::{Field, Token, Value},
+};
 use lyon_geom::euclid::{default::Transform2D, Angle};
 use lyon_geom::{point, vector, Point};
 use lyon_geom::{ArcFlags, CubicBezierSegment, QuadraticBezierSegment, SvgArc};
@@ -9,18 +12,18 @@ type F64Point = Point<f64>;
 /// Turtle graphics simulator for paths that outputs the gcode representation for each operation.
 /// Handles transforms, position, offsets, etc.  See https://www.w3.org/TR/SVG/paths.html
 #[derive(Debug)]
-pub struct Turtle {
+pub struct Turtle<'input> {
     current_position: F64Point,
     initial_position: F64Point,
     current_transform: Transform2D<f64>,
     transform_stack: Vec<Transform2D<f64>>,
-    pub machine: Machine,
+    pub machine: Machine<'input>,
     previous_control: Option<F64Point>,
 }
 
-impl Turtle {
+impl<'input> Turtle<'input> {
     /// Create a turtle at the origin with no transform
-    pub fn new(machine: Machine) -> Self {
+    pub fn new(machine: Machine<'input>) -> Self {
         Self {
             current_position: point(0.0, 0.0),
             initial_position: point(0.0, 0.0),
@@ -30,12 +33,10 @@ impl Turtle {
             previous_control: None,
         }
     }
-}
 
-impl Turtle {
     /// Move the turtle to the given absolute/relative coordinates in the current transform
     /// https://www.w3.org/TR/SVG/paths.html#PathDataMovetoCommands
-    pub fn move_to<X, Y>(&mut self, abs: bool, x: X, y: Y) -> Vec<Command>
+    pub fn move_to<X, Y>(&mut self, abs: bool, x: X, y: Y) -> Vec<Token>
     where
         X: Into<Option<f64>>,
         Y: Into<Option<f64>>,
@@ -71,39 +72,38 @@ impl Turtle {
 
         self.machine
             .tool_off()
-            .iter()
-            .chain(self.machine.absolute().iter())
-            .chain(std::iter::once(&command!(CommandWord::RapidPositioning, {
-                x : to.x as f64,
-                y : to.y as f64,
-            })))
-            .map(Clone::clone)
+            .drain(..)
+            .chain(self.machine.absolute().drain(..))
+            .chain(
+                command!(RapidPositioning {
+                    X: to.x as f64,
+                    Y: to.y as f64,
+                })
+                .as_token_vec(),
+            )
             .collect()
     }
 
-    fn linear_interpolation(x: f64, y: f64, z: Option<f64>, f: Option<f64>) -> Command {
-        let mut linear_interpolation = command!(CommandWord::LinearInterpolation, {
-            x: x,
-            y: y,
-        });
+    fn linear_interpolation(x: f64, y: f64, z: Option<f64>, f: Option<f64>) -> Vec<Token> {
+        let mut linear_interpolation = command! {LinearInterpolation { X: x, Y: y, }};
         if let Some(z) = z {
-            linear_interpolation.push(Word {
-                letter: 'Z',
+            linear_interpolation.push(Field {
+                letters: "Z".to_string(),
                 value: Value::Float(z),
             });
         }
         if let Some(f) = f {
-            linear_interpolation.push(Word {
-                letter: 'F',
+            linear_interpolation.push(Field {
+                letters: "F".into(),
                 value: Value::Float(f),
             });
         }
-        linear_interpolation
+        linear_interpolation.as_token_vec()
     }
 
     /// Close an SVG path, cutting back to its initial position
     /// https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand
-    pub fn close<Z, F>(&mut self, z: Z, f: F) -> Vec<Command>
+    pub fn close<Z, F>(&mut self, z: Z, f: F) -> Vec<Token>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -121,21 +121,20 @@ impl Turtle {
 
         self.machine
             .tool_on()
-            .iter()
-            .chain(self.machine.absolute().iter())
-            .chain(std::iter::once(&Self::linear_interpolation(
+            .drain(..)
+            .chain(self.machine.absolute())
+            .chain(Self::linear_interpolation(
                 self.initial_position.x,
                 self.initial_position.y,
                 z.into(),
                 f.into(),
-            )))
-            .map(Clone::clone)
+            ))
             .collect()
     }
 
     /// Draw a line from the current position in the current transform to the specified position
     /// https://www.w3.org/TR/SVG/paths.html#PathDataLinetoCommands
-    pub fn line<X, Y, Z, F>(&mut self, abs: bool, x: X, y: Y, z: Z, f: F) -> Vec<Command>
+    pub fn line<X, Y, Z, F>(&mut self, abs: bool, x: X, y: Y, z: Z, f: F) -> Vec<Token>
     where
         X: Into<Option<f64>>,
         Y: Into<Option<f64>>,
@@ -172,15 +171,9 @@ impl Turtle {
 
         self.machine
             .tool_on()
-            .iter()
-            .chain(self.machine.absolute().iter())
-            .chain(std::iter::once(&Self::linear_interpolation(
-                to.x,
-                to.y,
-                z.into(),
-                f.into(),
-            )))
-            .map(Clone::clone)
+            .drain(..)
+            .chain(self.machine.absolute())
+            .chain(Self::linear_interpolation(to.x, to.y, z.into(), f.into()))
             .collect()
     }
 
@@ -193,13 +186,13 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<Command> {
+    ) -> Vec<Token> {
         let z = z.into();
         let f = f.into();
         let last_point = std::cell::Cell::new(self.current_position);
-        let cubic: Vec<Command> = cbs
+        let cubic: Vec<Token> = cbs
             .flattened(tolerance)
-            .map(|point| {
+            .flat_map(|point| {
                 last_point.set(point);
                 Self::linear_interpolation(point.x, point.y, z, f)
             })
@@ -214,10 +207,9 @@ impl Turtle {
 
         self.machine
             .tool_on()
-            .iter()
-            .chain(self.machine.absolute().iter())
-            .chain(cubic.iter())
-            .map(Clone::clone)
+            .drain(..)
+            .chain(self.machine.absolute())
+            .chain(cubic)
             .collect()
     }
 
@@ -235,7 +227,7 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<Command>
+    ) -> Vec<Token>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -277,7 +269,7 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<Command>
+    ) -> Vec<Token>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -315,7 +307,7 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<Command>
+    ) -> Vec<Token>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -347,7 +339,7 @@ impl Turtle {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<Command>
+    ) -> Vec<Token>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -384,7 +376,7 @@ impl Turtle {
         z: Z,
         f: F,
         tolerance: f64,
-    ) -> Vec<Command>
+    ) -> Vec<Token>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -419,7 +411,7 @@ impl Turtle {
 
         let mut ellipse = vec![];
         arc.for_each_flattened(tolerance, &mut |point: F64Point| {
-            ellipse.push(Self::linear_interpolation(point.x, point.y, z, f));
+            ellipse.append(&mut Self::linear_interpolation(point.x, point.y, z, f));
             last_point.set(point);
         });
         self.current_position = last_point.get();
@@ -427,10 +419,9 @@ impl Turtle {
 
         self.machine
             .tool_on()
-            .iter()
-            .chain(self.machine.absolute().iter())
-            .chain(ellipse.iter())
-            .map(Clone::clone)
+            .drain(..)
+            .chain(self.machine.absolute())
+            .chain(ellipse)
             .collect()
     }
 

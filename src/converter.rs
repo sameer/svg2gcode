@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use g_code::{command, emit::Token};
 use lyon_geom::{
     euclid::{default::Transform2D, Angle, Transform3D},
     vector,
@@ -9,9 +10,6 @@ use svgtypes::{
     LengthListParser, PathParser, PathSegment, TransformListParser, TransformListToken, ViewBox,
 };
 
-#[macro_use]
-use crate::*;
-use crate::gcode::*;
 use crate::machine::*;
 use crate::turtle::*;
 
@@ -36,15 +34,17 @@ impl Default for ProgramOptions {
     }
 }
 
-pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Vec<Command> {
+pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Vec<Token> {
     let mut turtle = Turtle::new(mach);
 
-    let mut program = vec![
-        command!(CommandWord::UnitsMillimeters, {}),
-        command!(CommandWord::FeedRateUnitsPerMinute, {}),
-    ];
-    program.append(&mut turtle.machine.program_begin());
-    program.append(&mut turtle.machine.absolute());
+    let mut program = command!(UnitsMillimeters {})
+        .as_token_vec()
+        .drain(..)
+        .chain(command!(FeedRateUnitsPerMinute {}).as_token_vec())
+        .collect::<Vec<_>>();
+
+    program.extend(turtle.machine.program_begin());
+    program.extend(turtle.machine.absolute());
     program.append(&mut turtle.move_to(true, 0.0, 0.0));
 
     // Depth-first SVG DOM traversal
@@ -121,8 +121,11 @@ pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Ve
                     comment += " > ";
                 });
                 comment += &node_name(&node);
-                program.push(command!(CommandWord::Comment(Box::new(comment)), {}));
-                program.append(&mut apply_path(&mut turtle, &options, d));
+                program.push(Token::Comment {
+                    is_inline: false,
+                    inner: comment,
+                });
+                program.extend(apply_path(&mut turtle, &options, d));
             } else {
                 warn!("There is a path node containing no actual path: {:?}", node);
             }
@@ -139,11 +142,11 @@ pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Ve
 
     // Critical step for actually moving the machine back to the origin, just in case SVG is malformed
     turtle.pop_all_transforms();
-    program.append(&mut turtle.machine.tool_off());
-    program.append(&mut turtle.machine.absolute());
+    program.extend(turtle.machine.tool_off());
+    program.extend(turtle.machine.absolute());
     program.append(&mut turtle.move_to(true, 0.0, 0.0));
-    program.append(&mut turtle.machine.program_end());
-    program.push(command!(CommandWord::ProgramEnd, {}));
+    program.extend(turtle.machine.program_end());
+    program.append(&mut command!(ProgramEnd {}).as_token_vec());
 
     program
 }
@@ -185,11 +188,11 @@ fn width_and_height_into_transform(
     }
 }
 
-fn apply_path<'a>(turtle: &mut Turtle, options: &ProgramOptions, path: &'a str) -> Vec<Command> {
+fn apply_path(turtle: &mut Turtle, options: &ProgramOptions, path: &str) -> Vec<Token> {
     use PathSegment::*;
     PathParser::from(path)
         .map(|segment| segment.expect("could not parse path segment"))
-        .map(|segment| {
+        .flat_map(|segment| {
             match segment {
                 MoveTo { abs, x, y } => turtle.move_to(abs, x, y),
                 ClosePath { abs: _ } => {
@@ -271,7 +274,6 @@ fn apply_path<'a>(turtle: &mut Turtle, options: &ProgramOptions, path: &'a str) 
                 ),
             }
         })
-        .flatten()
         .collect()
 }
 
