@@ -69,7 +69,7 @@ impl<'input> Machine<'input> {
     pub fn tool_off<'a>(&'a mut self) -> Vec<Token> {
         if self.tool_state == Some(Tool::On) || self.tool_state == None {
             self.tool_state = Some(Tool::Off);
-            self.tool_on_action
+            self.tool_off_action
                 .iter()
                 .flat_map(|s| s.iter_fields())
                 .map(|f: &Field| Token::from(f))
