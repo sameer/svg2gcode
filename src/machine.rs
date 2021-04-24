@@ -98,7 +98,7 @@ impl<'input> Machine<'input> {
     pub fn absolute(&mut self) -> Vec<Token> {
         if self.distance_mode == Some(Distance::Relative) || self.distance_mode == None {
             self.distance_mode = Some(Distance::Absolute);
-            command!(AbsoluteDistanceMode {}).as_token_vec()
+            command!(AbsoluteDistanceMode {}).into_token_vec()
         } else {
             vec![]
         }
@@ -108,7 +108,7 @@ impl<'input> Machine<'input> {
     pub fn relative(&mut self) -> Vec<Token> {
         if self.distance_mode == Some(Distance::Absolute) || self.distance_mode == None {
             self.distance_mode = Some(Distance::Relative);
-            command!(RelativeDistanceMode {}).as_token_vec()
+            command!(RelativeDistanceMode {}).into_token_vec()
         } else {
             vec![]
         }

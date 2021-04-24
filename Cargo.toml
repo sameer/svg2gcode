@@ -6,7 +6,7 @@ edition = "2018"
 description = "Convert paths in SVG files to GCode for a pen plotter, laser engraver, or other machine."
 
 [dependencies]
-g-code = "0.0.1"
+g-code = "0.1.0"
 lyon_geom = "0"
 euclid = "0.22"
 structopt = "0.3"

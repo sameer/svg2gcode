@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::PathBuf;
 
-use g_code::parse::{ast::Snippet, lexer::Lexer, ParseError, SnippetParser};
+use g_code::parse::{ast::Snippet, ParseError, snippet_parser};
 use structopt::StructOpt;
 
 /// Converts an SVG to GCode in an internal representation
@@ -155,8 +155,8 @@ fn main() -> io::Result<()> {
     }
 }
 
-fn parse_snippet<'input>(gcode: &'input String) -> Result<Snippet<'input>, ParseError<'input>> {
-    SnippetParser::new().parse(gcode, Lexer::new(gcode))
+fn parse_snippet<'input>(gcode: &'input String) -> Result<Snippet<'input>, ParseError> {
+    snippet_parser(gcode)
 }
 
 fn tokens_into_gcode<W: std::io::Write>(

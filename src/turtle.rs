@@ -79,7 +79,7 @@ impl<'input> Turtle<'input> {
                     X: to.x as f64,
                     Y: to.y as f64,
                 })
-                .as_token_vec(),
+                .into_token_vec(),
             )
             .collect()
     }
@@ -98,7 +98,7 @@ impl<'input> Turtle<'input> {
                 value: Value::Float(f),
             });
         }
-        linear_interpolation.as_token_vec()
+        linear_interpolation.into_token_vec()
     }
 
     /// Close an SVG path, cutting back to its initial position

@@ -38,9 +38,9 @@ pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Ve
     let mut turtle = Turtle::new(mach);
 
     let mut program = command!(UnitsMillimeters {})
-        .as_token_vec()
+        .into_token_vec()
         .drain(..)
-        .chain(command!(FeedRateUnitsPerMinute {}).as_token_vec())
+        .chain(command!(FeedRateUnitsPerMinute {}).into_token_vec())
         .collect::<Vec<_>>();
 
     program.extend(turtle.machine.program_begin());
@@ -146,7 +146,7 @@ pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Ve
     program.extend(turtle.machine.absolute());
     program.append(&mut turtle.move_to(true, 0.0, 0.0));
     program.extend(turtle.machine.program_end());
-    program.append(&mut command!(ProgramEnd {}).as_token_vec());
+    program.append(&mut command!(ProgramEnd {}).into_token_vec());
 
     program
 }
