@@ -7,15 +7,15 @@ use lyon_geom::{point, vector, Point};
 type F64Point = Point<f64>;
 
 /// Moves all the commands so that they are beyond a specified position
-pub fn set_origin(tokens: &mut [Token], origin: F64Point) {
+pub fn set_origin(tokens: &mut [Token<'_>], origin: F64Point) {
     let offset = -get_bounding_box(tokens.iter()).min.to_vector() + origin.to_vector();
 
     let mut is_relative = false;
     let mut current_position = point(0f64, 0f64);
-    let x = "X".to_string();
-    let y = "Y".to_string();
-    let abs_tok = Token::Field(ABSOLUTE_DISTANCE_MODE_FIELD.clone());
-    let rel_tok = Token::Field(RELATIVE_DISTANCE_MODE_FIELD.clone());
+    let x = "X";
+    let y = "Y";
+    let abs_tok = Token::Field(ABSOLUTE_DISTANCE_MODE_FIELD);
+    let rel_tok = Token::Field(RELATIVE_DISTANCE_MODE_FIELD);
     for token in tokens {
         match token {
             abs if *abs == abs_tok => is_relative = false,
@@ -45,14 +45,14 @@ pub fn set_origin(tokens: &mut [Token], origin: F64Point) {
     }
 }
 
-fn get_bounding_box<'a, I: Iterator<Item = &'a Token>>(tokens: I) -> Box2D<f64> {
+fn get_bounding_box<'a, I: Iterator<Item = &'a Token<'a>>>(tokens: I) -> Box2D<f64> {
     let (mut minimum, mut maximum) = (point(0f64, 0f64), point(0f64, 0f64));
     let mut is_relative = false;
     let mut current_position = point(0f64, 0f64);
-    let x = "X".to_string();
-    let y = "Y".to_string();
-    let abs_tok = Token::Field(ABSOLUTE_DISTANCE_MODE_FIELD.clone());
-    let rel_tok = Token::Field(RELATIVE_DISTANCE_MODE_FIELD.clone());
+    let x = "X";
+    let y = "Y";
+    let abs_tok = Token::Field(ABSOLUTE_DISTANCE_MODE_FIELD);
+    let rel_tok = Token::Field(RELATIVE_DISTANCE_MODE_FIELD);
     for token in tokens {
         match token {
             abs if *abs == abs_tok => is_relative = false,

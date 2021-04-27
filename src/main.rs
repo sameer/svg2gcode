@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::PathBuf;
 
-use g_code::parse::{ast::Snippet, ParseError, snippet_parser};
+use g_code::parse::{ast::Snippet, snippet_parser, ParseError};
 use structopt::StructOpt;
 
 /// Converts an SVG to GCode in an internal representation
@@ -22,6 +22,7 @@ mod turtle;
 
 use converter::ProgramOptions;
 use machine::Machine;
+use turtle::Turtle;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "svg2gcode", author, about)]
@@ -81,10 +82,11 @@ fn main() -> io::Result<()> {
         }
     };
 
-    let mut options = ProgramOptions::default();
-    options.tolerance = opt.tolerance;
-    options.feedrate = opt.feedrate;
-    options.dpi = opt.dpi;
+    let options = ProgramOptions {
+        tolerance: opt.tolerance,
+        feedrate: opt.feedrate,
+        dpi: opt.dpi,
+    };
 
     let snippets = [
         opt.tool_on_sequence.as_ref().map(parse_snippet).transpose(),
@@ -139,7 +141,8 @@ fn main() -> io::Result<()> {
 
     let document = roxmltree::Document::parse(&input).expect("Invalid or unsupported SVG file");
 
-    let mut program = converter::svg2program(&document, options, machine);
+    let mut turtle = Turtle::new(machine);
+    let mut program = converter::svg2program(&document, options, &mut turtle);
 
     let origin = opt
         .origin
@@ -155,12 +158,12 @@ fn main() -> io::Result<()> {
     }
 }
 
-fn parse_snippet<'input>(gcode: &'input String) -> Result<Snippet<'input>, ParseError> {
+fn parse_snippet(gcode: &'_ String) -> Result<Snippet<'_>, ParseError> {
     snippet_parser(gcode)
 }
 
 fn tokens_into_gcode<W: std::io::Write>(
-    program: Vec<g_code::emit::Token>,
+    program: Vec<g_code::emit::Token<'_>>,
     mut w: W,
 ) -> io::Result<()> {
     use g_code::emit::Token::*;
@@ -169,8 +172,8 @@ fn tokens_into_gcode<W: std::io::Write>(
         match token {
             Field(f) => {
                 if !preceded_by_newline {
-                    if matches!(f.letters.as_str(), "G" | "M") {
-                        writeln!(w, "")?;
+                    if matches!(f.letters.as_ref(), "G" | "M") {
+                        writeln!(w)?;
                     } else {
                         write!(w, " ")?;
                     }
@@ -197,7 +200,7 @@ fn tokens_into_gcode<W: std::io::Write>(
     }
     // Ensure presence of trailing newline
     if !preceded_by_newline {
-        writeln!(w, "")?;
+        writeln!(w)?;
     }
     Ok(())
 }
@@ -205,6 +208,7 @@ fn tokens_into_gcode<W: std::io::Write>(
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::turtle::Turtle;
     use pretty_assertions::assert_eq;
 
     fn get_actual(input: &str) -> String {
@@ -219,7 +223,8 @@ mod test {
         };
         let document = roxmltree::Document::parse(input).unwrap();
 
-        let mut program = converter::svg2program(&document, options, machine);
+        let mut turtle = Turtle::new(machine);
+        let mut program = converter::svg2program(&document, options, &mut turtle);
         postprocess::set_origin(&mut program, lyon_geom::point(0., 0.));
 
         let mut actual = vec![];

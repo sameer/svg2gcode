@@ -6,6 +6,7 @@ use g_code::{
 use lyon_geom::euclid::{default::Transform2D, Angle};
 use lyon_geom::{point, vector, Point};
 use lyon_geom::{ArcFlags, CubicBezierSegment, QuadraticBezierSegment, SvgArc};
+use std::borrow::Cow;
 
 type F64Point = Point<f64>;
 
@@ -36,7 +37,7 @@ impl<'input> Turtle<'input> {
 
     /// Move the turtle to the given absolute/relative coordinates in the current transform
     /// https://www.w3.org/TR/SVG/paths.html#PathDataMovetoCommands
-    pub fn move_to<X, Y>(&mut self, abs: bool, x: X, y: Y) -> Vec<Token>
+    pub fn move_to<X, Y>(&mut self, abs: bool, x: X, y: Y) -> Vec<Token<'input>>
     where
         X: Into<Option<f64>>,
         Y: Into<Option<f64>>,
@@ -84,17 +85,17 @@ impl<'input> Turtle<'input> {
             .collect()
     }
 
-    fn linear_interpolation(x: f64, y: f64, z: Option<f64>, f: Option<f64>) -> Vec<Token> {
+    fn linear_interpolation(x: f64, y: f64, z: Option<f64>, f: Option<f64>) -> Vec<Token<'static>> {
         let mut linear_interpolation = command! {LinearInterpolation { X: x, Y: y, }};
         if let Some(z) = z {
             linear_interpolation.push(Field {
-                letters: "Z".to_string(),
+                letters: Cow::Borrowed("Z"),
                 value: Value::Float(z),
             });
         }
         if let Some(f) = f {
             linear_interpolation.push(Field {
-                letters: "F".into(),
+                letters: Cow::Borrowed("F"),
                 value: Value::Float(f),
             });
         }
@@ -103,7 +104,7 @@ impl<'input> Turtle<'input> {
 
     /// Close an SVG path, cutting back to its initial position
     /// https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand
-    pub fn close<Z, F>(&mut self, z: Z, f: F) -> Vec<Token>
+    pub fn close<Z, F>(&mut self, z: Z, f: F) -> Vec<Token<'input>>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -134,7 +135,7 @@ impl<'input> Turtle<'input> {
 
     /// Draw a line from the current position in the current transform to the specified position
     /// https://www.w3.org/TR/SVG/paths.html#PathDataLinetoCommands
-    pub fn line<X, Y, Z, F>(&mut self, abs: bool, x: X, y: Y, z: Z, f: F) -> Vec<Token>
+    pub fn line<X, Y, Z, F>(&mut self, abs: bool, x: X, y: Y, z: Z, f: F) -> Vec<Token<'input>>
     where
         X: Into<Option<f64>>,
         Y: Into<Option<f64>>,
@@ -186,7 +187,7 @@ impl<'input> Turtle<'input> {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<Token> {
+    ) -> Vec<Token<'input>> {
         let z = z.into();
         let f = f.into();
         let last_point = std::cell::Cell::new(self.current_position);
@@ -227,7 +228,7 @@ impl<'input> Turtle<'input> {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<Token>
+    ) -> Vec<Token<'input>>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -269,7 +270,7 @@ impl<'input> Turtle<'input> {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<Token>
+    ) -> Vec<Token<'input>>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -307,7 +308,7 @@ impl<'input> Turtle<'input> {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<Token>
+    ) -> Vec<Token<'input>>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -339,7 +340,7 @@ impl<'input> Turtle<'input> {
         tolerance: f64,
         z: Z,
         f: F,
-    ) -> Vec<Token>
+    ) -> Vec<Token<'input>>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,
@@ -376,7 +377,7 @@ impl<'input> Turtle<'input> {
         z: Z,
         f: F,
         tolerance: f64,
-    ) -> Vec<Token>
+    ) -> Vec<Token<'input>>
     where
         Z: Into<Option<f64>>,
         F: Into<Option<f64>>,

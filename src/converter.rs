@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::str::FromStr;
 
 use g_code::{command, emit::Token};
@@ -10,7 +11,6 @@ use svgtypes::{
     LengthListParser, PathParser, PathSegment, TransformListParser, TransformListToken, ViewBox,
 };
 
-use crate::machine::*;
 use crate::turtle::*;
 
 /// High-level output options
@@ -34,9 +34,11 @@ impl Default for ProgramOptions {
     }
 }
 
-pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Vec<Token> {
-    let mut turtle = Turtle::new(mach);
-
+pub fn svg2program<'input>(
+    doc: &Document,
+    options: ProgramOptions,
+    turtle: &'input mut Turtle<'input>,
+) -> Vec<Token<'input>> {
     let mut program = command!(UnitsMillimeters {})
         .into_token_vec()
         .drain(..)
@@ -123,9 +125,9 @@ pub fn svg2program(doc: &Document, options: ProgramOptions, mach: Machine) -> Ve
                 comment += &node_name(&node);
                 program.push(Token::Comment {
                     is_inline: false,
-                    inner: comment,
+                    inner: Cow::Owned(comment),
                 });
-                program.extend(apply_path(&mut turtle, &options, d));
+                program.extend(apply_path(turtle, &options, d));
             } else {
                 warn!("There is a path node containing no actual path: {:?}", node);
             }
@@ -188,7 +190,11 @@ fn width_and_height_into_transform(
     }
 }
 
-fn apply_path(turtle: &mut Turtle, options: &ProgramOptions, path: &str) -> Vec<Token> {
+fn apply_path<'a, 'input>(
+    turtle: &'a mut Turtle<'input>,
+    options: &ProgramOptions,
+    path: &str,
+) -> Vec<Token<'input>> {
     use PathSegment::*;
     PathParser::from(path)
         .map(|segment| segment.expect("could not parse path segment"))
