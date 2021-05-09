@@ -42,7 +42,6 @@ pub fn svg2program<'input>(
     let mut program = command!(UnitsMillimeters {})
         .into_token_vec()
         .drain(..)
-        .chain(command!(FeedRateUnitsPerMinute {}).into_token_vec())
         .collect::<Vec<_>>();
 
     program.extend(turtle.machine.program_begin());
