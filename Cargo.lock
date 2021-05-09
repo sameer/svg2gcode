@@ -133,9 +133,9 @@ checksum = "75224bec9bfe1a65e2d34132933f2de7fe79900c96a0174307554244ece8150e"
 
 [[package]]
 name = "g-code"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4b0866fca554553ea6d676c69ce31f6260ceb5680d0e8bb3bf6711f89799a38"
+checksum = "412578b8fb51367bb010118f00d4c835fa74a0ab993525ecd487fa93084a6450"
 dependencies = [
  "codespan",
  "codespan-reporting",
