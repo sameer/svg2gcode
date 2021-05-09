@@ -43,7 +43,7 @@ pub fn svg2program<'input>(
         .into_token_vec()
         .drain(..)
         .collect::<Vec<_>>();
-
+    program.extend(turtle.machine.absolute());
     program.extend(turtle.machine.program_begin());
     program.extend(turtle.machine.absolute());
     program.append(&mut turtle.move_to(true, 0.0, 0.0));
