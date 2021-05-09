@@ -53,7 +53,8 @@ struct Opt {
     /// Output file path (overwrites old files), else writes to stdout
     #[structopt(short, long)]
     out: Option<PathBuf>,
-    /// Set where the bottom left corner of the SVG will be placed
+    /// Set where the bottom left corner of the SVG will be placed. Also affects begin/end and
+    /// on/off sequences.
     #[structopt(long, default_value = "0,0")]
     origin: String,
 }
