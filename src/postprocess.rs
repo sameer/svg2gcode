@@ -12,15 +12,15 @@ pub fn set_origin(tokens: &mut [Token<'_>], origin: F64Point) {
 
     let mut is_relative = false;
     let mut current_position = point(0f64, 0f64);
-    let x = "X";
-    let y = "Y";
-    let abs_tok = Token::Field(ABSOLUTE_DISTANCE_MODE_FIELD);
-    let rel_tok = Token::Field(RELATIVE_DISTANCE_MODE_FIELD);
+    let mut should_skip = false;
     for token in tokens {
         match token {
-            abs if *abs == abs_tok => is_relative = false,
-            rel if *rel == rel_tok => is_relative = true,
-            Token::Field(Field { letters, value }) if *letters == x => {
+            abs if *abs == Token::Field(ABSOLUTE_DISTANCE_MODE_FIELD) => is_relative = false,
+            rel if *rel == Token::Field(RELATIVE_DISTANCE_MODE_FIELD) => is_relative = true,
+            // Don't edit M codes for relativity
+            Token::Field(Field { letters, .. }) if *letters == "M" => should_skip = true,
+            Token::Field(Field { letters, .. }) if *letters == "G" => should_skip = false,
+            Token::Field(Field { letters, value }) if *letters == "X" && !should_skip => {
                 if let Some(float) = value.as_f64() {
                     if is_relative {
                         current_position += vector(float, 0.)
@@ -30,7 +30,7 @@ pub fn set_origin(tokens: &mut [Token<'_>], origin: F64Point) {
                     *value = Value::Float(current_position.x + offset.x)
                 }
             }
-            Token::Field(Field { letters, value }) if *letters == y => {
+            Token::Field(Field { letters, value }) if *letters == "Y" && !should_skip => {
                 if let Some(float) = value.as_f64() {
                     if is_relative {
                         current_position += vector(0., float)
@@ -48,16 +48,16 @@ pub fn set_origin(tokens: &mut [Token<'_>], origin: F64Point) {
 fn get_bounding_box<'a, I: Iterator<Item = &'a Token<'a>>>(tokens: I) -> Box2D<f64> {
     let (mut minimum, mut maximum) = (point(0f64, 0f64), point(0f64, 0f64));
     let mut is_relative = false;
+    let mut should_skip = false;
     let mut current_position = point(0f64, 0f64);
-    let x = "X";
-    let y = "Y";
-    let abs_tok = Token::Field(ABSOLUTE_DISTANCE_MODE_FIELD);
-    let rel_tok = Token::Field(RELATIVE_DISTANCE_MODE_FIELD);
     for token in tokens {
         match token {
-            abs if *abs == abs_tok => is_relative = false,
-            rel if *rel == rel_tok => is_relative = true,
-            Token::Field(Field { letters, value }) if *letters == x => {
+            abs if *abs == Token::Field(ABSOLUTE_DISTANCE_MODE_FIELD) => is_relative = false,
+            rel if *rel == Token::Field(RELATIVE_DISTANCE_MODE_FIELD) => is_relative = true,
+            // Don't check M codes for relativity
+            Token::Field(Field { letters, .. }) if *letters == "M" => should_skip = true,
+            Token::Field(Field { letters, .. }) if *letters == "G" => should_skip = false,
+            Token::Field(Field { letters, value }) if *letters == "X" && !should_skip => {
                 if let Some(value) = value.as_f64() {
                     if is_relative {
                         current_position += vector(value, 0.)
@@ -68,7 +68,7 @@ fn get_bounding_box<'a, I: Iterator<Item = &'a Token<'a>>>(tokens: I) -> Box2D<f
                     maximum = maximum.max(current_position);
                 }
             }
-            Token::Field(Field { letters, value }) if *letters == y => {
+            Token::Field(Field { letters, value }) if *letters == "Y" && !should_skip => {
                 if let Some(value) = value.as_f64() {
                     if is_relative {
                         current_position += vector(0., value)
