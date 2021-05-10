@@ -431,7 +431,7 @@ impl<'input> Turtle<'input> {
     /// https://www.w3.org/TR/SVG/coords.html#InterfaceSVGTransform
     pub fn push_transform(&mut self, trans: Transform2D<f64>) {
         self.transform_stack.push(self.current_transform);
-        self.current_transform = self.current_transform.then(&trans);
+        self.current_transform = trans.then(&self.current_transform);
     }
 
     /// Pop a generic transform off the stack, returning to the previous transform state

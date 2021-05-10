@@ -96,13 +96,15 @@ pub fn svg2program<'input>(
 
         if let Some(transform) = node.attribute("transform") {
             let parser = TransformListParser::from(transform);
-            transforms.append(
-                &mut parser
+            transforms.extend(
+                parser
                     .map(|token| {
                         token.expect("could not parse a transform in a list of transforms")
                     })
                     .map(svg_transform_into_euclid_transform)
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .iter()
+                    .rev(),
             )
         }
 
@@ -180,6 +182,8 @@ fn width_and_height_into_transform(
         let width_in_mm = length_to_mm(width, options.dpi);
         let height_in_mm = length_to_mm(height, options.dpi);
 
+        // SVGs have 0,0 in upper left
+        // g-code has 0,0 in lower left
         Some(
             Transform2D::scale(width_in_mm, -height_in_mm)
                 .then_translate(vector(0f64, height_in_mm)),

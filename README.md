@@ -6,16 +6,10 @@
 Convert any SVG 1.1 path to gcode for a pen plotter, laser engraver, etc.
 
 ## TODO
-- [x] Support all path variants
-- [x] Support group and path transforms
 - [ ] Biarc interpolation (G2/G3 instead of many G1)
-- [x] Px, pc, in to mm
-- [x] Configurable DPI for px/pc to mm
 - [ ] Sort paths by distance to reduce G0 distances
-- [x] Configurable start/end sequence
 - [ ] Comments in GCode input
 - [ ] Rustdocs
-- [ ] End-to-end tests
 
 ## Known bugs/issues
 - [ ] Ellipse paths are dubious -- large_arc, sweep may need to be inverted
