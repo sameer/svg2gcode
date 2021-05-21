@@ -45,8 +45,7 @@ cargo run --release -- --begin 'G0 Z10 G28 M201 X1250 Y1250 Z400 M203 X400 Y400 
 
 ![Pen plotter attachment on the 3D printer](https://raw.githubusercontent.com/wiki/sameer/models/prints/prusa_mini_plotter.jpg)
 
-![Resulting plotted image](https://user-images.githubusercontent.com/11097096/119063383-f9b48880-b9a6-11eb-9e13-71d7af34542c.png)
-
+![Resulting plotted image](https://user-images.githubusercontent.com/11097096/119063561-6fb8ef80-b9a7-11eb-9f2f-ca69c0c1c9ae.png)
 
 ## FAQ / Interesting details
 
