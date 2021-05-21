@@ -34,6 +34,20 @@ cat out.gcode
 
 ![Vanderbilt Commodores Logo Gcode](examples/Vanderbilt_Commodores_logo_gcode.png)
 
+### Real-world use on a Prusa Mini+
+
+A [Prusa Mini+](https://shop.prusa3d.com/en/3d-printers/994-original-prusa-mini.html) was set up with a [pen plotter attachment](https://github.com/sameer/models/wiki#prusa-mini-plotter).
+The `Vanderbilt_Commodores_logo.svg` and `moore.svg` examples were plotted on the same page.
+
+```bash
+cargo run --release -- --begin 'G0 Z10 G28 M201 X1250 Y1250 Z400 M203 X400 Y400 Z24 M205 X8.00 Y8.00 Z2.00 M107 G0 Z10 G0 X0 Y0 G0 Z1' --end 'G0 Z10' --on 'G0 Z1' --off 'G0 Z3' --origin 0,34 examples/Vanderbilt_Commodores_logo.svg -o out.gcode --feedrate 3000
+```
+
+![Pen plotter attachment on the 3D printer](https://raw.githubusercontent.com/wiki/sameer/models/prints/prusa_mini_plotter.jpg)
+
+![Resulting plotted image](https://user-images.githubusercontent.com/11097096/119063383-f9b48880-b9a6-11eb-9e13-71d7af34542c.png)
+
+
 ## FAQ / Interesting details
 
 * Use a 3D printer for plotting: (thanks @jeevank for sharing this) https://medium.com/@urish/how-to-turn-your-3d-printer-into-a-plotter-in-one-hour-d6fe14559f1a
