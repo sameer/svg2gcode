@@ -7,7 +7,7 @@ Convert any SVG 1.1 path to gcode for a pen plotter, laser engraver, etc.
 
 ## TODO
 - [ ] Biarc interpolation (G2/G3 instead of many G1)
-- [ ] Sort paths by distance to reduce G0 distances
+- [ ] Sort paths by distance to reduce G0 distances (traveling salesman problem
 - [ ] Comments in GCode input
 
 ## Known bugs/issues
