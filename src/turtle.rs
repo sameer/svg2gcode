@@ -385,36 +385,33 @@ impl<'input> Turtle<'input> {
         let z = z.into();
         let f = f.into();
 
-        let from = self.current_position;
+        let inverse_transform =  self.current_transform.inverse().unwrap();
+        let original_current_position = inverse_transform.transform_point(self.current_position);
         let mut to: F64Point = point(x, y);
-        to = self.current_transform.transform_point(to);
         if !abs {
-            to -= vector(self.current_transform.m31, self.current_transform.m32);
-            to += self.current_position.to_vector();
+            to += original_current_position.to_vector();
         }
+        let radii = vector(rx, ry);
 
-        let mut radii = vector(rx, ry);
-        radii = self.current_transform.transform_vector(radii);
-
-        let arc = SvgArc {
-            from,
+        let svg_arc = SvgArc {
+            from: original_current_position,
             to,
             radii,
-            x_rotation: Angle {
-                radians: x_axis_rotation,
-            },
-            flags: ArcFlags {
-                large_arc: !large_arc,
-                sweep,
-            },
+            x_rotation: Angle::degrees(x_axis_rotation),
+            flags: ArcFlags { large_arc, sweep },
         };
+        let arc = svg_arc.to_arc();
         let last_point = std::cell::Cell::new(self.current_position);
 
         let mut ellipse = vec![];
-        arc.for_each_flattened(tolerance, &mut |point: F64Point| {
-            ellipse.append(&mut Self::linear_interpolation(point.x, point.y, z, f));
-            last_point.set(point);
+        arc.for_each_cubic_bezier(&mut |cbs| {
+            cbs.flattened(tolerance).for_each(|point| {
+                let point = self.current_transform.transform_point(point);
+                ellipse.append(&mut Self::linear_interpolation(point.x, point.y, z, f));
+                last_point.set(point);
+            });
         });
+
         self.current_position = last_point.get();
         self.previous_control = None;
 
