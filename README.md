@@ -9,7 +9,7 @@ Convert any SVG 1.1 path to gcode for a pen plotter, laser engraver, etc.
 - [ ] Biarc interpolation (G2/G3 instead of many G1)
 - [ ] Sort paths by distance to reduce G0 distances
 - [ ] Comments in GCode input
-- [ ] 
+
 ## Known bugs/issues
 - [ ] Smooth curves should not use the control point when the previous curve is not of the same type (quadratic -> smooth cubic, cubic -> smooth quadratic)
     - This is just a nit, it shouldn't matter if the SVG is correct
