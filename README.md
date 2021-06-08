@@ -12,7 +12,6 @@ Convert any SVG 1.1 path to gcode for a pen plotter, laser engraver, etc.
 - [ ] Rustdocs
 
 ## Known bugs/issues
-- [ ] Ellipse paths are dubious -- large_arc, sweep may need to be inverted
 - [ ] Smooth curves should not use the control point when the previous curve is not of the same type (quadratic -> smooth cubic, cubic -> smooth quadratic)
     - This is just a nit, it shouldn't matter if the SVG is correct
 
