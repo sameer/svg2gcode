@@ -202,6 +202,7 @@ fn apply_path<'a, 'input>(
     PathParser::from(path)
         .map(|segment| segment.expect("could not parse path segment"))
         .flat_map(|segment| {
+            debug!("Drawing {:?}", &segment);
             match segment {
                 MoveTo { abs, x, y } => turtle.move_to(abs, x, y),
                 ClosePath { abs: _ } => {
