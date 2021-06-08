@@ -75,6 +75,7 @@ impl<'input> Machine<'input> {
         }
     }
 
+    /// Output user-defined setup gcode
     pub fn program_begin(&self) -> Vec<Token<'input>> {
         self.program_begin_sequence
             .iter()
@@ -82,6 +83,8 @@ impl<'input> Machine<'input> {
             .map(Token::from)
             .collect()
     }
+
+    /// Output user-defined teardown gcode
     pub fn program_end(&self) -> Vec<Token<'input>> {
         self.program_end_sequence
             .iter()

@@ -76,7 +76,7 @@ fn main() -> io::Result<()> {
             input
         }
         None => {
-            info!("Reading from stdin");
+            info!("Reading from standard input");
             let mut input = String::new();
             io::stdin().read_to_string(&mut input)?;
             input
@@ -153,18 +153,20 @@ fn main() -> io::Result<()> {
     postprocess::set_origin(&mut program, lyon_geom::point(origin[0], origin[1]));
 
     if let Some(out_path) = opt.out {
-        tokens_into_gcode(program, File::create(out_path)?)
+        tokens_into_gcode_bytes(&program, File::create(out_path)?)
     } else {
-        tokens_into_gcode(program, std::io::stdout())
+        tokens_into_gcode_bytes(&program, std::io::stdout())
     }
 }
 
+/// Convenience function for calling the g-code crate's PEG parser with user-defined g-code.
 fn parse_snippet(gcode: &'_ String) -> Result<Snippet<'_>, ParseError> {
     snippet_parser(gcode)
 }
 
-fn tokens_into_gcode<W: std::io::Write>(
-    program: Vec<g_code::emit::Token<'_>>,
+/// Write GCode tokens to a byte sink in a nicely formatted manner
+fn tokens_into_gcode_bytes<W: std::io::Write>(
+    program: &[g_code::emit::Token<'_>],
     mut w: W,
 ) -> io::Result<()> {
     use g_code::emit::Token::*;
@@ -229,7 +231,7 @@ mod test {
         postprocess::set_origin(&mut program, lyon_geom::point(0., 0.));
 
         let mut actual = vec![];
-        assert!(tokens_into_gcode(program, &mut actual).is_ok());
+        assert!(tokens_into_gcode_bytes(&program, &mut actual).is_ok());
         String::from_utf8(actual).unwrap()
     }
 

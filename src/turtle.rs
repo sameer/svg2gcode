@@ -385,7 +385,7 @@ impl<'input> Turtle<'input> {
         let z = z.into();
         let f = f.into();
 
-        let inverse_transform =  self.current_transform.inverse().unwrap();
+        let inverse_transform = self.current_transform.inverse().unwrap();
         let original_current_position = inverse_transform.transform_point(self.current_position);
         let mut to: F64Point = point(x, y);
         if !abs {
