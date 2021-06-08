@@ -294,14 +294,10 @@ fn svg_transform_into_euclid_transform(svg_transform: TransformListToken) -> Tra
         Translate { tx, ty } => Transform2D::translation(tx, ty),
         Scale { sx, sy } => Transform2D::scale(sx, sy),
         Rotate { angle } => Transform2D::rotation(Angle::degrees(angle)),
-        SkewX { angle } => {
-            warn!("Skew X might not be implemented correctly, please check the GCode output.");
-            Transform3D::skew(Angle::degrees(angle), Angle::degrees(0f64)).to_2d()
-        }
-        SkewY { angle } => {
-            warn!("Skew Y might not be implemented correctly, please check the GCode output.");
-            Transform3D::skew(Angle::degrees(0f64), Angle::degrees(angle)).to_2d()
-        }
+        // https://drafts.csswg.org/css-transforms/#SkewXDefined
+        SkewX { angle } => Transform3D::skew(Angle::degrees(angle), Angle::zero()).to_2d(),
+        // https://drafts.csswg.org/css-transforms/#SkewYDefined
+        SkewY { angle } => Transform3D::skew(Angle::zero(), Angle::degrees(angle)).to_2d(),
     }
 }
 
