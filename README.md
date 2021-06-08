@@ -5,16 +5,7 @@
 
 Convert any SVG 1.1 path to gcode for a pen plotter, laser engraver, etc.
 
-## TODO
-- [ ] Biarc interpolation (G2/G3 instead of many G1)
-- [ ] Sort paths by distance to reduce G0 distances (traveling salesman problem
-- [ ] Comments in GCode input
-
-## Known bugs/issues
-- [ ] Smooth curves should not use the control point when the previous curve is not of the same type (quadratic -> smooth cubic, cubic -> smooth quadratic)
-    - This is just a nit, it shouldn't matter if the SVG is correct
-
-## Demonstration
+## Demo
 
 ### Input
 
@@ -44,6 +35,7 @@ cargo run --release -- --begin 'G0 Z10 G28 M201 X1250 Y1250 Z400 M203 X400 Y400 
 ![Pen plotter attachment on the 3D printer](https://raw.githubusercontent.com/wiki/sameer/models/prints/prusa_mini_plotter.jpg)
 
 ![Resulting plotted image](https://user-images.githubusercontent.com/11097096/119063561-6fb8ef80-b9a7-11eb-9f2f-ca69c0c1c9ae.png)
+
 
 ## FAQ / Interesting details
 
