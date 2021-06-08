@@ -147,7 +147,6 @@ pub fn svg2program<'input>(
     turtle.pop_all_transforms();
     program.extend(turtle.machine.tool_off());
     program.extend(turtle.machine.absolute());
-    program.append(&mut turtle.move_to(true, 0.0, 0.0));
     program.extend(turtle.machine.program_end());
     program.append(&mut command!(ProgramEnd {}).into_token_vec());
 
