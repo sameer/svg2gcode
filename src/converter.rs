@@ -302,21 +302,25 @@ fn svg_transform_into_euclid_transform(svg_transform: TransformListToken) -> Tra
 }
 
 /// Convenience function for converting absolute lengths to millimeters
-/// Absolute lengths are listed in [CSS 4 §6.2](https://www.w3.org/TR/css-values/#absolute-lengths)
-/// Relative lengths in [CSS 4 §6.1](https://www.w3.org/TR/css-values/#relative-lengths) are not supported and will cause a panic.
-/// A default DPI of 96 is used as per [CSS 4 §7.4](https://www.w3.org/TR/css-values/#resolution), which you can adjust with --dpi
+///
+/// Absolute lengths are listed in [CSS 4 §6.2](https://www.w3.org/TR/css-values/#absolute-lengths).
+/// Relative lengths in [CSS 4 §6.1](https://www.w3.org/TR/css-values/#relative-lengths) are not supported and will simply be interpreted as millimeters.
+///
+/// A default DPI of 96 is used as per [CSS 4 §7.4](https://www.w3.org/TR/css-values/#resolution), which you can adjust with --dpi.
+/// Increasing DPI reduces the scale of an SVG.
 fn length_to_mm(l: svgtypes::Length, dpi: f64) -> f64 {
     use svgtypes::LengthUnit::*;
     use uom::si::f64::Length;
     use uom::si::length::*;
 
+    let dpi_scaling = dpi / 96.0;
     let length = match l.unit {
         Cm => Length::new::<centimeter>(l.num),
         Mm => Length::new::<millimeter>(l.num),
         In => Length::new::<inch>(l.num),
-        Pc => Length::new::<pica_computer>(l.num) * dpi / 96.0,
-        Pt => Length::new::<point_computer>(l.num) * dpi / 96.0,
-        Px => Length::new::<inch>(l.num * dpi / 96.0),
+        Pc => Length::new::<pica_computer>(l.num) / dpi_scaling,
+        Pt => Length::new::<point_computer>(l.num) / dpi_scaling,
+        Px => Length::new::<inch>(l.num / dpi_scaling),
         other => {
             warn!(
                 "Converting from '{:?}' to millimeters is not supported, treating as millimeters",
