@@ -46,7 +46,6 @@ pub fn svg2program<'input>(
     program.extend(turtle.machine.absolute());
     program.extend(turtle.machine.program_begin());
     program.extend(turtle.machine.absolute());
-    program.append(&mut turtle.move_to(true, 0.0, 0.0));
 
     // Depth-first SVG DOM traversal
     let mut node_stack = vec![(doc.root(), doc.root().children())];
