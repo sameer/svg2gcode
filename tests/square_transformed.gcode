@@ -1,6 +1,5 @@
 G21
-G90
-G0 X0 Y0;svg#svg8 > g#layer1 > path#path838
+G90;svg#svg8 > g#layer1 > path#path838
 G0 X1 Y0.9999999999999999
 G1 X1.0000000000000004 Y9 F300
 G1 X9 Y9 F300
