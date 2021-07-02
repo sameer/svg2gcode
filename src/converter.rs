@@ -8,7 +8,8 @@ use lyon_geom::{
 };
 use roxmltree::{Document, Node};
 use svgtypes::{
-    LengthListParser, PathParser, PathSegment, TransformListParser, TransformListToken, ViewBox,
+    Length, LengthListParser, PathParser, PathSegment, TransformListParser, TransformListToken,
+    ViewBox,
 };
 
 use crate::turtle::*;
@@ -22,6 +23,8 @@ pub struct ProgramOptions {
     pub feedrate: f64,
     /// Dots per inch for pixels, picas, points, etc.
     pub dpi: f64,
+    pub width: Option<String>,
+    pub height: Option<String>,
 }
 
 impl Default for ProgramOptions {
@@ -30,6 +33,8 @@ impl Default for ProgramOptions {
             tolerance: 0.002,
             feedrate: 300.0,
             dpi: 96.0,
+            width: None,
+            height: None,
         }
     }
 }
@@ -50,6 +55,8 @@ pub fn svg2program<'input>(
     // Depth-first SVG DOM traversal
     let mut node_stack = vec![(doc.root(), doc.root().children())];
     let mut name_stack: Vec<String> = vec![];
+
+    let mut need_apply_size = options.width.is_some() || options.height.is_some();
 
     while let Some((parent, mut children)) = node_stack.pop() {
         let node: Node = match children.next() {
@@ -87,9 +94,25 @@ pub fn svg2program<'input>(
                 Transform2D::scale(1. / view_box.w, 1. / view_box.h)
                     .then_translate(vector(view_box.x, view_box.y)),
             );
+
+            if need_apply_size {
+                if let (Some(width), Some(height)) = fill_width_or_height(
+                    options.width.as_deref(),
+                    options.height.as_deref(),
+                    view_box.w / view_box.h,
+                ) {
+                    turtle.push_transform(width_and_height_into_transform(
+                        width,
+                        height,
+                        options.dpi,
+                    ))
+                }
+
+                need_apply_size = false
+            }
         }
 
-        if let Some(transform) = width_and_height_into_transform(&options, &node) {
+        if let Some(transform) = current_width_and_height_into_transform(&options, &node) {
             transforms.push(transform);
         }
 
@@ -161,7 +184,32 @@ fn node_name(node: &Node) -> String {
     name
 }
 
-fn width_and_height_into_transform(
+fn fill_width_or_height(
+    width: Option<&str>,
+    height: Option<&str>,
+    aspect: f64,
+) -> (Option<Length>, Option<Length>) {
+    let (mut out_width, mut out_height) = (
+        width
+            .and_then(|s| LengthListParser::from(s).next())
+            .and_then(|l| l.ok()),
+        height
+            .and_then(|s| LengthListParser::from(s).next())
+            .and_then(|l| l.ok()),
+    );
+
+    if out_width.is_none() {
+        out_width = out_height.map(|h| Length::new(h.num * aspect, h.unit));
+    }
+
+    if out_height.is_none() {
+        out_height = out_width.map(|w| Length::new(w.num / aspect, w.unit));
+    }
+
+    (out_width, out_height)
+}
+
+fn current_width_and_height_into_transform(
     options: &ProgramOptions,
     node: &Node,
 ) -> Option<Transform2D<f64>> {
@@ -177,18 +225,19 @@ fn width_and_height_into_transform(
             .next()
             .expect("no height in height property")
             .expect("cannot parse height");
-        let width_in_mm = length_to_mm(width, options.dpi);
-        let height_in_mm = length_to_mm(height, options.dpi);
-
-        // SVGs have 0,0 in upper left
-        // g-code has 0,0 in lower left
-        Some(
-            Transform2D::scale(width_in_mm, -height_in_mm)
-                .then_translate(vector(0f64, height_in_mm)),
-        )
+        Some(width_and_height_into_transform(width, height, options.dpi))
     } else {
         None
     }
+}
+
+fn width_and_height_into_transform(width: Length, height: Length, dpi: f64) -> Transform2D<f64> {
+    let width_in_mm = length_to_mm(width, dpi);
+    let height_in_mm = length_to_mm(height, dpi);
+
+    // SVGs have 0,0 in upper left
+    // g-code has 0,0 in lower left
+    Transform2D::scale(width_in_mm, -height_in_mm).then_translate(vector(0f64, height_in_mm))
 }
 
 fn apply_path<'a, 'input>(
