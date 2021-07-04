@@ -250,4 +250,12 @@ mod test {
 
         assert_eq!(actual, include_str!("../tests/square_transformed.gcode"))
     }
+
+    #[test]
+    fn square_viewport_produces_expected_gcode() {
+        let square_transformed = include_str!("../tests/square_viewport.svg");
+        let actual = get_actual(square_transformed);
+
+        assert_eq!(actual, include_str!("../tests/square_viewport.gcode"))
+    }
 }

@@ -84,8 +84,8 @@ pub fn svg2program<'input>(
         if let Some(view_box) = node.attribute("viewBox") {
             let view_box = ViewBox::from_str(view_box).expect("could not parse viewBox");
             transforms.push(
-                Transform2D::scale(1. / view_box.w, 1. / view_box.h)
-                    .then_translate(vector(view_box.x, view_box.y)),
+                Transform2D::translation(-view_box.x, -view_box.y)
+                    .then_scale(1. / view_box.w, 1. / view_box.h),
             );
         }
 
