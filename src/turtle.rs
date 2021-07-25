@@ -91,13 +91,13 @@ impl<'input> Turtle<'input> {
             linear_interpolation.push(Field {
                 letters: Cow::Borrowed("Z"),
                 value: Value::Float(z),
-            });
+            }).unwrap();
         }
         if let Some(f) = f {
             linear_interpolation.push(Field {
                 letters: Cow::Borrowed("F"),
                 value: Value::Float(f),
-            });
+            }).unwrap();
         }
         linear_interpolation.into_token_vec()
     }
