@@ -33,12 +33,14 @@ jobs:
       - uses: jetli/trunk-action@v0.1.0  
       - uses: jetli/wasm-bindgen-action@v0.1.0
 
-      - run: |
+      - name: Trunk build
+        run: |
           cd web
           trunk build --release
 
-      - uses: peaceiris/actions-gh-pages@v3
-        if: github.ref == 'refs/heads/main'
+      - name: Publish to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        if: github.ref == 'refs/heads/master'
         with:
           github_token: $
           publish_dir: ./web/dist
