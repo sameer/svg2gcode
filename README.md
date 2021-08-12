@@ -7,7 +7,13 @@ Convert any SVG 1.1 path to gcode for a pen plotter, laser engraver, etc.
 
 ## Demo
 
-### Input
+### Web interface
+
+WIP
+
+### Command line interface (CLI)
+
+#### Input
 
 ```bash
 cargo run --release -- examples/Vanderbilt_Commodores_logo.svg --off 'M4' --on 'M5' -o out.gcode
@@ -15,7 +21,7 @@ cargo run --release -- examples/Vanderbilt_Commodores_logo.svg --off 'M4' --on '
 
 ![Vanderbilt Commodores Logo](examples/Vanderbilt_Commodores_logo.svg)
 
-### Output, rendered at [https://ncviewer.com]()
+#### Output, rendered at [https://ncviewer.com]()
 
 ```bash
 cat out.gcode
@@ -23,7 +29,7 @@ cat out.gcode
 
 ![Vanderbilt Commodores Logo Gcode](examples/Vanderbilt_Commodores_logo_gcode.png)
 
-### Real-world use on a Prusa Mini+
+#### Real-world use on a Prusa Mini+
 
 A [Prusa Mini+](https://shop.prusa3d.com/en/3d-printers/994-original-prusa-mini.html) was set up with a [pen plotter attachment](https://github.com/sameer/models/wiki#prusa-mini-plotter).
 The `Vanderbilt_Commodores_logo.svg` and `moore.svg` examples were plotted on the same page.

@@ -36,17 +36,31 @@ impl std::ops::Not for Distance {
 
 /// Generic machine state simulation, assuming nothing is known about the machine when initialized.
 /// This is used to reduce output GCode verbosity and run repetitive actions.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Machine<'input> {
-    pub(crate) tool_state: Option<Tool>,
-    pub(crate) distance_mode: Option<Distance>,
-    pub(crate) tool_on_action: Option<Snippet<'input>>,
-    pub(crate) tool_off_action: Option<Snippet<'input>>,
-    pub(crate) program_begin_sequence: Option<Snippet<'input>>,
-    pub(crate) program_end_sequence: Option<Snippet<'input>>,
+    tool_state: Option<Tool>,
+    distance_mode: Option<Distance>,
+    pub tool_on_action: Option<Snippet<'input>>,
+    pub tool_off_action: Option<Snippet<'input>>,
+    pub program_begin_sequence: Option<Snippet<'input>>,
+    pub program_end_sequence: Option<Snippet<'input>>,
 }
 
 impl<'input> Machine<'input> {
+    pub fn new(
+        tool_on_action: Option<Snippet<'input>>,
+        tool_off_action: Option<Snippet<'input>>,
+        program_begin_sequence: Option<Snippet<'input>>,
+        program_end_sequence: Option<Snippet<'input>>,
+    ) -> Self {
+        Self {
+            tool_on_action,
+            tool_off_action,
+            program_begin_sequence,
+            program_end_sequence,
+            ..Default::default()
+        }
+    }
     /// Output gcode to turn the tool on.
     pub fn tool_on(&mut self) -> Vec<Token<'input>> {
         if self.tool_state == Some(Tool::Off) || self.tool_state == None {

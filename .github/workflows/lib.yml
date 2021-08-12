@@ -1,4 +1,4 @@
-name: svg2gcode
+name: Build, test, and publish coverage for svg2gcode-lib
 
 on: [push, pull_request]
 
@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Build
-        run: cargo build
+        run: cargo build -p svg2gcode-lib
   coverage:
     runs-on: ubuntu-latest
     steps:
@@ -31,14 +31,14 @@ jobs:
           use-tool-cache: true
       - uses: actions-rs/cargo@v1
         with:
-          command: build
+          command: build -p svg2gcode-lib
         env:
           RUSTFLAGS: '-Zinstrument-coverage'
           RUSTDOCFLAGS: '-Zinstrument-coverage'
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features --no-fail-fast
+          args: --all-features --no-fail-fast -p svg2gcode-lib
         env:
           RUSTFLAGS: '-Zinstrument-coverage'
           RUSTDOCFLAGS: '-Zinstrument-coverage'

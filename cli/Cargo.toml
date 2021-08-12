@@ -1,0 +1,21 @@
+[package]
+name = "svg2gcode-cli"
+version = "0.0.1"
+authors = ["Sameer Puri <crates@purisa.me>"]
+edition = "2018"
+description = "Command line interface for svg2gcode"
+repository = "https://github.com/sameer/svg2gcode"
+license = "MIT"
+
+[dependencies]
+svg2gcode = { path = "../lib" }
+env_logger = { version = "0", default-features = false, features = ["atty", "termcolor", "humantime"] }
+log = "0"
+g-code = "0.2"
+codespan-reporting = "0.11"
+structopt = "0.3"
+roxmltree = "0"
+
+[[bin]]
+name = "svg2gcode"
+path = "src/main.rs"

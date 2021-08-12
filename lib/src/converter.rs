@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::str::FromStr;
 
 use g_code::{command, emit::Token};
+use log::{debug, warn};
 use lyon_geom::{
     euclid::{default::Transform2D, Angle, Transform3D},
     vector,
@@ -15,7 +16,7 @@ use crate::turtle::*;
 
 /// High-level output options
 #[derive(Debug)]
-pub struct ProgramOptions {
+pub struct ConversionOptions {
     /// Curve interpolation tolerance in millimeters
     pub tolerance: f64,
     /// Feedrate in millimeters / minute
@@ -24,7 +25,7 @@ pub struct ProgramOptions {
     pub dpi: f64,
 }
 
-impl Default for ProgramOptions {
+impl Default for ConversionOptions {
     fn default() -> Self {
         Self {
             tolerance: 0.002,
@@ -36,7 +37,7 @@ impl Default for ProgramOptions {
 
 pub fn svg2program<'input>(
     doc: &Document,
-    options: ProgramOptions,
+    options: ConversionOptions,
     turtle: &'input mut Turtle<'input>,
 ) -> Vec<Token<'input>> {
     let mut program = command!(UnitsMillimeters {})
@@ -162,7 +163,7 @@ fn node_name(node: &Node) -> String {
 }
 
 fn width_and_height_into_transform(
-    options: &ProgramOptions,
+    options: &ConversionOptions,
     node: &Node,
 ) -> Option<Transform2D<f64>> {
     if let (Some(mut width), Some(mut height)) = (
@@ -193,7 +194,7 @@ fn width_and_height_into_transform(
 
 fn apply_path<'a, 'input>(
     turtle: &'a mut Turtle<'input>,
-    options: &ProgramOptions,
+    options: &ConversionOptions,
     path: &str,
 ) -> Vec<Token<'input>> {
     use PathSegment::*;

@@ -88,16 +88,20 @@ impl<'input> Turtle<'input> {
     fn linear_interpolation(x: f64, y: f64, z: Option<f64>, f: Option<f64>) -> Vec<Token<'static>> {
         let mut linear_interpolation = command! {LinearInterpolation { X: x, Y: y, }};
         if let Some(z) = z {
-            linear_interpolation.push(Field {
-                letters: Cow::Borrowed("Z"),
-                value: Value::Float(z),
-            }).unwrap();
+            linear_interpolation
+                .push(Field {
+                    letters: Cow::Borrowed("Z"),
+                    value: Value::Float(z),
+                })
+                .unwrap();
         }
         if let Some(f) = f {
-            linear_interpolation.push(Field {
-                letters: Cow::Borrowed("F"),
-                value: Value::Float(f),
-            }).unwrap();
+            linear_interpolation
+                .push(Field {
+                    letters: Cow::Borrowed("F"),
+                    value: Value::Float(f),
+                })
+                .unwrap();
         }
         linear_interpolation.into_token_vec()
     }

@@ -1,0 +1,9 @@
+[submodule "web/style/highlightjs"]
+	path = web/style/highlightjs
+	url = https://github.com/highlightjs/highlight.js.git
+[submodule "web/static/MaterialDesign-SVG"]
+	path = web/static/MaterialDesign-SVG
+	url = https://github.com/Templarian/MaterialDesign-SVG.git
+[submodule "web/style/spectre"]
+	path = web/style/spectre
+	url = https://github.com/picturepan2/spectre.git

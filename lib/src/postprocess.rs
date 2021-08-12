@@ -7,8 +7,9 @@ use lyon_geom::{point, vector, Point};
 type F64Point = Point<f64>;
 
 /// Moves all the commands so that they are beyond a specified position
-pub fn set_origin(tokens: &mut [Token<'_>], origin: F64Point) {
-    let offset = -get_bounding_box(tokens.iter()).min.to_vector() + origin.to_vector();
+pub fn set_origin(tokens: &mut [Token<'_>], origin: [f64; 2]) {
+    let offset =
+        -get_bounding_box(tokens.iter()).min.to_vector() + F64Point::from(origin).to_vector();
 
     let mut is_relative = false;
     let mut current_position = point(0f64, 0f64);
