@@ -34,7 +34,7 @@ jobs:
       - name: Trunk build
         run: |
           cd web
-          trunk build --release
+          trunk build --release --public-url svg2gcode
 
       - name: Publish to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
