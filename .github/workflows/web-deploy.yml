@@ -32,8 +32,8 @@ jobs:
       - uses: jetli/wasm-bindgen-action@v0.1.0
 
       - run: |
-        cd web
-        trunk build --release
+          cd web
+          trunk build --release
 
       - uses: peaceiris/actions-gh-pages@v3
         if: github.ref == 'refs/heads/main'
