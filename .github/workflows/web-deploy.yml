@@ -11,6 +11,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
@@ -30,10 +31,12 @@ jobs:
       - uses: jetli/trunk-action@v0.1.0  
       - uses: jetli/wasm-bindgen-action@v0.1.0
 
-      - run: trunk build --release
+      - run: |
+        cd web
+        trunk build --release
 
       - uses: peaceiris/actions-gh-pages@v3
         if: github.ref == 'refs/heads/main'
         with:
           github_token: $
-          publish_dir: ./dist
+          publish_dir: ./web/dist
