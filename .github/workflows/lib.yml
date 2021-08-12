@@ -29,6 +29,15 @@ jobs:
           crate: grcov
           version: 0.8.0
           use-tool-cache: true
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
       - uses: actions-rs/cargo@v1
         with:
           command: build

@@ -8,5 +8,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
       - name: Build
         run: cargo build -p svg2gcode-web
