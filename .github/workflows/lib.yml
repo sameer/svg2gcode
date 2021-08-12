@@ -35,9 +35,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            cargo-${{ runner.os }}-
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-lib
       - uses: actions-rs/cargo@v1
         with:
           command: build
