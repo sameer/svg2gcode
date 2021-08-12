@@ -5,6 +5,7 @@ authors = ["Sameer Puri <crates@purisa.me>"]
 edition = "2018"
 description = "Convert vector graphics to g-code for pen plotters, laser engravers, and other CNC machines"
 repository = "https://github.com/sameer/svg2gcode"
+homepage = "https://sameer.github.io/svg2gcode/"
 license = "MIT"
 
 [dependencies]

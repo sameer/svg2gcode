@@ -158,37 +158,46 @@ impl Component for App {
         });
         html! {
             <div class="container">
-                <div class={classes!("column", "col-xl-9", "col-md-11")}>
+                <div class={classes!("column")}>
                     <h1>
-                        { env!("CARGO_PKG_NAME") }
+                        { "svg2gcode" }
                     </h1>
                     <p>
                         { env!("CARGO_PKG_DESCRIPTION") }
                     </p>
+                    <SvgInput/>
+                    <ButtonGroup>
+                        <Button
+                            title="Generate GCode"
+                            style={ButtonStyle::Primary}
+                            loading={self.generating}
+                            icon={
+                                html_nested! (
+                                    <Icon name={IconName::Download} />
+                                )
+                            }
+                            disabled={generate_disabled}
+                            onclick={generate_onclick}
+                        />
+                        <HyperlinkButton
+                            title="Settings"
+                            style={ButtonStyle::Default}
+                            icon={IconName::Edit}
+                            onclick={settings_hydrate_onclick}
+                            href="#settings"
+                        />
+                    </ButtonGroup>
+                    <SettingsForm />
                 </div>
-                <SvgInput/>
-                <ButtonGroup>
-                    <Button
-                        title="Generate GCode"
-                        style={ButtonStyle::Primary}
-                        loading={self.generating}
-                        icon={
-                            html_nested! (
-                                <Icon name={IconName::Download} />
-                            )
-                        }
-                        disabled={generate_disabled}
-                        onclick={generate_onclick}
-                    />
-                    <HyperlinkButton
-                        title="Settings"
-                        style={ButtonStyle::Default}
-                        icon={IconName::Edit}
-                        onclick={settings_hydrate_onclick}
-                        href="#settings"
-                    />
-                </ButtonGroup>
-                <SettingsForm />
+                <div class={classes!("text-right", "column")}>
+                    <p>
+                        { "See the project " }
+                        <a href={env!("CARGO_PKG_REPOSITORY")}>
+                            { "on GitHub" }
+                        </a>
+                        {" for support" }
+                    </p>
+                </div>
             </div>
         }
     }

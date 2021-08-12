@@ -4,7 +4,7 @@ use gloo_file::futures::read_as_text;
 use gloo_timers::callback::Timeout;
 use paste::paste;
 use roxmltree::Document;
-use std::{num::ParseFloatError};
+use std::num::ParseFloatError;
 use web_sys::{FileList, HtmlElement};
 use yew::prelude::*;
 use yewdux::prelude::{BasicStore, Dispatcher};
@@ -15,7 +15,6 @@ use crate::{
     spectre::*,
     state::{AppState, AppStore, FormState, FormStore},
 };
-
 
 // TODO: make a nice, syntax highlighting editor for g-code.
 // I started on this but it quickly got too complex.
@@ -508,7 +507,7 @@ pub fn svg_input() -> Html {
                         let parsed =
                             Some(res.map_err(|err| err.to_string()).and_then(move |text| {
                                 if let Some(err) = Document::parse(&text).err() {
-                                    Err(err.to_string())
+                                    Err(format!("Error parsing SVG: {}", err))
                                 } else {
                                     Ok(text)
                                 }
