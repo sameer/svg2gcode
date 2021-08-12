@@ -31,7 +31,8 @@ jobs:
           use-tool-cache: true
       - uses: actions-rs/cargo@v1
         with:
-          command: build -p svg2gcode
+          command: build
+          args: -p svg2gcode
         env:
           RUSTFLAGS: '-Zinstrument-coverage'
           RUSTDOCFLAGS: '-Zinstrument-coverage'
