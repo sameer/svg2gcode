@@ -528,7 +528,7 @@ pub fn svg_input() -> Html {
     html! {
         <FileUpload<String, String>
             label="Select an SVG"
-            accept="image/svg+xml"
+            accept=".svg"
             multiple={false}
             parsed={parsed_cloned}
             onchange={onchange}
