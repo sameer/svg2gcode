@@ -81,10 +81,7 @@ where
     }
 
     html! {
-        <div class={classes!(
-            "form-group",
-            if success { Some("has-success") } else if error { Some("has-error") } else { None }
-        )}>
+        <>
             <label class="form-label" for={id.clone()}>
                 { props.label }
             </label>
@@ -112,7 +109,7 @@ where
                     html!()
                 }
             }
-        </div>
+        </>
     }
 }
 
@@ -142,10 +139,7 @@ where
     let error = props.parsed.as_ref().map(|x| x.is_err()).unwrap_or(false);
     let id = props.label.to_lowercase().replace(' ', "-");
     html! {
-        <div class={classes!(
-            "form-group",
-            if success { Some("has-success") } else if error { Some("has-error") } else { None }
-        )}>
+        <>
             <label class="form-label" for={id.clone()}>
                 { props.label }
             </label>
@@ -178,6 +172,81 @@ where
                     html!()
                 }
             }
+        </>
+    }
+}
+
+#[derive(Properties, PartialEq, Clone)]
+pub struct SelectProps {
+    #[prop_or_default]
+    pub children: Children,
+    #[prop_or(false)]
+    pub disabled: bool,
+    #[prop_or(false)]
+    pub multiple: bool,
+}
+
+#[function_component(Select)]
+pub fn select(props: &SelectProps) -> Html {
+    html! {
+        <select class={classes!("form-select")}>{ for props.children.iter() }</select>
+    }
+}
+
+#[derive(Properties, PartialEq, Clone)]
+pub struct OptionProps {
+    #[prop_or_default]
+    pub children: Children,
+    #[prop_or(false)]
+    pub selected: bool,
+    #[prop_or(false)]
+    pub disabled: bool,
+    pub value: Option<&'static str>,
+}
+
+#[function_component(Opt)]
+pub fn option(props: &OptionProps) -> Html {
+    html! {
+        <option value={props.value}>{ for props.children.iter() }</option>
+    }
+}
+
+#[derive(Properties, PartialEq, Clone)]
+pub struct InputGroupProps {
+    #[prop_or_default]
+    pub children: Children,
+}
+
+#[function_component(InputGroup)]
+pub fn input_group(props: &InputGroupProps) -> Html {
+    html! {
+        <div class="input-group">
+            { for props.children.iter() }
+        </div>
+    }
+}
+
+#[derive(Properties, PartialEq, Clone)]
+pub struct FormGroupProps {
+    #[prop_or_default]
+    pub children: Children,
+    pub success: Option<bool>,
+}
+
+#[function_component(FormGroup)]
+pub fn form_group(props: &FormGroupProps) -> Html {
+    html! {
+        <div class={classes!(
+            "form-group",
+            if let Some(true) = props.success {
+                Some("has-success")
+            } else if let Some(false) = props.success {
+                Some("has-error")
+            } else {
+                None
+            }
+        )}>
+            { for props.children.iter() }
         </div>
     }
 }
@@ -222,10 +291,7 @@ where
     }
 
     html! {
-        <div class={classes!(
-            "form-group",
-            if success { Some("has-success") } else if error { Some("has-error") } else { None }
-        )}>
+        <>
             <label class="form-label" for={id.clone()}>
                 { props.label }
             </label>
@@ -256,7 +322,7 @@ where
                     html!()
                 }
             }
-        </div>
+        </>
     }
 }
 

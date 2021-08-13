@@ -50,9 +50,13 @@ pub struct AppState {
     pub end_sequence: Option<String>,
     pub origin: [f64; 2],
     #[serde(skip)]
-    pub svg_filename: Option<String>,
-    #[serde(skip)]
-    pub svg: Option<String>,
+    pub svgs: Vec<Svg>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Svg {
+    pub content: String,
+    pub filename: String,
 }
 
 impl Default for AppState {
@@ -67,8 +71,7 @@ impl Default for AppState {
             begin_sequence: None,
             end_sequence: None,
             origin: [0., 0.],
-            svg_filename: None,
-            svg: None,
+            svgs: vec![],
         }
     }
 }

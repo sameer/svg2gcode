@@ -4,7 +4,7 @@ use gloo_file::futures::read_as_text;
 use gloo_timers::callback::Timeout;
 use paste::paste;
 use roxmltree::Document;
-use std::num::ParseFloatError;
+use std::{num::ParseFloatError};
 use web_sys::{FileList, HtmlElement};
 use yew::prelude::*;
 use yewdux::prelude::{BasicStore, Dispatcher};
@@ -13,7 +13,7 @@ use yewdux_input::*;
 
 use crate::{
     spectre::*,
-    state::{AppState, AppStore, FormState, FormStore},
+    state::{AppState, AppStore, FormState, FormStore, Svg},
 };
 
 // TODO: make a nice, syntax highlighting editor for g-code.
@@ -208,11 +208,13 @@ macro_rules! gcode_input {
                     })
                 };
                     html! {
-                        <TextArea<String, String> label=$label desc=$desc
-                            default={app.state().map(|state| (state.$accessor $([$idx])?).clone()).unwrap_or_else(|| AppState::default().$accessor $([$idx])?)}
-                            parsed={form.state().and_then(|state| (state.$accessor $([$idx])?).clone()).filter(|_| timeout.is_none())}
-                            oninput={oninput}
-                        />
+                        <FormGroup success={form.state().map(|state| (state.$accessor $([$idx])?).as_ref().map(Result::is_ok)).flatten()}>
+                            <TextArea<String, String> label=$label desc=$desc
+                                default={app.state().map(|state| (state.$accessor $([$idx])?).clone()).unwrap_or_else(|| AppState::default().$accessor $([$idx])?)}
+                                parsed={form.state().and_then(|state| (state.$accessor $([$idx])?).clone()).filter(|_| timeout.is_none())}
+                                oninput={oninput}
+                            />
+                        </FormGroup>
                     }
                 }
             }
@@ -257,11 +259,13 @@ macro_rules! form_input {
                     let form = use_store::<BasicStore<FormState>>();
                     let oninput = form.dispatch().input(|state, value| state.$accessor $([$idx])? = value.parse::<f64>());
                     html! {
-                        <Input<f64, ParseFloatError> label=$label desc=$desc
-                            default={app.state().map(|state| state.$accessor $([$idx])?).unwrap_or_else(|| AppState::default().$accessor $([$idx])?)}
-                            parsed={form.state().map(|state| (state.$accessor $([$idx])?).clone())}
-                            oninput={oninput}
-                        />
+                        <FormGroup success={form.state().map(|state| (state.$accessor $([$idx])?).is_ok())}>
+                            <Input<f64, ParseFloatError> label=$label desc=$desc
+                                default={app.state().map(|state| state.$accessor $([$idx])?).unwrap_or_else(|| AppState::default().$accessor $([$idx])?)}
+                                parsed={form.state().map(|state| (state.$accessor $([$idx])?).clone())}
+                                oninput={oninput}
+                            />
+                        </FormGroup>
                     }
                 }
             }
@@ -499,7 +503,7 @@ pub fn settings_form() -> Html {
 #[function_component(SvgInput)]
 pub fn svg_input() -> Html {
     let app = use_store::<AppStore>();
-    let parsed_state = use_state::<Option<Result<String, String>>, _>(|| None);
+    let parsed_state = use_ref(|| vec![]);
 
     let parsed_state_cloned = parsed_state.clone();
 
@@ -508,39 +512,62 @@ pub fn svg_input() -> Html {
         .future_callback_with(move |app, file_list: FileList| {
             let parsed_state_cloned = parsed_state_cloned.clone();
             async move {
+                let mut results = Vec::with_capacity(file_list.length() as usize);
                 for file in (0..file_list.length()).filter_map(|i| file_list.item(i)) {
-                    let parsed_state_cloned = parsed_state_cloned.clone();
-                    let svg_filename = file.name();
-                    let res = read_as_text(&gloo_file::File::from(file)).await;
-                    app.reduce(move |app| {
-                        let parsed =
-                            Some(res.map_err(|err| err.to_string()).and_then(move |text| {
+                    let filename = file.name();
+                    results.push(
+                        read_as_text(&gloo_file::File::from(file))
+                            .await
+                            .map_err(|err| err.to_string())
+                            .and_then(|text| {
                                 if let Some(err) = Document::parse(&text).err() {
-                                    Err(format!("Error parsing SVG: {}", err))
+                                    Err(format!("Error parsing {}: {}", &filename, err))
                                 } else {
-                                    Ok(text)
+                                    Ok(Svg {
+                                        content: text,
+                                        filename,
+                                    })
                                 }
-                            }));
-                        parsed_state_cloned.set(parsed.clone());
-                        app.svg = parsed.transpose().ok().clone().flatten();
-                        app.svg_filename = if app.svg.is_some() {
-                            Some(svg_filename)
-                        } else {
-                            None
-                        };
-                    });
+                            }),
+                    );
                 }
+                app.reduce(move |app| {
+                    app.svgs.clear();
+                    (*parsed_state_cloned).borrow_mut().clear();
+                    for result in results.iter() {
+                        (*parsed_state_cloned)
+                            .borrow_mut()
+                            .push(result.clone().map(|_| ()));
+                    }
+                    if results.iter().all(Result::is_ok) {
+                        app.svgs.extend(results.drain(..).filter_map(Result::ok));
+                    }
+                });
             }
         });
 
-    let parsed_cloned = (*parsed_state).clone();
+    let errors = parsed_state
+        .borrow()
+        .iter()
+        .filter_map(|res| res.as_ref().err())
+        .cloned()
+        .collect::<Vec<_>>();
+    let res = if parsed_state.borrow().is_empty() {
+        None
+    } else if errors.is_empty() {
+        Some(Ok(()))
+    } else {
+        Some(Err(errors.join("\n")))
+    };
     html! {
-        <FileUpload<String, String>
-            label="Select an SVG"
-            accept=".svg"
-            multiple={false}
-            parsed={parsed_cloned}
-            onchange={onchange}
-        />
+        <FormGroup success={res.as_ref().map(Result::is_ok)}>
+            <FileUpload<(), String>
+                label="Select SVG files"
+                accept=".svg"
+                multiple={true}
+                parsed={res}
+                onchange={onchange}
+            />
+        </FormGroup>
     }
 }

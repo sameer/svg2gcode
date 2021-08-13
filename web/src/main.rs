@@ -68,66 +68,70 @@ impl Component for App {
                 // pull this out into one so that the UI can actually
                 // show progress updates.
                 self.link.send_future(async move {
-                    let options = ConversionOptions {
-                        tolerance: app_state.tolerance,
-                        feedrate: app_state.feedrate,
-                        dpi: app_state.dpi,
-                    };
-                    let machine = Machine::new(
-                        app_state
-                            .tool_on_sequence
-                            .as_ref()
-                            .map(String::as_str)
-                            .map(snippet_parser)
-                            .transpose()
-                            .unwrap(),
-                        app_state
-                            .tool_off_sequence
-                            .as_ref()
-                            .map(String::as_str)
-                            .map(snippet_parser)
-                            .transpose()
-                            .unwrap(),
-                        app_state
-                            .begin_sequence
-                            .as_ref()
-                            .map(String::as_str)
-                            .map(snippet_parser)
-                            .transpose()
-                            .unwrap(),
-                        app_state
-                            .end_sequence
-                            .as_ref()
-                            .map(String::as_str)
-                            .map(snippet_parser)
-                            .transpose()
-                            .unwrap(),
-                    );
-                    let document = Document::parse(app_state.svg.as_ref().unwrap()).unwrap();
+                    for svg in app_state.svgs.iter() {
+                        let options = ConversionOptions {
+                            tolerance: app_state.tolerance,
+                            feedrate: app_state.feedrate,
+                            dpi: app_state.dpi,
+                        };
+                        let machine = Machine::new(
+                            app_state
+                                .tool_on_sequence
+                                .as_ref()
+                                .map(String::as_str)
+                                .map(snippet_parser)
+                                .transpose()
+                                .unwrap(),
+                            app_state
+                                .tool_off_sequence
+                                .as_ref()
+                                .map(String::as_str)
+                                .map(snippet_parser)
+                                .transpose()
+                                .unwrap(),
+                            app_state
+                                .begin_sequence
+                                .as_ref()
+                                .map(String::as_str)
+                                .map(snippet_parser)
+                                .transpose()
+                                .unwrap(),
+                            app_state
+                                .end_sequence
+                                .as_ref()
+                                .map(String::as_str)
+                                .map(snippet_parser)
+                                .transpose()
+                                .unwrap(),
+                        );
+                        let document = Document::parse(svg.content.as_str()).unwrap();
 
-                    let mut turtle = Turtle::new(machine);
-                    let mut program = svg2program(&document, options, &mut turtle);
+                        let mut turtle = Turtle::new(machine);
+                        let mut program = svg2program(&document, options, &mut turtle);
 
-                    set_origin(&mut program, app_state.origin);
+                        set_origin(&mut program, app_state.origin);
 
-                    let gcode_base64 = {
-                        let mut cursor = Cursor::new(vec![]);
-                        tokens_into_gcode_bytes(&program, &mut cursor).unwrap();
-                        base64::encode(cursor.get_ref())
-                    };
+                        let gcode_base64 = {
+                            let mut cursor = Cursor::new(vec![]);
+                            tokens_into_gcode_bytes(&program, &mut cursor).unwrap();
+                            base64::encode(cursor.get_ref())
+                        };
 
-                    let window = window();
-                    let document = window.document().unwrap();
-                    let hyperlink = document.create_element("a").unwrap();
+                        let window = window();
+                        let document = window.document().unwrap();
+                        let hyperlink = document.create_element("a").unwrap();
 
-                    let filepath =
-                        Path::new(app_state.svg_filename.as_ref().unwrap()).with_extension("gcode");
-                    let filename = filepath.to_str().unwrap();
-                    hyperlink
-                        .set_attribute("href", &format!("data:text/plain;base64,{}", gcode_base64))
-                        .unwrap();
-                    hyperlink.set_attribute("download", filename).unwrap();
-                    hyperlink.unchecked_into::<HtmlElement>().click();
+                        let filepath = Path::new(svg.filename.as_str()).with_extension("gcode");
+                        let filename = filepath.to_str().unwrap();
+                        hyperlink
+                            .set_attribute(
+                                "href",
+                                &format!("data:text/plain;base64,{}", gcode_base64),
+                            )
+                            .unwrap();
+                        hyperlink.set_attribute("download", filename).unwrap();
+                        hyperlink.unchecked_into::<HtmlElement>().click();
+                    }
 
                     AppMsg::Done
                 });
@@ -145,7 +149,7 @@ impl Component for App {
     }
 
     fn view(&self) -> Html {
-        let generate_disabled = self.generating || self.app_state.svg.is_none();
+        let generate_disabled = self.generating || self.app_state.svgs.is_empty();
         let generate_onclick = self.link.callback(|_| AppMsg::Generate);
 
         // TODO: come up with a less awkward way to do this.
@@ -168,7 +172,7 @@ impl Component for App {
                     <SvgInput/>
                     <ButtonGroup>
                         <Button
-                            title="Generate GCode"
+                            title="Generate g-code"
                             style={ButtonStyle::Primary}
                             loading={self.generating}
                             icon={
