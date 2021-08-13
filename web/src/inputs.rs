@@ -238,7 +238,7 @@ gcode_input! {
     }
     EndSequence {
         "Program End Sequence",
-        "GCode for the machine",
+        "GCode for stopping/idling the machine at the end of the program",
         end_sequence,
     }
 }
@@ -384,6 +384,15 @@ pub fn settings_form() -> Html {
             footer={
                 html!(
                     <>
+                        <p>
+                            {"These settings are persisted using local storage. Learn more "}
+                            // Opening new tabs is usually bad.
+                            // But if we don't, the user is at risk of losing the settings they've entered so far.
+                            <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage" target="_blank">
+                                {"on MDN"}
+                            </a>
+                            {"."}
+                        </p>
                         <Button
                             style={ButtonStyle::Primary}
                             disabled={disabled}
