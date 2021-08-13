@@ -67,8 +67,7 @@ impl<'input> Machine<'input> {
             self.tool_state = Some(Tool::On);
             self.tool_on_action
                 .iter()
-                .flat_map(|s| s.iter_fields())
-                .map(Token::from)
+                .flat_map(Snippet::iter_emit_tokens)
                 .collect()
         } else {
             vec![]
@@ -81,8 +80,7 @@ impl<'input> Machine<'input> {
             self.tool_state = Some(Tool::Off);
             self.tool_off_action
                 .iter()
-                .flat_map(|s| s.iter_fields())
-                .map(Token::from)
+                .flat_map(Snippet::iter_emit_tokens)
                 .collect()
         } else {
             vec![]
@@ -93,8 +91,7 @@ impl<'input> Machine<'input> {
     pub fn program_begin(&self) -> Vec<Token<'input>> {
         self.program_begin_sequence
             .iter()
-            .flat_map(|s| s.iter_fields())
-            .map(Token::from)
+            .flat_map(Snippet::iter_emit_tokens)
             .collect()
     }
 
@@ -102,8 +99,7 @@ impl<'input> Machine<'input> {
     pub fn program_end(&self) -> Vec<Token<'input>> {
         self.program_end_sequence
             .iter()
-            .flat_map(|s| s.iter_fields())
-            .map(Token::from)
+            .flat_map(Snippet::iter_emit_tokens)
             .collect()
     }
 
