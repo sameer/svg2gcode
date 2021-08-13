@@ -15,6 +15,15 @@ Convert vector graphics to g-code for pen plotters, laser engravers, and other C
 
 ### Web interface
 
+
+Just select an SVG
+
+![SVG selected on web interface](https://user-images.githubusercontent.com/11097096/129305765-f78da85d-cf4f-4286-a97c-7124a716b5fa.png)
+
+and click generate!
+![image](https://user-images.githubusercontent.com/11097096/129305837-1748d30b-dfb6-464b-b9e8-7fbde25448ba.png)
+
+
 Check it out at https://sameer.github.io/svg2gcode/
 
 ### Command line interface (CLI)
@@ -35,7 +44,7 @@ cat out.gcode
 
 ![Vanderbilt Commodores Logo Gcode](examples/Vanderbilt_Commodores_logo_gcode.png)
 
-#### Real-world use on a Prusa Mini+
+### Real-world use on a Prusa Mini+
 
 A [Prusa Mini+](https://shop.prusa3d.com/en/3d-printers/994-original-prusa-mini.html) was set up with a [pen plotter attachment](https://github.com/sameer/models/wiki#prusa-mini-plotter).
 The `Vanderbilt_Commodores_logo.svg` and `moore.svg` examples were plotted on the same page.
