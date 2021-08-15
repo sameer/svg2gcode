@@ -17,6 +17,7 @@ pub use turtle::Turtle;
 #[cfg(test)]
 mod test {
     use super::*;
+    use g_code::emit::{format_gcode_fmt, FormatOptions};
     use pretty_assertions::assert_eq;
 
     fn get_actual(input: &str) -> String {
@@ -27,9 +28,9 @@ mod test {
         let mut program = converter::svg2program(&document, options, &mut turtle);
         postprocess::set_origin(&mut program, [0., 0.]);
 
-        let mut actual = vec![];
-        assert!(tokens_into_gcode_bytes(&program, &mut actual).is_ok());
-        String::from_utf8(actual).unwrap()
+        let mut acc = String::new();
+        format_gcode_fmt(&program, FormatOptions::default(), &mut acc).unwrap();
+        acc
     }
 
     #[test]
