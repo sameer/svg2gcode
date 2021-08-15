@@ -207,9 +207,9 @@ checksum = "af51b1b4a7fdff033703db39de8802c673eb91855f2e0d47dcf3bf2c0ef01f99"
 
 [[package]]
 name = "g-code"
-version = "0.2.6"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ce6421233f5b738db44d6cf210465c2606cda44ed92cabd7920685506cb0c29"
+checksum = "844e6deaab51dbee3328a56f233f3d8124cd62d4962c0f8783651ccaa4d88305"
 dependencies = [
  "codespan",
  "codespan-reporting",
@@ -593,7 +593,7 @@ dependencies = [
 
 [[package]]
 name = "svg2gcode"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "euclid",
  "g-code",

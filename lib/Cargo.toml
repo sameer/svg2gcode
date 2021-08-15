@@ -1,6 +1,6 @@
 [package]
 name = "svg2gcode"
-version = "0.0.3"
+version = "0.0.4"
 authors = ["Sameer Puri <crates@purisa.me>"]
 edition = "2018"
 description = "Convert paths in SVG files to GCode for a pen plotter, laser engraver, or other machine."
@@ -8,7 +8,7 @@ repository = "https://github.com/sameer/svg2gcode"
 license = "MIT"
 
 [dependencies]
-g-code = ">= 0.2.6"
+g-code = "0.3"
 lyon_geom = ">= 0.17.2"
 euclid = "0.22"
 log = "0"

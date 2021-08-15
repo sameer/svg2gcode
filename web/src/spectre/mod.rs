@@ -69,7 +69,7 @@ where
     let id = props.label.to_lowercase().replace(' ', "-");
 
     let applied_default_value = use_state(|| false);
-    let node_ref = use_state(|| NodeRef::default());
+    let node_ref = use_state(NodeRef::default);
 
     if let (false, Some(default), Some(input_element)) = (
         *applied_default_value,
@@ -279,7 +279,7 @@ where
     let id = props.label.to_lowercase().replace(' ', "-");
 
     let applied_default_value = use_state(|| false);
-    let node_ref = use_state(|| NodeRef::default());
+    let node_ref = use_state(NodeRef::default);
 
     if let (false, Some(default), Some(input_element)) = (
         *applied_default_value,
@@ -409,7 +409,7 @@ pub fn hyperlink_button(props: &HyperlinkButtonProps) -> Html {
             { props.title.map(Into::into).unwrap_or_else(|| html!()) }
             { if props.icon.is_some() && props.title.is_some() { " " } else { "" } }
             {
-                if let Some(name) = props.icon.clone() {
+                if let Some(name) = props.icon {
                     html!{
                         <Icon name={name} />
                     }

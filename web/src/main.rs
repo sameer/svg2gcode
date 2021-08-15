@@ -1,11 +1,12 @@
-use std::{io::Cursor, path::Path, rc::Rc};
+use std::{path::Path, rc::Rc};
 
-use g_code::parse::snippet_parser;
+use g_code::{
+    emit::{format_gcode_fmt, FormatOptions},
+    parse::snippet_parser,
+};
 use log::Level;
 use roxmltree::Document;
-use svg2gcode::{
-    set_origin, svg2program, tokens_into_gcode_bytes, ConversionOptions, Machine, Turtle,
-};
+use svg2gcode::{set_origin, svg2program, ConversionOptions, Machine, Turtle};
 use wasm_bindgen::JsCast;
 use web_sys::HtmlElement;
 use yew::{prelude::*, utils::window};
@@ -77,29 +78,25 @@ impl Component for App {
                         let machine = Machine::new(
                             app_state
                                 .tool_on_sequence
-                                .as_ref()
-                                .map(String::as_str)
+                                .as_deref()
                                 .map(snippet_parser)
                                 .transpose()
                                 .unwrap(),
                             app_state
                                 .tool_off_sequence
-                                .as_ref()
-                                .map(String::as_str)
+                                .as_deref()
                                 .map(snippet_parser)
                                 .transpose()
                                 .unwrap(),
                             app_state
                                 .begin_sequence
-                                .as_ref()
-                                .map(String::as_str)
+                                .as_deref()
                                 .map(snippet_parser)
                                 .transpose()
                                 .unwrap(),
                             app_state
                                 .end_sequence
-                                .as_ref()
-                                .map(String::as_str)
+                                .as_deref()
                                 .map(snippet_parser)
                                 .transpose()
                                 .unwrap(),
@@ -112,9 +109,9 @@ impl Component for App {
                         set_origin(&mut program, app_state.origin);
 
                         let gcode_base64 = {
-                            let mut cursor = Cursor::new(vec![]);
-                            tokens_into_gcode_bytes(&program, &mut cursor).unwrap();
-                            base64::encode(cursor.get_ref())
+                            let mut acc = String::new();
+                            format_gcode_fmt(&program, FormatOptions::default(), &mut acc).unwrap();
+                            base64::encode(acc.as_bytes())
                         };
 
                         let window = window();

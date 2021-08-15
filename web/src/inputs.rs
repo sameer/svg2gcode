@@ -503,7 +503,7 @@ pub fn settings_form() -> Html {
 #[function_component(SvgInput)]
 pub fn svg_input() -> Html {
     let app = use_store::<AppStore>();
-    let parsed_state = use_ref(|| vec![]);
+    let parsed_state = use_ref(Vec::default);
 
     let parsed_state_cloned = parsed_state.clone();
 

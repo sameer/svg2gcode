@@ -1,4 +1,7 @@
-use g_code::parse::snippet_parser;
+use g_code::{
+    emit::{format_gcode_io, FormatOptions},
+    parse::snippet_parser,
+};
 use log::info;
 use std::{
     env,
@@ -8,9 +11,7 @@ use std::{
 };
 use structopt::StructOpt;
 
-use svg2gcode::{
-    set_origin, svg2program, tokens_into_gcode_bytes, ConversionOptions, Machine, Turtle,
-};
+use svg2gcode::{set_origin, svg2program, ConversionOptions, Machine, Turtle};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "svg2gcode", author, about)]
@@ -79,25 +80,18 @@ fn main() -> io::Result<()> {
 
     let snippets = [
         opt.tool_on_sequence
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .map(snippet_parser)
             .transpose(),
         opt.tool_off_sequence
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .map(snippet_parser)
             .transpose(),
         opt.begin_sequence
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .map(snippet_parser)
             .transpose(),
-        opt.end_sequence
-            .as_ref()
-            .map(String::as_str)
-            .map(snippet_parser)
-            .transpose(),
+        opt.end_sequence.as_deref().map(snippet_parser).transpose(),
     ];
 
     let machine = if let [Ok(tool_on_action), Ok(tool_off_action), Ok(program_begin_sequence), Ok(program_end_sequence)] =
@@ -164,8 +158,8 @@ fn main() -> io::Result<()> {
     set_origin(&mut program, origin);
 
     if let Some(out_path) = opt.out {
-        tokens_into_gcode_bytes(&program, File::create(out_path)?)
+        format_gcode_io(&program, FormatOptions::default(), File::create(out_path)?)
     } else {
-        tokens_into_gcode_bytes(&program, std::io::stdout())
+        format_gcode_io(&program, FormatOptions::default(), std::io::stdout())
     }
 }
