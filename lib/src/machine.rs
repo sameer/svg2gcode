@@ -35,40 +35,61 @@ impl std::ops::Not for Distance {
 }
 
 /// Generic machine state simulation, assuming nothing is known about the machine when initialized.
-/// This is used to reduce output GCode verbosity and run repetitive actions.
-#[derive(Debug, Default)]
+/// This is used to reduce output "G-Code verbosity and run repetitive actions.
+#[derive(Debug, Default, Clone)]
 pub struct Machine<'input> {
+    supported_functionality: SupportedFunctionality,
     tool_state: Option<Tool>,
     distance_mode: Option<Distance>,
-    pub tool_on_action: Option<Snippet<'input>>,
-    pub tool_off_action: Option<Snippet<'input>>,
-    pub program_begin_sequence: Option<Snippet<'input>>,
-    pub program_end_sequence: Option<Snippet<'input>>,
+    tool_on_action: Vec<Token<'input>>,
+    tool_off_action: Vec<Token<'input>>,
+    program_begin_sequence: Vec<Token<'input>>,
+    program_end_sequence: Vec<Token<'input>>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct SupportedFunctionality {
+    /// Indicates support for G2/G3 circular interpolation.
+    ///
+    /// Most modern machines support this. Old ones like early MakerBot 3D printers do not.
+    pub circular_interpolation: bool,
 }
 
 impl<'input> Machine<'input> {
     pub fn new(
+        supported_functionality: SupportedFunctionality,
         tool_on_action: Option<Snippet<'input>>,
         tool_off_action: Option<Snippet<'input>>,
         program_begin_sequence: Option<Snippet<'input>>,
         program_end_sequence: Option<Snippet<'input>>,
     ) -> Self {
         Self {
-            tool_on_action,
-            tool_off_action,
-            program_begin_sequence,
-            program_end_sequence,
+            supported_functionality,
+            tool_on_action: tool_on_action
+                .map(|s| s.iter_emit_tokens().collect())
+                .unwrap_or_default(),
+            tool_off_action: tool_off_action
+                .map(|s| s.iter_emit_tokens().collect())
+                .unwrap_or_default(),
+            program_begin_sequence: program_begin_sequence
+                .map(|s| s.iter_emit_tokens().collect())
+                .unwrap_or_default(),
+            program_end_sequence: program_end_sequence
+                .map(|s| s.iter_emit_tokens().collect())
+                .unwrap_or_default(),
             ..Default::default()
         }
     }
+
+    pub fn supported_functionality(&self) -> &SupportedFunctionality {
+        &self.supported_functionality
+    }
+
     /// Output gcode to turn the tool on.
     pub fn tool_on(&mut self) -> Vec<Token<'input>> {
         if self.tool_state == Some(Tool::Off) || self.tool_state == None {
             self.tool_state = Some(Tool::On);
-            self.tool_on_action
-                .iter()
-                .flat_map(Snippet::iter_emit_tokens)
-                .collect()
+            self.tool_on_action.clone()
         } else {
             vec![]
         }
@@ -78,10 +99,7 @@ impl<'input> Machine<'input> {
     pub fn tool_off(&mut self) -> Vec<Token<'input>> {
         if self.tool_state == Some(Tool::On) || self.tool_state == None {
             self.tool_state = Some(Tool::Off);
-            self.tool_off_action
-                .iter()
-                .flat_map(Snippet::iter_emit_tokens)
-                .collect()
+            self.tool_off_action.clone()
         } else {
             vec![]
         }
@@ -89,18 +107,12 @@ impl<'input> Machine<'input> {
 
     /// Output user-defined setup gcode
     pub fn program_begin(&self) -> Vec<Token<'input>> {
-        self.program_begin_sequence
-            .iter()
-            .flat_map(Snippet::iter_emit_tokens)
-            .collect()
+        self.program_begin_sequence.clone()
     }
 
     /// Output user-defined teardown gcode
     pub fn program_end(&self) -> Vec<Token<'input>> {
-        self.program_end_sequence
-            .iter()
-            .flat_map(Snippet::iter_emit_tokens)
-            .collect()
+        self.program_end_sequence.clone()
     }
 
     /// Output absolute distance field if mode was relative or unknown.

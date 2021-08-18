@@ -8,7 +8,7 @@ repository = "https://github.com/sameer/svg2gcode"
 license = "MIT"
 
 [dependencies]
-g-code = "0.3"
+g-code = "0.3.1"
 lyon_geom = ">= 0.17.2"
 euclid = "0.22"
 log = "0"
@@ -25,3 +25,4 @@ wasmbind = [ "wasm-bindgen" ]
 
 [dev-dependencies]
 pretty_assertions = "0.6"
+cairo-rs = { version = "^0", default-features = false, features = ["svg", "v1_16"] }

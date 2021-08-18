@@ -5,7 +5,7 @@ use g_code::{command, emit::Token};
 use log::{debug, warn};
 use lyon_geom::{
     euclid::{default::Transform2D, Angle, Transform3D},
-    vector,
+    point, vector, ArcFlags,
 };
 use roxmltree::{Document, Node};
 use svgtypes::{
@@ -192,8 +192,8 @@ fn width_and_height_into_transform(
     }
 }
 
-fn apply_path<'a, 'input>(
-    turtle: &'a mut Turtle<'input>,
+fn apply_path<'input>(
+    turtle: &'_ mut Turtle<'input>,
     options: &ConversionOptions,
     path: &str,
 ) -> Vec<Token<'input>> {
@@ -206,11 +206,11 @@ fn apply_path<'a, 'input>(
                 MoveTo { abs, x, y } => turtle.move_to(abs, x, y),
                 ClosePath { abs: _ } => {
                     // Ignore abs, should have identical effect: [9.3.4. The "closepath" command]("https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand)
-                    turtle.close(None, options.feedrate)
+                    turtle.close(options.feedrate)
                 }
-                LineTo { abs, x, y } => turtle.line(abs, x, y, None, options.feedrate),
-                HorizontalLineTo { abs, x } => turtle.line(abs, x, None, None, options.feedrate),
-                VerticalLineTo { abs, y } => turtle.line(abs, None, y, None, options.feedrate),
+                LineTo { abs, x, y } => turtle.line(abs, x, y, options.feedrate),
+                HorizontalLineTo { abs, x } => turtle.line(abs, x, None, options.feedrate),
+                VerticalLineTo { abs, y } => turtle.line(abs, None, y, options.feedrate),
                 CurveTo {
                     abs,
                     x1,
@@ -221,42 +221,30 @@ fn apply_path<'a, 'input>(
                     y,
                 } => turtle.cubic_bezier(
                     abs,
-                    x1,
-                    y1,
-                    x2,
-                    y2,
-                    x,
-                    y,
+                    point(x1, y1),
+                    point(x2, y2),
+                    point(x, y),
                     options.tolerance,
-                    None,
                     options.feedrate,
                 ),
                 SmoothCurveTo { abs, x2, y2, x, y } => turtle.smooth_cubic_bezier(
                     abs,
-                    x2,
-                    y2,
-                    x,
-                    y,
+                    point(x2, y2),
+                    point(x, y),
                     options.tolerance,
-                    None,
                     options.feedrate,
                 ),
                 Quadratic { abs, x1, y1, x, y } => turtle.quadratic_bezier(
                     abs,
-                    x1,
-                    y1,
-                    x,
-                    y,
+                    point(x1, y1),
+                    point(x, y),
                     options.tolerance,
-                    None,
                     options.feedrate,
                 ),
                 SmoothQuadratic { abs, x, y } => turtle.smooth_quadratic_bezier(
                     abs,
-                    x,
-                    y,
+                    point(x, y),
                     options.tolerance,
-                    None,
                     options.feedrate,
                 ),
                 EllipticalArc {
@@ -270,14 +258,10 @@ fn apply_path<'a, 'input>(
                     y,
                 } => turtle.elliptical(
                     abs,
-                    rx,
-                    ry,
-                    x_axis_rotation,
-                    large_arc,
-                    sweep,
-                    x,
-                    y,
-                    None,
+                    vector(rx, ry),
+                    Angle::degrees(x_axis_rotation),
+                    ArcFlags { large_arc, sweep },
+                    point(x, y),
                     options.feedrate,
                     options.tolerance,
                 ),

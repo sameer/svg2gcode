@@ -6,7 +6,9 @@ use g_code::{
 };
 use log::Level;
 use roxmltree::Document;
-use svg2gcode::{set_origin, svg2program, ConversionOptions, Machine, Turtle};
+use svg2gcode::{
+    set_origin, svg2program, ConversionOptions, Machine, SupportedFunctionality, Turtle,
+};
 use wasm_bindgen::JsCast;
 use web_sys::HtmlElement;
 use yew::{prelude::*, utils::window};
@@ -76,6 +78,9 @@ impl Component for App {
                             dpi: app_state.dpi,
                         };
                         let machine = Machine::new(
+                            SupportedFunctionality {
+                                circular_interpolation: false,
+                            },
                             app_state
                                 .tool_on_sequence
                                 .as_deref()

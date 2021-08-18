@@ -1,6 +1,7 @@
 use euclid::default::Box2D;
 use g_code::emit::{
-    Field, Token, Value, ABSOLUTE_DISTANCE_MODE_FIELD, RELATIVE_DISTANCE_MODE_FIELD,
+    command::{ABSOLUTE_DISTANCE_MODE_FIELD, RELATIVE_DISTANCE_MODE_FIELD},
+    Field, Token, Value,
 };
 use lyon_geom::{point, vector, Point};
 
