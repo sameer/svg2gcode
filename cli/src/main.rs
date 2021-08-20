@@ -11,7 +11,9 @@ use std::{
 };
 use structopt::StructOpt;
 
-use svg2gcode::{set_origin, svg2program, ConversionOptions, Machine, Turtle};
+use svg2gcode::{
+    set_origin, svg2program, ConversionOptions, Machine, SupportedFunctionality, Turtle,
+};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "svg2gcode", author, about)]
@@ -26,15 +28,15 @@ struct Opt {
     #[structopt(long, default_value = "96")]
     dpi: f64,
     #[structopt(alias = "tool_on_sequence", long = "on")]
-    /// Tool on GCode sequence
+    /// Tool on "G-Code sequence
     tool_on_sequence: Option<String>,
     #[structopt(alias = "tool_off_sequence", long = "off")]
-    /// Tool off GCode sequence
+    /// Tool off "G-Code sequence
     tool_off_sequence: Option<String>,
-    /// Optional GCode begin sequence (i.e. change to a cutter tool)
+    /// Optional "G-Code begin sequence (i.e. change to a cutter tool)
     #[structopt(alias = "begin_sequence", long = "begin")]
     begin_sequence: Option<String>,
-    /// Optional GCode end sequence, prior to program end (i.e. put away a cutter tool)
+    /// Optional "G-Code end sequence, prior to program end (i.e. put away a cutter tool)
     #[structopt(alias = "end_sequence", long = "end")]
     end_sequence: Option<String>,
     /// A file path for an SVG, else reads from stdin
@@ -46,6 +48,11 @@ struct Opt {
     /// on/off sequences.
     #[structopt(long, default_value = "0,0")]
     origin: String,
+    /// Whether to use circular arcs when generating g-code
+    ///
+    /// Please check if your machine supports G2/G3 commands before enabling this.
+    #[structopt(long)]
+    circular_interpolation: bool,
 }
 
 fn main() -> io::Result<()> {
@@ -98,6 +105,9 @@ fn main() -> io::Result<()> {
         snippets
     {
         Machine::new(
+            SupportedFunctionality {
+                circular_interpolation: opt.circular_interpolation,
+            },
             tool_on_action,
             tool_off_action,
             program_begin_sequence,

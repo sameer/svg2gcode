@@ -114,6 +114,28 @@ where
 }
 
 #[derive(Properties, PartialEq, Clone)]
+pub struct CheckboxProps {
+    pub label: &'static str,
+    #[prop_or(false)]
+    pub checked: bool,
+    #[prop_or_default]
+    pub onchange: Callback<ChangeData>,
+}
+
+#[function_component(Checkbox)]
+pub fn checkbox(props: &CheckboxProps) -> Html {
+    html! {
+        <>
+            <label class="form-checkbox">
+                <input type="checkbox"  onchange={props.onchange.clone()} checked={props.checked} />
+                <Icon form={true} name={IconName::None} />
+                { props.label }
+            </label>
+        </>
+    }
+}
+
+#[derive(Properties, PartialEq, Clone)]
 pub struct FileUploadProps<T, E>
 where
     T: Clone + PartialEq,
@@ -443,7 +465,8 @@ css_class_enum! {
         Cross => "cross",
         Stop => "stop",
         Download => "download",
-        Edit => "edit"
+        Edit => "edit",
+        None => ""
     }
 }
 

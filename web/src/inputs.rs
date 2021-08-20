@@ -4,7 +4,7 @@ use gloo_file::futures::read_as_text;
 use gloo_timers::callback::Timeout;
 use paste::paste;
 use roxmltree::Document;
-use std::{num::ParseFloatError};
+use std::num::ParseFloatError;
 use web_sys::{FileList, HtmlElement};
 use yew::prelude::*;
 use yewdux::prelude::{BasicStore, Dispatcher};
@@ -225,22 +225,22 @@ macro_rules! gcode_input {
 gcode_input! {
     ToolOnSequence {
         "Tool On Sequence",
-        "GCode for turning on the tool",
+        "G-Code for turning on the tool",
         tool_on_sequence,
     }
     ToolOffSequence {
         "Tool Off Sequence",
-        "GCode for turning off the tool",
+        "G-Code for turning off the tool",
         tool_off_sequence,
     }
     BeginSequence {
         "Program Begin Sequence",
-        "GCode for initializing the machine at the beginning of the program",
+        "G-Code for initializing the machine at the beginning of the program",
         begin_sequence,
     }
     EndSequence {
         "Program End Sequence",
-        "GCode for stopping/idling the machine at the end of the program",
+        "G-Code for stopping/idling the machine at the end of the program",
         end_sequence,
     }
 }
@@ -339,17 +339,29 @@ pub fn settings_form() -> Html {
 
     let close_ref = NodeRef::default();
 
+    let on_circular_interpolation_change =
+        form.dispatch().reduce_callback_with(|form, change_data| {
+            if let ChangeData::Value(_) = change_data {
+                form.circular_interpolation = !form.circular_interpolation;
+            }
+        });
+    let circular_interpolation_checked = form
+        .state()
+        .map(|state| state.circular_interpolation)
+        .unwrap_or(false);
+
     let save_onclick = {
         let close_ref = close_ref.clone();
         app.dispatch().reduce_callback(move |app| {
             if let (false, Some(form)) = (disabled, form.state()) {
                 app.tolerance = *form.tolerance.as_ref().unwrap();
                 app.feedrate = *form.feedrate.as_ref().unwrap();
-                app.dpi = *form.dpi.as_ref().unwrap();
                 app.origin = [
                     *form.origin[0].as_ref().unwrap(),
                     *form.origin[1].as_ref().unwrap(),
                 ];
+                app.circular_interpolation = form.circular_interpolation;
+                app.dpi = *form.dpi.as_ref().unwrap();
                 app.tool_on_sequence = form.tool_on_sequence.clone().and_then(Result::ok);
                 app.tool_off_sequence = form.tool_off_sequence.clone().and_then(Result::ok);
                 app.begin_sequence = form.begin_sequence.clone().and_then(Result::ok);
@@ -376,9 +388,16 @@ pub fn settings_form() -> Html {
                 <>
                     <ToleranceInput/>
                     <FeedrateInput/>
-                    <DpiInput/>
                     <OriginXInput/>
                     <OriginYInput/>
+                    <FormGroup success=true>
+                        <Checkbox
+                            label="Enable circular interpolation"
+                            checked={circular_interpolation_checked}
+                            onchange={on_circular_interpolation_change}
+                        />
+                    </FormGroup>
+                    <DpiInput/>
                     <ToolOnSequenceInput/>
                     <ToolOffSequenceInput/>
                     <BeginSequenceInput/>
@@ -403,6 +422,7 @@ pub fn settings_form() -> Html {
                             title="Save"
                             onclick={save_onclick}
                         />
+                        {" "}
                         <HyperlinkButton
                             ref={close_ref.clone()}
                             style={ButtonStyle::Default}
