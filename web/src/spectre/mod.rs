@@ -116,6 +116,7 @@ where
 #[derive(Properties, PartialEq, Clone)]
 pub struct CheckboxProps {
     pub label: &'static str,
+    pub desc: Option<&'static str>,
     #[prop_or(false)]
     pub checked: bool,
     #[prop_or_default]
@@ -131,6 +132,13 @@ pub fn checkbox(props: &CheckboxProps) -> Html {
                 <Icon form={true} name={IconName::None} />
                 { props.label }
             </label>
+            {
+                if let Some(desc) = props.desc {
+                    html! { <p class="form-input-hint">{ desc }</p> }
+                } else {
+                    html!()
+                }
+            }
         </>
     }
 }

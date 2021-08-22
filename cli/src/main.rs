@@ -18,34 +18,34 @@ use svg2gcode::{
 #[derive(Debug, StructOpt)]
 #[structopt(name = "svg2gcode", author, about)]
 struct Opt {
-    /// Curve interpolation tolerance
+    /// Curve interpolation tolerance (mm)
     #[structopt(long, default_value = "0.002")]
     tolerance: f64,
-    /// Machine feed rate in mm/min
+    /// Machine feed rate (mm/min)
     #[structopt(long, default_value = "300")]
     feedrate: f64,
-    /// Dots per inch (DPI) for pixels, points, picas, etc.
+    /// Dots per Inch (DPI)
+    /// Used for scaling visual units (pixels, points, picas, etc.)
     #[structopt(long, default_value = "96")]
     dpi: f64,
     #[structopt(alias = "tool_on_sequence", long = "on")]
-    /// Tool on "G-Code sequence
+    /// G-Code for turning on the tool
     tool_on_sequence: Option<String>,
     #[structopt(alias = "tool_off_sequence", long = "off")]
-    /// Tool off "G-Code sequence
+    /// G-Code for turning off the tool
     tool_off_sequence: Option<String>,
-    /// Optional "G-Code begin sequence (i.e. change to a cutter tool)
+    /// G-Code for initializing the machine at the beginning of the program
     #[structopt(alias = "begin_sequence", long = "begin")]
     begin_sequence: Option<String>,
-    /// Optional "G-Code end sequence, prior to program end (i.e. put away a cutter tool)
+    /// G-Code for stopping/idling the machine at the end of the program
     #[structopt(alias = "end_sequence", long = "end")]
     end_sequence: Option<String>,
-    /// A file path for an SVG, else reads from stdin
+    /// A file path to an SVG, else reads from stdin
     file: Option<PathBuf>,
     /// Output file path (overwrites old files), else writes to stdout
     #[structopt(short, long)]
     out: Option<PathBuf>,
-    /// Set where the bottom left corner of the SVG will be placed. Also affects begin/end and
-    /// on/off sequences.
+    /// Coordinates for the bottom left corner of the machine
     #[structopt(long, default_value = "0,0")]
     origin: String,
     /// Whether to use circular arcs when generating g-code

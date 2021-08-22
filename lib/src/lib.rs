@@ -1,13 +1,13 @@
 /// Approximate [Bézier curves](https://en.wikipedia.org/wiki/B%C3%A9zier_curve) with [Circular arcs](https://en.wikipedia.org/wiki/Circular_arc)
 mod arc;
-/// Converts an SVG to "G-Code in an internal representation
+/// Converts an SVG to G-Code in an internal representation
 mod converter;
-/// Emulates the state of an arbitrary machine that can run "G-Code
+/// Emulates the state of an arbitrary machine that can run G-Code
 mod machine;
-/// Operations that are easier to implement after "G-Code is generated, or would
+/// Operations that are easier to implement after G-Code is generated, or would
 /// otherwise over-complicate SVG conversion
 mod postprocess;
-/// Provides an interface for drawing lines in "G-Code
+/// Provides an interface for drawing lines in G-Code
 /// This concept is referred to as [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics).
 mod turtle;
 

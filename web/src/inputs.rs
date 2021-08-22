@@ -276,27 +276,27 @@ macro_rules! form_input {
 form_input! {
     Tolerance {
         "Tolerance",
-        "Curve interpolation tolerance",
+        "Curve interpolation tolerance (mm)",
         tolerance,
     }
     Feedrate {
         "Feedrate",
-        "Machine feedrate in mm/min",
+        "Machine feedrate (mm/min)",
         feedrate,
     }
     Dpi {
         "Dots per Inch",
-        "Used for non-physical units (pixels, points, picas, etc.)",
+        "Used for scaling visual units (pixels, points, picas, etc.)",
         dpi,
     }
     OriginX {
         "Origin X",
-        "X-axis coordinate for the bottom left corner of the SVG",
+        "X-axis coordinate for the bottom left corner of the machine",
         origin => 0,
     }
     OriginY {
         "Origin Y",
-        "Y-axis coordinate for the bottom left corner of the SVG",
+        "Y-axis coordinate for the bottom left corner of the machine",
         origin => 1,
     }
 }
@@ -390,9 +390,10 @@ pub fn settings_form() -> Html {
                     <FeedrateInput/>
                     <OriginXInput/>
                     <OriginYInput/>
-                    <FormGroup success=true>
+                    <FormGroup>
                         <Checkbox
                             label="Enable circular interpolation"
+                            desc="Please check if your machine supports G2/G3 commands before enabling this"
                             checked={circular_interpolation_checked}
                             onchange={on_circular_interpolation_change}
                         />
@@ -436,89 +437,6 @@ pub fn settings_form() -> Html {
         </Modal>
     }
 }
-
-// pub enum FileMsg {
-//     File(File),
-//     Data(FileData),
-// }
-
-// pub struct SvgUploadOrLink {
-//     link: ComponentLink<Self>,
-//     reader_task: Option<ReaderTask>,
-// }
-
-// impl Component for SvgUploadOrLink {
-//     type Message = FileMsg;
-
-//     type Properties = ();
-
-//     fn create(props: Self::Properties, link: ComponentLink<Self>) -> Self {
-//         Self {
-//             link,
-//             reader_task: None,
-//         }
-//     }
-
-//     fn update(&mut self, msg: Self::Message) -> ShouldRender {
-//         match msg {
-//             FileMsg::File(file) => {
-//                 self.reader_task = Some(
-//                     ReaderService::read_file(file, self.link.callback(FileMsg::Data)).unwrap(),
-//                 );
-//                 false
-//             }
-//             FileMsg::Data(data) => {
-//                 self.reader_task = None;
-//                 false
-//             }
-//         }
-//     }
-
-//     fn change(&mut self, _props: Self::Properties) -> ShouldRender {
-//         todo!()
-//     }
-
-//     fn view(&self) -> Html {
-//         html! {
-//             <label>
-//                 { "SVG File" }
-//                 <input type="file" accept=".svg,image/svg+xml" multiple=false onchange={
-//                     self.link.callback(|value| {
-//                         if let ChangeData::Files(files) = value {
-//                             FileMsg::File(files.get(0).unwrap())
-
-//                         } else {
-//                             unreachable!()
-//                         }
-//                     })
-//                 }/>
-//             </label>
-//         }
-//     }
-// }
-
-// trait FileInputDispatcher: Dispatcher {
-//     fn file_text(
-//         &self,
-//         f: impl Fn(&mut <Self::Store as Store>::Model, Result<String, FileReadError>) + Copy + 'static,
-//     ) -> Callback<FileList>
-//     where
-//         Self: Clone,
-//     {
-//         let set_file = self.future_callback_with(f);
-//         Callback::from(move |file_list: FileList| {
-//             for file in (0..file_list.length()).filter_map(|i| file_list.item(i)) {
-//                 let cb = set_file.clone();
-//                 read_as_text(&gloo_file::File::from(file), move |result| {
-//                     cb.emit(result);
-//                 })
-//                 .await;
-//             }
-//         })
-//     }
-// }
-
-// impl<T: Dispatcher> FileInputDispatcher for T {}
 
 #[function_component(SvgInput)]
 pub fn svg_input() -> Html {

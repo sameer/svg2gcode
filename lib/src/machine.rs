@@ -35,7 +35,7 @@ impl std::ops::Not for Distance {
 }
 
 /// Generic machine state simulation, assuming nothing is known about the machine when initialized.
-/// This is used to reduce output "G-Code verbosity and run repetitive actions.
+/// This is used to reduce output G-Code verbosity and run repetitive actions.
 #[derive(Debug, Default, Clone)]
 pub struct Machine<'input> {
     supported_functionality: SupportedFunctionality,
