@@ -9,7 +9,7 @@ license = "MIT"
 
 [dependencies]
 g-code = "0.3.1"
-lyon_geom = ">= 0.17.2"
+lyon_geom = ">= 0.17.5"
 euclid = "0.22"
 log = "0"
 uom = "0.31.0"

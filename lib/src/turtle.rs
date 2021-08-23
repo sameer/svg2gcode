@@ -1,4 +1,4 @@
-use crate::arc::{to_svg_arc, ArcOrLineSegment, FlattenWithArcs, Transformed};
+use crate::arc::{ArcOrLineSegment, FlattenWithArcs, Transformed};
 use crate::machine::Machine;
 use g_code::{command, emit::Token};
 use lyon_geom::euclid::{default::Transform2D, Angle};
@@ -109,9 +109,9 @@ impl<'input> Turtle<'input> {
             .into_token_vec(),
             (true, _) => {
                 let (left, right) = svg_arc.to_arc().split(0.5);
-                let mut token_vec = Self::circular_interpolation(to_svg_arc(left), feedrate);
+                let mut token_vec = Self::circular_interpolation(left.to_svg_arc(), feedrate);
                 token_vec.append(&mut Self::circular_interpolation(
-                    to_svg_arc(right),
+                    right.to_svg_arc(),
                     feedrate,
                 ));
                 token_vec

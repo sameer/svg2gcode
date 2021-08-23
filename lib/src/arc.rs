@@ -1,6 +1,6 @@
 use euclid::Angle;
 use lyon_geom::{
-    Arc, ArcFlags, CubicBezierSegment, Line, LineSegment, Point, Scalar, SvgArc, Transform, Vector,
+    ArcFlags, CubicBezierSegment, Line, LineSegment, Point, Scalar, SvgArc, Transform, Vector,
 };
 
 pub enum ArcOrLineSegment<S> {
@@ -176,30 +176,13 @@ where
             vec![ArcOrLineSegment::Arc(svg_arc)]
         } else {
             let (left, right) = self_arc.split(S::HALF);
-            let mut acc = FlattenWithArcs::flattened(&to_svg_arc(left), tolerance);
+            let mut acc = FlattenWithArcs::flattened(&left.to_svg_arc(), tolerance);
             acc.append(&mut FlattenWithArcs::flattened(
-                &to_svg_arc(right),
+                &right.to_svg_arc(),
                 tolerance,
             ));
             acc
         }
-    }
-}
-
-/// Sanity holdover until https://github.com/nical/lyon/pull/693 is merged
-pub fn to_svg_arc<S: Scalar>(arc: Arc<S>) -> SvgArc<S> {
-    let from = arc.sample(S::ZERO);
-    let to = arc.sample(S::ONE);
-    let flags = ArcFlags {
-        sweep: arc.sweep_angle.get() >= S::ZERO,
-        large_arc: S::abs(arc.sweep_angle.get()) >= S::PI(),
-    };
-    SvgArc {
-        from,
-        to,
-        radii: arc.radii,
-        x_rotation: arc.x_rotation,
-        flags,
     }
 }
 
