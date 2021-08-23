@@ -1,4 +1,4 @@
-use codespan_reporting::term::{emit, termcolor::Buffer, Config};
+use codespan_reporting::term::{emit, termcolor::NoColor, Config};
 use g_code::parse::{into_diagnostic, snippet_parser};
 use gloo_file::futures::read_as_text;
 use gloo_timers::callback::Timeout;
@@ -185,7 +185,7 @@ macro_rules! gcode_input {
                         let res = Some(match snippet_parser(&value) {
                             Ok(_) => Ok(value),
                             Err(err) => {
-                                let mut buf = Buffer::no_color();
+                                let mut buf = NoColor::new(vec![]);
                                 let config = Config::default();
                                 emit(
                                     &mut buf,
@@ -194,7 +194,7 @@ macro_rules! gcode_input {
                                     &into_diagnostic(&err),
                                 )
                                 .unwrap();
-                                Err(String::from_utf8_lossy(buf.as_slice()).to_string())
+                                Err(String::from_utf8_lossy(buf.get_ref().as_slice()).to_string())
                             }
                         }).filter(|res| {
                             !res.as_ref().ok().map(|value| value.is_empty()).unwrap_or(false)
