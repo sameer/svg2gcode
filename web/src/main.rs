@@ -174,7 +174,7 @@ impl Component for App {
                     <SvgInput/>
                     <ButtonGroup>
                         <Button
-                            title="Generate g-code"
+                            title="Generate G-Code"
                             style={ButtonStyle::Primary}
                             loading={self.generating}
                             icon={
