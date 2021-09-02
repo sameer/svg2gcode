@@ -298,18 +298,18 @@ fn length_to_mm(l: svgtypes::Length, dpi: f64) -> f64 {
 
     let dpi_scaling = dpi / 96.0;
     let length = match l.unit {
-        Cm => Length::new::<centimeter>(l.num),
-        Mm => Length::new::<millimeter>(l.num),
-        In => Length::new::<inch>(l.num),
-        Pc => Length::new::<pica_computer>(l.num) / dpi_scaling,
-        Pt => Length::new::<point_computer>(l.num) / dpi_scaling,
-        Px => Length::new::<inch>(l.num / dpi_scaling),
+        Cm => Length::new::<centimeter>(l.number),
+        Mm => Length::new::<millimeter>(l.number),
+        In => Length::new::<inch>(l.number),
+        Pc => Length::new::<pica_computer>(l.number) / dpi_scaling,
+        Pt => Length::new::<point_computer>(l.number) / dpi_scaling,
+        Px => Length::new::<inch>(l.number / dpi_scaling),
         other => {
             warn!(
                 "Converting from '{:?}' to millimeters is not supported, treating as millimeters",
                 other
             );
-            Length::new::<millimeter>(l.num)
+            Length::new::<millimeter>(l.number)
         }
     };
 

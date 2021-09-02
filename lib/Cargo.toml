@@ -14,7 +14,7 @@ euclid = "0.22"
 log = "0"
 uom = "0.31.1"
 roxmltree = "0"
-svgtypes = "0"
+svgtypes = "0.6"
 paste = "1"
 
 [dev-dependencies]
