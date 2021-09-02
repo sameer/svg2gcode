@@ -219,12 +219,10 @@ impl<'input> Turtle<'input> {
         self.current_position = cbs.to;
 
         // See https://www.w3.org/TR/SVG/paths.html#ReflectedControlPoints
-        self.previous_control = Some(
-            point(
-                self.current_position.x - cbs.ctrl2.x,
-                self.current_position.y - cbs.ctrl2.y,
-            ) * 2.,
-        );
+        self.previous_control = Some(point(
+            2. * self.current_position.x - cbs.ctrl2.x,
+            2. * self.current_position.y - cbs.ctrl2.y,
+        ));
 
         self.machine
             .tool_on()
