@@ -1,6 +1,6 @@
 [package]
 name = "svg2gcode"
-version = "0.0.4"
+version = "0.0.5"
 authors = ["Sameer Puri <crates@purisa.me>"]
 edition = "2018"
 description = "Convert paths in SVG files to GCode for a pen plotter, laser engraver, or other machine."
@@ -16,13 +16,6 @@ uom = "0.31.0"
 roxmltree = "0"
 svgtypes = "0"
 paste = "1"
-wasm-bindgen = { version = "0.2", optional = true }
-
-
-[features]
-wasmbind = [ "wasm-bindgen" ]
-
 
 [dev-dependencies]
-pretty_assertions = "0.6"
 cairo-rs = { version = "^0", default-features = false, features = ["svg", "v1_16"] }

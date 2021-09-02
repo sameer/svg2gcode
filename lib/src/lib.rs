@@ -21,7 +21,6 @@ pub use turtle::Turtle;
 mod test {
     use super::*;
     use g_code::emit::{format_gcode_fmt, FormatOptions};
-    use pretty_assertions::assert_eq;
 
     fn get_actual(input: &str, circular_interpolation: bool) -> String {
         let options = ConversionOptions::default();
@@ -77,5 +76,19 @@ mod test {
             actual,
             include_str!("../tests/circular_interpolation.gcode")
         )
+    }
+
+    #[test]
+    fn svg_with_smooth_curves_produces_expected_gcode() {
+        let svg = include_str!("../tests/smooth_curves.svg");
+        assert_eq!(
+            get_actual(svg, false),
+            include_str!("../tests/smooth_curves.gcode")
+        );
+
+        assert_eq!(
+            get_actual(svg, true),
+            include_str!("../tests/smooth_curves_circular_interpolation.gcode")
+        );
     }
 }
