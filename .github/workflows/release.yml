@@ -1,10 +1,11 @@
+name: Release CLI
 on:
   release:
     types: [created]
 
 jobs:
   release:
-    name: Release CLI for ${{ matrix.target }}
+    name: release ${{ matrix.target }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
