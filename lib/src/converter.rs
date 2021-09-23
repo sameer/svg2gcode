@@ -48,6 +48,9 @@ pub fn svg2program<'input>(
     program.extend(turtle.machine.program_begin());
     program.extend(turtle.machine.absolute());
 
+    // Part 1 of converting from SVG to g-code coordinates
+    turtle.push_transform(Transform2D::scale(1., -1.));
+
     // Depth-first SVG DOM traversal
     let mut node_stack = vec![(doc.root(), doc.root().children())];
     let mut name_stack: Vec<String> = vec![];
@@ -86,7 +89,9 @@ pub fn svg2program<'input>(
             let view_box = ViewBox::from_str(view_box).expect("could not parse viewBox");
             transforms.push(
                 Transform2D::translation(-view_box.x, -view_box.y)
-                    .then_scale(1. / view_box.w, 1. / view_box.h),
+                    .then_scale(1. / view_box.w, 1. / view_box.h)
+                    // Part 2 of converting from SVG to g-code coordinates
+                    .then_translate(vector(0., -1.)),
             );
         }
 
@@ -143,7 +148,6 @@ pub fn svg2program<'input>(
         }
     }
 
-    // Critical step for actually moving the machine back to the origin, just in case SVG is malformed
     turtle.pop_all_transforms();
     program.extend(turtle.machine.tool_off());
     program.extend(turtle.machine.absolute());
@@ -181,12 +185,7 @@ fn width_and_height_into_transform(
         let width_in_mm = length_to_mm(width, options.dpi);
         let height_in_mm = length_to_mm(height, options.dpi);
 
-        // SVGs have 0,0 in upper left
-        // g-code has 0,0 in lower left
-        Some(
-            Transform2D::scale(width_in_mm, -height_in_mm)
-                .then_translate(vector(0f64, height_in_mm)),
-        )
+        Some(Transform2D::scale(width_in_mm, height_in_mm))
     } else {
         None
     }
@@ -292,11 +291,12 @@ fn svg_transform_into_euclid_transform(svg_transform: TransformListToken) -> Tra
 /// A default DPI of 96 is used as per [CSS 4 §7.4](https://www.w3.org/TR/css-values/#resolution), which you can adjust with --dpi.
 /// Increasing DPI reduces the scale of an SVG.
 fn length_to_mm(l: svgtypes::Length, dpi: f64) -> f64 {
+    const DEFAULT_SVG_DPI: f64 = 96.;
     use svgtypes::LengthUnit::*;
     use uom::si::f64::Length;
     use uom::si::length::*;
 
-    let dpi_scaling = dpi / 96.0;
+    let dpi_scaling = dpi / DEFAULT_SVG_DPI;
     let length = match l.unit {
         Cm => Length::new::<centimeter>(l.number),
         Mm => Length::new::<millimeter>(l.number),
