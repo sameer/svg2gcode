@@ -21,9 +21,17 @@ pub use turtle::Turtle;
 mod test {
     use super::*;
     use g_code::emit::{format_gcode_fmt, FormatOptions};
+    use svgtypes::{Length, LengthUnit};
 
-    fn get_actual(input: &str, circular_interpolation: bool) -> String {
-        let options = ConversionOptions::default();
+    fn get_actual(
+        input: &str,
+        circular_interpolation: bool,
+        dimensions: [Option<Length>; 2],
+    ) -> String {
+        let options = ConversionOptions {
+            dimensions,
+            ..Default::default()
+        };
         let document = roxmltree::Document::parse(input).unwrap();
 
         let mut turtle = Turtle::new(Machine::new(
@@ -46,15 +54,41 @@ mod test {
     #[test]
     fn square_produces_expected_gcode() {
         let square = include_str!("../tests/square.svg");
-        let actual = get_actual(square, false);
+        let actual = get_actual(square, false, [None; 2]);
 
         assert_eq!(actual, include_str!("../tests/square.gcode"))
     }
 
     #[test]
+    fn square_dimension_override_produces_expected_gcode() {
+        let side_length = Length {
+            number: 10.,
+            unit: LengthUnit::Mm,
+        };
+
+        for square in [
+            include_str!("../tests/square.svg"),
+            include_str!("../tests/square_dimensionless.svg"),
+        ] {
+            assert_eq!(
+                get_actual(square, false, [Some(side_length); 2]),
+                include_str!("../tests/square.gcode")
+            );
+            assert_eq!(
+                get_actual(square, false, [Some(side_length), None]),
+                include_str!("../tests/square.gcode")
+            );
+            assert_eq!(
+                get_actual(square, false, [None, Some(side_length)]),
+                include_str!("../tests/square.gcode")
+            );
+        }
+    }
+
+    #[test]
     fn square_transformed_produces_expected_gcode() {
         let square_transformed = include_str!("../tests/square_transformed.svg");
-        let actual = get_actual(square_transformed, false);
+        let actual = get_actual(square_transformed, false, [None; 2]);
 
         assert_eq!(actual, include_str!("../tests/square_transformed.gcode"))
     }
@@ -62,7 +96,7 @@ mod test {
     #[test]
     fn square_viewport_produces_expected_gcode() {
         let square_transformed = include_str!("../tests/square_viewport.svg");
-        let actual = get_actual(square_transformed, false);
+        let actual = get_actual(square_transformed, false, [None; 2]);
 
         assert_eq!(actual, include_str!("../tests/square_viewport.gcode"))
     }
@@ -70,7 +104,7 @@ mod test {
     #[test]
     fn circular_interpolation_produces_expected_gcode() {
         let circular_interpolation = include_str!("../tests/circular_interpolation.svg");
-        let actual = get_actual(circular_interpolation, true);
+        let actual = get_actual(circular_interpolation, true, [None; 2]);
 
         assert_eq!(
             actual,
@@ -82,12 +116,12 @@ mod test {
     fn svg_with_smooth_curves_produces_expected_gcode() {
         let svg = include_str!("../tests/smooth_curves.svg");
         assert_eq!(
-            get_actual(svg, false),
+            get_actual(svg, false, [None; 2]),
             include_str!("../tests/smooth_curves.gcode")
         );
 
         assert_eq!(
-            get_actual(svg, true),
+            get_actual(svg, true, [None; 2]),
             include_str!("../tests/smooth_curves_circular_interpolation.gcode")
         );
     }

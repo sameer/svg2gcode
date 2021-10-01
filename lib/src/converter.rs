@@ -9,10 +9,13 @@ use lyon_geom::{
 };
 use roxmltree::{Document, Node};
 use svgtypes::{
-    LengthListParser, PathParser, PathSegment, TransformListParser, TransformListToken, ViewBox,
+    Length, LengthListParser, PathParser, PathSegment, TransformListParser, TransformListToken,
+    ViewBox,
 };
 
 use crate::turtle::*;
+
+const SVG_TAG_NAME: &str = "svg";
 
 /// High-level output options
 #[derive(Debug)]
@@ -23,6 +26,10 @@ pub struct ConversionOptions {
     pub feedrate: f64,
     /// Dots per inch for pixels, picas, points, etc.
     pub dpi: f64,
+    /// Width and height override
+    ///
+    /// Useful when an SVG does not have a set width and height or you want to override it.
+    pub dimensions: [Option<Length>; 2],
 }
 
 impl Default for ConversionOptions {
@@ -31,6 +38,7 @@ impl Default for ConversionOptions {
             tolerance: 0.002,
             feedrate: 300.0,
             dpi: 96.0,
+            dimensions: [None; 2],
         }
     }
 }
@@ -61,11 +69,14 @@ pub fn svg2program<'input>(
                 node_stack.push((parent, children));
                 child
             }
+            // Last node in this group has been processed
             None => {
                 if parent.has_attribute("viewBox")
                     || parent.has_attribute("transform")
                     || parent.has_attribute("width")
                     || parent.has_attribute("height")
+                    || (parent.has_tag_name(SVG_TAG_NAME)
+                        && options.dimensions.iter().any(Option::is_some))
                 {
                     turtle.pop_transform();
                 }
@@ -85,18 +96,74 @@ pub fn svg2program<'input>(
         }
 
         let mut transforms = vec![];
-        if let Some(view_box) = node.attribute("viewBox") {
-            let view_box = ViewBox::from_str(view_box).expect("could not parse viewBox");
-            transforms.push(
-                Transform2D::translation(-view_box.x, -view_box.y)
-                    .then_scale(1. / view_box.w, 1. / view_box.h)
-                    // Part 2 of converting from SVG to g-code coordinates
-                    .then_translate(vector(0., -1.)),
-            );
+
+        let view_box = node
+            .attribute("viewBox")
+            .map(ViewBox::from_str)
+            .transpose()
+            .expect("could not parse viewBox");
+        let dimensions = (
+            node.attribute("width")
+                .map(LengthListParser::from)
+                .and_then(|mut parser| parser.next())
+                .transpose()
+                .expect("could not parse width")
+                .map(|width| length_to_mm(width, options.dpi)),
+            node.attribute("height")
+                .map(LengthListParser::from)
+                .and_then(|mut parser| parser.next())
+                .transpose()
+                .expect("could not parse height")
+                .map(|height| length_to_mm(height, options.dpi)),
+        );
+        let aspect_ratio = match (view_box, dimensions) {
+            (Some(ref view_box), (None, _)) | (Some(ref view_box), (_, None)) => {
+                view_box.w / view_box.h
+            }
+            (_, (Some(ref width), Some(ref height))) => *width / *height,
+            (None, (None, _)) | (None, (_, None)) => 1.,
+        };
+
+        if let Some(ref view_box) = view_box {
+            let view_box_transform = Transform2D::translation(-view_box.x, -view_box.y)
+                .then_scale(1. / view_box.w, 1. / view_box.h);
+            if node.has_tag_name(SVG_TAG_NAME) {
+                // Part 2 of converting from SVG to g-code coordinates
+                transforms.push(view_box_transform.then_translate(vector(0., -1.)));
+            } else {
+                transforms.push(view_box_transform);
+            }
         }
 
-        if let Some(transform) = width_and_height_into_transform(&options, &node) {
-            transforms.push(transform);
+        let dimensions_override = [
+            options.dimensions[0].map(|dim_x| length_to_mm(dim_x, options.dpi)),
+            options.dimensions[1].map(|dim_y| length_to_mm(dim_y, options.dpi)),
+        ];
+
+        match (dimensions_override, dimensions) {
+            ([Some(dim_x), Some(dim_y)], _) if node.has_tag_name(SVG_TAG_NAME) => {
+                transforms.push(Transform2D::scale(dim_x, dim_y));
+            }
+            ([Some(dim_x), None], _) if node.has_tag_name(SVG_TAG_NAME) => {
+                transforms.push(Transform2D::scale(dim_x, dim_x / aspect_ratio));
+            }
+            ([None, Some(dim_y)], _) if node.has_tag_name(SVG_TAG_NAME) => {
+                transforms.push(Transform2D::scale(aspect_ratio * dim_y, dim_y));
+            }
+            (_, (Some(width), Some(height))) => {
+                transforms.push(Transform2D::scale(width, height));
+            }
+            (_, (Some(width), None)) => {
+                transforms.push(Transform2D::scale(width, width / aspect_ratio));
+            }
+            (_, (None, Some(height))) => {
+                transforms.push(Transform2D::scale(aspect_ratio * height, height));
+            }
+            (_, (None, None)) => {
+                if view_box.is_some() && node.has_tag_name(SVG_TAG_NAME) {
+                    transforms.push(Transform2D::scale(aspect_ratio, 1.));
+                }
+            }
         }
 
         if let Some(transform) = node.attribute("transform") {
@@ -164,31 +231,6 @@ fn node_name(node: &Node) -> String {
         name += id;
     }
     name
-}
-
-fn width_and_height_into_transform(
-    options: &ConversionOptions,
-    node: &Node,
-) -> Option<Transform2D<f64>> {
-    if let (Some(mut width), Some(mut height)) = (
-        node.attribute("width").map(LengthListParser::from),
-        node.attribute("height").map(LengthListParser::from),
-    ) {
-        let width = width
-            .next()
-            .expect("no width in width property")
-            .expect("cannot parse width");
-        let height = height
-            .next()
-            .expect("no height in height property")
-            .expect("cannot parse height");
-        let width_in_mm = length_to_mm(width, options.dpi);
-        let height_in_mm = length_to_mm(height, options.dpi);
-
-        Some(Transform2D::scale(width_in_mm, height_in_mm))
-    } else {
-        None
-    }
 }
 
 fn apply_path<'input>(

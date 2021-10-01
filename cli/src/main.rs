@@ -10,6 +10,7 @@ use std::{
     path::PathBuf,
 };
 use structopt::StructOpt;
+use svgtypes::LengthListParser;
 
 use svg2gcode::{
     set_origin, svg2program, ConversionOptions, Machine, SupportedFunctionality, Turtle,
@@ -48,6 +49,13 @@ struct Opt {
     /// Coordinates for the bottom left corner of the machine
     #[structopt(long, default_value = "0,0")]
     origin: String,
+    /// Override the width and height of the SVG (i.e. 210mm,297mm)
+    ///
+    /// Useful when the SVG does not specify these (see https://github.com/sameer/svg2gcode/pull/16)
+    ///
+    /// Passing "210mm," or ",297mm" calculates the missing dimension to conform to the viewBox aspect ratio.
+    #[structopt(long)]
+    dimensions: Option<String>,
     /// Whether to use circular arcs when generating g-code
     ///
     /// Please check if your machine supports G2/G3 commands before enabling this.
@@ -79,10 +87,33 @@ fn main() -> io::Result<()> {
         }
     };
 
+    let mut dimensions = [None, None];
+
+    if let Some(dimensions_str) = opt.dimensions {
+        dimensions_str
+            .split(',')
+            .map(|dimension_str| {
+                if dimension_str.is_empty() {
+                    None
+                } else {
+                    LengthListParser::from(dimension_str)
+                        .next()
+                        .transpose()
+                        .expect("could not parse dimension")
+                }
+            })
+            .take(2)
+            .enumerate()
+            .for_each(|(i, dimension_origin)| {
+                dimensions[i] = dimension_origin;
+            });
+    }
+
     let options = ConversionOptions {
         tolerance: opt.tolerance,
         feedrate: opt.feedrate,
         dpi: opt.dpi,
+        dimensions,
     };
 
     let snippets = [

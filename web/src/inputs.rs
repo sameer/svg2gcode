@@ -425,7 +425,7 @@ pub fn settings_form() -> Html {
                         />
                         {" "}
                         <HyperlinkButton
-                            ref={close_ref.clone()}
+                            ref={close_ref}
                             style={ButtonStyle::Default}
                             title="Close"
                             href="#close"

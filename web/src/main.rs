@@ -76,6 +76,7 @@ impl Component for App {
                             tolerance: app_state.tolerance,
                             feedrate: app_state.feedrate,
                             dpi: app_state.dpi,
+                            dimensions: [None; 2],
                         };
                         let machine = Machine::new(
                             SupportedFunctionality {
