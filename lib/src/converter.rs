@@ -9,8 +9,8 @@ use lyon_geom::{
 };
 use roxmltree::{Document, Node};
 use svgtypes::{
-    Length, LengthListParser, PathParser, PathSegment, TransformListParser, TransformListToken,
-    ViewBox,
+    Length, LengthListParser, LengthUnit, PathParser, PathSegment, TransformListParser,
+    TransformListToken, ViewBox,
 };
 
 use crate::turtle::*;
@@ -102,25 +102,25 @@ pub fn svg2program<'input>(
             .map(ViewBox::from_str)
             .transpose()
             .expect("could not parse viewBox");
+        let scale_w = view_box.map(|view_box| view_box.w);
+        let scale_h = view_box.map(|view_box| view_box.h);
         let dimensions = (
             node.attribute("width")
                 .map(LengthListParser::from)
                 .and_then(|mut parser| parser.next())
                 .transpose()
                 .expect("could not parse width")
-                .map(|width| length_to_mm(width, options.dpi)),
+                .map(|width| length_to_mm(width, options.dpi, scale_w)),
             node.attribute("height")
                 .map(LengthListParser::from)
                 .and_then(|mut parser| parser.next())
                 .transpose()
                 .expect("could not parse height")
-                .map(|height| length_to_mm(height, options.dpi)),
+                .map(|height| length_to_mm(height, options.dpi, scale_h)),
         );
         let aspect_ratio = match (view_box, dimensions) {
-            (Some(ref view_box), (None, _)) | (Some(ref view_box), (_, None)) => {
-                view_box.w / view_box.h
-            }
             (_, (Some(ref width), Some(ref height))) => *width / *height,
+            (Some(ref view_box), _) => view_box.w / view_box.h,
             (None, (None, _)) | (None, (_, None)) => 1.,
         };
 
@@ -136,8 +136,8 @@ pub fn svg2program<'input>(
         }
 
         let dimensions_override = [
-            options.dimensions[0].map(|dim_x| length_to_mm(dim_x, options.dpi)),
-            options.dimensions[1].map(|dim_y| length_to_mm(dim_y, options.dpi)),
+            options.dimensions[0].map(|dim_x| length_to_mm(dim_x, options.dpi, scale_w)),
+            options.dimensions[1].map(|dim_y| length_to_mm(dim_y, options.dpi, scale_h)),
         ];
 
         match (dimensions_override, dimensions) {
@@ -160,8 +160,11 @@ pub fn svg2program<'input>(
                 transforms.push(Transform2D::scale(aspect_ratio * height, height));
             }
             (_, (None, None)) => {
-                if view_box.is_some() && node.has_tag_name(SVG_TAG_NAME) {
-                    transforms.push(Transform2D::scale(aspect_ratio, 1.));
+                if let (Some(ViewBox { w, h, .. }), true) =
+                    (view_box, node.has_tag_name(SVG_TAG_NAME))
+                {
+                    transforms.push(Transform2D::scale(w, h));
+                    warn!("This SVG does not have width and/or height attributes! Assuming viewBox units are in millimeters");
                 }
             }
         }
@@ -332,7 +335,7 @@ fn svg_transform_into_euclid_transform(svg_transform: TransformListToken) -> Tra
 ///
 /// A default DPI of 96 is used as per [CSS 4 §7.4](https://www.w3.org/TR/css-values/#resolution), which you can adjust with --dpi.
 /// Increasing DPI reduces the scale of an SVG.
-fn length_to_mm(l: svgtypes::Length, dpi: f64) -> f64 {
+fn length_to_mm(l: svgtypes::Length, dpi: f64, scale: Option<f64>) -> f64 {
     const DEFAULT_SVG_DPI: f64 = 96.;
     use svgtypes::LengthUnit::*;
     use uom::si::f64::Length;
@@ -346,6 +349,19 @@ fn length_to_mm(l: svgtypes::Length, dpi: f64) -> f64 {
         Pc => Length::new::<pica_computer>(l.number) / dpi_scaling,
         Pt => Length::new::<point_computer>(l.number) / dpi_scaling,
         Px => Length::new::<inch>(l.number / dpi_scaling),
+        Em => {
+            warn!("Converting from em to millimeters assumes 1em = 16px");
+            Length::new::<inch>(16. * l.number / dpi_scaling)
+        }
+        Percent => {
+            if let Some(scale) = scale {
+                warn!("Converting from percent to millimeters assumes the viewBox is specified in millimeters");
+                Length::new::<millimeter>(l.number / 100. * scale)
+            } else {
+                warn!("Converting from percent to millimeters without a viewBox is not possible, treating as millimeters");
+                Length::new::<millimeter>(l.number)
+            }
+        }
         other => {
             warn!(
                 "Converting from '{:?}' to millimeters is not supported, treating as millimeters",
