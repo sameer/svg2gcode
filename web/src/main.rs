@@ -23,7 +23,7 @@ use spectre::*;
 use state::*;
 
 struct App {
-    _app_dispatch: Dispatch<AppStore>,
+    app_dispatch: Dispatch<AppStore>,
     app_state: Rc<AppState>,
     form_dispatch: Dispatch<FormStore>,
     form_state: Rc<FormState>,
@@ -45,7 +45,7 @@ impl Component for App {
 
     fn create(_props: Self::Properties, link: ComponentLink<Self>) -> Self {
         Self {
-            _app_dispatch: Dispatch::bridge_state(link.callback(AppMsg::AppState)),
+            app_dispatch: Dispatch::bridge_state(link.callback(AppMsg::AppState)),
             app_state: Default::default(),
             form_dispatch: Dispatch::bridge_state(link.callback(AppMsg::FormState)),
             form_state: Default::default(),
@@ -173,6 +173,39 @@ impl Component for App {
                         { env!("CARGO_PKG_DESCRIPTION") }
                     </p>
                     <SvgInput/>
+                    <div class={classes!("card-container", "columns")}>
+                        {
+                            for self.app_state.svgs.iter().enumerate().map(|(i, svg)| {
+                                let svg_base64 = base64::encode(svg.content.as_bytes());
+                                let remove_svg_onclick = self.app_dispatch.reduce_callback_once(move |app| {
+                                    app.svgs.remove(i);
+                                });
+                                let footer = html!{
+                                    <Button
+                                        title="Remove"
+                                        style={ButtonStyle::Primary}
+                                        icon={
+                                            html_nested!(
+                                                <Icon name={IconName::Delete} />
+                                            )
+                                        }
+                                        onclick={remove_svg_onclick}
+                                    />
+                                };
+                                html!{
+                                    <div class={classes!("column", "col-6", "col-xs-12")}>
+                                        <Card
+                                            title={svg.filename.clone()}
+                                            img={html_nested!(
+                                                <img class="img-responsive" src={format!("data:image/svg+xml;base64,{}", svg_base64)} alt={svg.filename.clone()} />
+                                            )}
+                                            footer={footer}
+                                        />
+                                    </div>
+                                }
+                            })
+                        }
+                    </div>
                     <ButtonGroup>
                         <Button
                             title="Generate G-Code"
@@ -209,16 +242,6 @@ impl Component for App {
         }
     }
 }
-
-// #[function_component(App)]
-// fn app() -> Html {
-//     let app = use_store::<AppStore>();
-//     let form = use_store::<BasicStore<FormState>>();
-
-//     let generating = use_state(|| false);
-
-//     }
-// }
 
 fn main() {
     wasm_logger::init(wasm_logger::Config::new(Level::Info));

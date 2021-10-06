@@ -470,16 +470,14 @@ pub fn svg_input() -> Html {
                     );
                 }
                 app.reduce(move |app| {
-                    app.svgs.clear();
+                    // Clear any errors from previous entry, add new successfully parsed SVGs
                     (*parsed_state_cloned).borrow_mut().clear();
                     for result in results.iter() {
                         (*parsed_state_cloned)
                             .borrow_mut()
                             .push(result.clone().map(|_| ()));
                     }
-                    if results.iter().all(Result::is_ok) {
-                        app.svgs.extend(results.drain(..).filter_map(Result::ok));
-                    }
+                    app.svgs.extend(results.drain(..).filter_map(Result::ok));
                 });
             }
         });

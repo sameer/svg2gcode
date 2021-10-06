@@ -474,6 +474,7 @@ css_class_enum! {
         Stop => "stop",
         Download => "download",
         Edit => "edit",
+        Delete => "delete",
         None => ""
     }
 }
@@ -537,6 +538,62 @@ pub fn modal(props: &ModalProps) -> Html {
                     { props.footer.clone() }
                 </div>
             </div>
+        </div>
+    }
+}
+
+#[derive(Properties, PartialEq, Clone)]
+pub struct CardProps {
+    pub title: String,
+    #[prop_or_default]
+    pub img: Option<VNode>,
+    #[prop_or_default]
+    pub subtitle: Option<String>,
+    #[prop_or_default]
+    pub body: Option<VNode>,
+    #[prop_or_default]
+    pub footer: Option<VNode>,
+}
+
+#[function_component(Card)]
+pub fn card(props: &CardProps) -> Html {
+    html! {
+        <div class="card">
+            <div class="card-header">
+                <div class={classes!("card-title", "h5")}>{ props.title.clone() }</div>
+                {
+                    if let Some(subtitle) = props.subtitle.clone() {
+                        html! {
+                            <div class="card-subtitle">
+                                { subtitle }
+                            </div>
+                        }
+                    } else {
+                        html!{ }
+                    }
+                }
+            </div>
+            {
+                if let Some(img) = props.img.clone() {
+                    html!{ <div class="card-image">{ img }</div> }
+                } else {
+                    html!{ }
+                }
+            }
+            {
+                if let Some(body) = props.body.clone() {
+                    html!{ <div class="card-body">{ body }</div> }
+                } else {
+                    html!{ }
+                }
+            }
+            {
+                if let Some(footer) = props.footer.clone() {
+                    html!{ <div class="card-footer">{ footer }</div> }
+                } else {
+                    html!{ }
+                }
+            }
         </div>
     }
 }
