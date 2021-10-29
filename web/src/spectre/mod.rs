@@ -471,12 +471,14 @@ pub fn hyperlink_button(props: &HyperlinkButtonProps) -> Html {
 #[derive(Properties, PartialEq, Clone)]
 pub struct ButtonGroupProps {
     pub children: Children,
+    #[prop_or(false)]
+    pub block: bool,
 }
 
 #[function_component(ButtonGroup)]
 pub fn button_group(props: &ButtonGroupProps) -> Html {
     html! {
-        <div class={classes!("btn-group", "btn-group-block")}>
+        <div class={classes!("btn-group", if props.block { Some("btn-group-block") } else { None })}>
             {
                 for props.children.iter()
             }
@@ -492,6 +494,7 @@ css_class_enum! {
         Download => "download",
         Edit => "edit",
         Delete => "delete",
+        Copy => "copy",
         None => ""
     }
 }

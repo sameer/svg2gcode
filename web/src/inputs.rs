@@ -3,7 +3,6 @@ use g_code::parse::{into_diagnostic, snippet_parser};
 use gloo_file::futures::read_as_text;
 use gloo_timers::callback::Timeout;
 use js_sys::TypeError;
-use log::info;
 use paste::paste;
 use roxmltree::Document;
 use std::num::ParseFloatError;
