@@ -46,7 +46,7 @@ macro_rules! css_class_enum {
 #[derive(Properties, PartialEq, Clone)]
 pub struct InputProps<T, E>
 where
-    T: Display + Clone + PartialEq,
+    T: Clone + PartialEq,
     E: Display + Clone + PartialEq,
 {
     pub label: &'static str,
@@ -54,8 +54,19 @@ where
     pub parsed: Option<Result<T, E>>,
     pub placeholder: Option<T>,
     pub default: Option<T>,
+    #[prop_or(InputType::Text)]
+    pub r#type: InputType,
     #[prop_or_default]
     pub oninput: Callback<InputData>,
+    #[prop_or_default]
+    pub button: Option<VChild<Button>>,
+}
+
+css_class_enum! {
+    InputType {
+        Text => "text",
+        Url => "url"
+    }
 }
 
 #[function_component(Input)]
@@ -86,9 +97,12 @@ where
                 { props.label }
             </label>
             <div class={classes!(if success || error { Some("has-icon-right") } else { None })}>
-                <input id={id} class="form-input" type="text" ref={(*node_ref).clone()}
-                    oninput={props.oninput.clone()} placeholder={ props.placeholder.as_ref().map(ToString::to_string) }
-                />
+                <div class={classes!(if props.button.is_some() { Some("input-group") } else { None })}>
+                    <input id={id} class="form-input" type={props.r#type.to_string()} ref={(*node_ref).clone()}
+                        oninput={props.oninput.clone()} placeholder={ props.placeholder.as_ref().map(ToString::to_string) }
+                    />
+                    { props.button.clone().map(Html::from).unwrap_or_default() }
+                </div>
                 {
                     if let Some(parsed) = props.parsed.as_ref() {
                         match parsed {
@@ -380,6 +394,8 @@ pub struct ButtonProps {
     pub disabled: bool,
     #[prop_or(false)]
     pub loading: bool,
+    #[prop_or(false)]
+    pub input_group: bool,
     pub title: Option<&'static str>,
     pub icon: Option<VChild<Icon>>,
     #[prop_or_default]
@@ -395,6 +411,7 @@ pub fn button(props: &ButtonProps) -> Html {
                 props.style.to_string(),
                 if props.disabled { Some("disabled") } else { None },
                 if props.loading { Some("loading" )} else { None },
+                if props.input_group { Some("input-group-btn") } else { None }
             )}
             disabled={props.disabled}
             onclick={props.onclick.clone()}

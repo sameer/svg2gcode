@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::num::ParseFloatError;
+use svgtypes::Length;
 use yewdux::prelude::{BasicStore, Persistent, PersistentStore};
 
 #[derive(Debug, Clone)]
@@ -56,10 +57,11 @@ pub struct AppState {
     pub svgs: Vec<Svg>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Svg {
     pub content: String,
     pub filename: String,
+    pub dimensions: [Option<Length>; 2],
 }
 
 impl Default for AppState {

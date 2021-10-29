@@ -2,10 +2,14 @@ use codespan_reporting::term::{emit, termcolor::NoColor, Config};
 use g_code::parse::{into_diagnostic, snippet_parser};
 use gloo_file::futures::read_as_text;
 use gloo_timers::callback::Timeout;
+use js_sys::TypeError;
+use log::info;
 use paste::paste;
 use roxmltree::Document;
 use std::num::ParseFloatError;
-use web_sys::{FileList, HtmlElement};
+use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::JsFuture;
+use web_sys::{window, FileList, HtmlElement, Response};
 use yew::prelude::*;
 use yewdux::prelude::{BasicStore, Dispatcher};
 use yewdux_functional::use_store;
@@ -182,31 +186,31 @@ macro_rules! gcode_input {
                     let oninput = {
                         let timeout = timeout.clone();
                         form.dispatch().input(move |state, value| {
-                        let res = Some(match snippet_parser(&value) {
-                            Ok(_) => Ok(value),
-                            Err(err) => {
-                                let mut buf = NoColor::new(vec![]);
-                                let config = Config::default();
-                                emit(
-                                    &mut buf,
-                                    &config,
-                                    &codespan_reporting::files::SimpleFile::new("<input>", value),
-                                    &into_diagnostic(&err),
-                                )
-                                .unwrap();
-                                Err(String::from_utf8_lossy(buf.get_ref().as_slice()).to_string())
-                            }
-                        }).filter(|res| {
-                            !res.as_ref().ok().map(|value| value.is_empty()).unwrap_or(false)
-                        });
+                            let res = Some(match snippet_parser(&value) {
+                                Ok(_) => Ok(value),
+                                Err(err) => {
+                                    let mut buf = NoColor::new(vec![]);
+                                    let config = Config::default();
+                                    emit(
+                                        &mut buf,
+                                        &config,
+                                        &codespan_reporting::files::SimpleFile::new("<input>", value),
+                                        &into_diagnostic(&err),
+                                    )
+                                    .unwrap();
+                                    Err(String::from_utf8_lossy(buf.get_ref().as_slice()).to_string())
+                                }
+                            }).filter(|res| {
+                                !res.as_ref().ok().map(|value| value.is_empty()).unwrap_or(false)
+                            });
 
-                        let timeout_inner = timeout.clone();
-                        timeout.set(Some(Timeout::new(VALIDATION_TIMEOUT, move || {
-                            timeout_inner.set(None);
-                        })));
-                        state.$accessor $([$idx])? = res;
-                    })
-                };
+                            let timeout_inner = timeout.clone();
+                            timeout.set(Some(Timeout::new(VALIDATION_TIMEOUT, move || {
+                                timeout_inner.set(None);
+                            })));
+                            state.$accessor $([$idx])? = res;
+                        })
+                    };
                     html! {
                         <FormGroup success={form.state().map(|state| (state.$accessor $([$idx])?).as_ref().map(Result::is_ok)).flatten()}>
                             <TextArea<String, String> label=$label desc=$desc
@@ -441,68 +445,151 @@ pub fn settings_form() -> Html {
 #[function_component(SvgInput)]
 pub fn svg_input() -> Html {
     let app = use_store::<AppStore>();
-    let parsed_state = use_ref(Vec::default);
 
-    let parsed_state_cloned = parsed_state.clone();
-
-    let onchange = app
-        .dispatch()
-        .future_callback_with(move |app, file_list: FileList| {
-            let parsed_state_cloned = parsed_state_cloned.clone();
-            async move {
-                let mut results = Vec::with_capacity(file_list.length() as usize);
-                for file in (0..file_list.length()).filter_map(|i| file_list.item(i)) {
-                    let filename = file.name();
-                    results.push(
-                        read_as_text(&gloo_file::File::from(file))
-                            .await
-                            .map_err(|err| err.to_string())
-                            .and_then(|text| {
-                                if let Some(err) = Document::parse(&text).err() {
-                                    Err(format!("Error parsing {}: {}", &filename, err))
-                                } else {
-                                    Ok(Svg {
-                                        content: text,
-                                        filename,
-                                    })
-                                }
-                            }),
-                    );
-                }
-                app.reduce(move |app| {
-                    // Clear any errors from previous entry, add new successfully parsed SVGs
-                    (*parsed_state_cloned).borrow_mut().clear();
-                    for result in results.iter() {
-                        (*parsed_state_cloned)
-                            .borrow_mut()
-                            .push(result.clone().map(|_| ()));
+    let file_upload_state = use_ref(Vec::default);
+    let file_upload_state_cloned = file_upload_state.clone();
+    let file_upload_onchange =
+        app.dispatch()
+            .future_callback_with(move |app, file_list: FileList| {
+                let file_upload_state_cloned = file_upload_state_cloned.clone();
+                async move {
+                    let mut results = Vec::with_capacity(file_list.length() as usize);
+                    for file in (0..file_list.length()).filter_map(|i| file_list.item(i)) {
+                        let filename = file.name();
+                        results.push(
+                            read_as_text(&gloo_file::File::from(file))
+                                .await
+                                .map_err(|err| err.to_string())
+                                .and_then(|text| {
+                                    if let Some(err) = Document::parse(&text).err() {
+                                        Err(format!("Error parsing {}: {}", &filename, err))
+                                    } else {
+                                        Ok(Svg {
+                                            content: text,
+                                            filename,
+                                            dimensions: [None; 2],
+                                        })
+                                    }
+                                }),
+                        );
                     }
-                    app.svgs.extend(results.drain(..).filter_map(Result::ok));
-                });
-            }
-        });
+                    app.reduce(move |app| {
+                        // Clear any errors from previous entry, add new successfully parsed SVGs
+                        (*file_upload_state_cloned).borrow_mut().clear();
+                        for result in results.iter() {
+                            (*file_upload_state_cloned)
+                                .borrow_mut()
+                                .push(result.clone().map(|_| ()));
+                        }
+                        app.svgs.extend(results.drain(..).filter_map(Result::ok));
+                    });
+                }
+            });
 
-    let errors = parsed_state
+    let file_upload_errors = file_upload_state
         .borrow()
         .iter()
         .filter_map(|res| res.as_ref().err())
         .cloned()
         .collect::<Vec<_>>();
-    let res = if parsed_state.borrow().is_empty() {
+    let file_upload_res = if file_upload_state.borrow().is_empty() {
         None
-    } else if errors.is_empty() {
+    } else if file_upload_errors.is_empty() {
         Some(Ok(()))
     } else {
-        Some(Err(errors.join("\n")))
+        Some(Err(file_upload_errors.join("\n")))
     };
+
+    let url_input_state = use_state(|| Option::<String>::None);
+    let url_input_parsed = use_state(|| Option::<Result<String, String>>::None);
+    let url_input_oninput = {
+        let url_input_state = url_input_state.clone();
+        let url_input_parsed = url_input_parsed.clone();
+        Callback::from(move |url: InputData| {
+            url_input_state.set(Some(url.value));
+            url_input_parsed.set(None);
+        })
+    };
+
+    let url_add_loading = use_state(|| false);
+    let url_add_onclick = {
+        let url_input_state = url_input_state.clone();
+        let url_input_parsed = url_input_parsed.clone();
+        let url_add_loading = url_add_loading.clone();
+
+        app.dispatch().future_callback_with(move |app, _| {
+            let url_input_state = url_input_state.clone();
+            let url_input_parsed = url_input_parsed.clone();
+            let url_add_loading = url_add_loading.clone();
+            url_add_loading.set(true);
+
+            let request_url = url_input_state.as_ref().unwrap().clone();
+            async move {
+                url_input_parsed.set(None);
+                let res = JsFuture::from(window().unwrap().fetch_with_str(&request_url))
+                    .await
+                    .map(|res| res.dyn_into::<Response>().unwrap());
+                url_add_loading.set(false);
+                match res {
+                    Ok(res) => {
+                        let response_url = res.url();
+                        let text = JsFuture::from(res.text().unwrap())
+                            .await
+                            .unwrap()
+                            .as_string()
+                            .unwrap();
+                        if let Some(err) = Document::parse(&text).err() {
+                            url_input_parsed.set(Some(Err(format!(
+                                "Error parsing {}: {}",
+                                &response_url, err
+                            ))));
+                        } else {
+                            app.reduce(move |app| {
+                                app.svgs.push(Svg {
+                                    content: text,
+                                    filename: response_url,
+                                    dimensions: [None; 2],
+                                })
+                            });
+                        };
+                    }
+                    Err(err) => {
+                        url_input_parsed.set(Some(Err(format!(
+                            "Error fetching {}: {:?}",
+                            &request_url,
+                            err.dyn_into::<TypeError>().unwrap().message()
+                        ))));
+                    }
+                }
+            }
+        })
+    };
+
     html! {
-        <FormGroup success={res.as_ref().map(Result::is_ok)}>
+        <FormGroup success={file_upload_res.as_ref().map(Result::is_ok).or(url_input_parsed.as_ref().map(Result::is_ok))}>
             <FileUpload<(), String>
                 label="Select SVG files"
                 accept=".svg"
                 multiple={true}
-                parsed={res}
-                onchange={onchange}
+                onchange={file_upload_onchange}
+            />
+            <div class="divider text-center" data-content="OR"/>
+            <Input<String, String>
+                label="Add an SVG file by URL"
+                r#type={InputType::Url}
+                placeholder="https://raw.githubusercontent.com/sameer/svg2gcode/master/examples/Vanderbilt_Commodores_logo.svg"
+                oninput={url_input_oninput}
+                button={html_nested!(
+                    <Button
+                        style={ButtonStyle::Primary}
+                        title="Add"
+                        input_group=true
+                        disabled={(*url_input_state).is_none()}
+                        onclick={url_add_onclick}
+                        loading={*url_add_loading}
+                    />
+                )}
+                parsed={(*url_input_parsed).clone()}
             />
         </FormGroup>
     }
