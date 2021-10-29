@@ -80,7 +80,7 @@ impl Component for App {
                         };
                         let machine = Machine::new(
                             SupportedFunctionality {
-                                circular_interpolation: false,
+                                circular_interpolation: app_state.circular_interpolation,
                             },
                             app_state
                                 .tool_on_sequence
