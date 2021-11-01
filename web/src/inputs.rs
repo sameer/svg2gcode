@@ -1,11 +1,12 @@
 use codespan_reporting::term::{emit, termcolor::NoColor, Config};
 use g_code::parse::{into_diagnostic, snippet_parser};
-use gloo_file::futures::read_as_text;
+use gloo_file::futures::{read_as_bytes, read_as_text};
 use gloo_timers::callback::Timeout;
 use js_sys::TypeError;
 use paste::paste;
 use roxmltree::Document;
-use std::num::ParseFloatError;
+use std::{convert::TryInto, num::ParseFloatError, path::Path};
+use svg2gcode::Settings;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{window, FileList, HtmlElement, Response};
@@ -171,7 +172,8 @@ macro_rules! gcode_input {
     ($($name: ident {
         $label: literal,
         $desc: literal,
-        $accessor: expr $(=> $idx: literal)?,
+        $form_accessor: expr $(=> $form_idx: literal)?,
+        $app_accessor: expr $(=> $app_idx: literal)?,
     })*) => {
         $(
             paste! {
@@ -207,14 +209,14 @@ macro_rules! gcode_input {
                             timeout.set(Some(Timeout::new(VALIDATION_TIMEOUT, move || {
                                 timeout_inner.set(None);
                             })));
-                            state.$accessor $([$idx])? = res;
+                            state.$form_accessor $([$form_idx])? = res;
                         })
                     };
                     html! {
-                        <FormGroup success={form.state().map(|state| (state.$accessor $([$idx])?).as_ref().map(Result::is_ok)).flatten()}>
+                        <FormGroup success={form.state().map(|state| (state.$form_accessor $([$form_idx])?).as_ref().map(Result::is_ok)).flatten()}>
                             <TextArea<String, String> label=$label desc=$desc
-                                default={app.state().map(|state| (state.$accessor $([$idx])?).clone()).unwrap_or_else(|| AppState::default().$accessor $([$idx])?)}
-                                parsed={form.state().and_then(|state| (state.$accessor $([$idx])?).clone()).filter(|_| timeout.is_none())}
+                                default={app.state().map(|state| (state.$app_accessor $([$app_idx])?).clone()).unwrap_or_else(|| AppState::default().$app_accessor $([$app_idx])?)}
+                                parsed={form.state().and_then(|state| (state.$form_accessor $([$form_idx])?).clone()).filter(|_| timeout.is_none())}
                                 oninput={oninput}
                             />
                         </FormGroup>
@@ -230,21 +232,25 @@ gcode_input! {
         "Tool On Sequence",
         "G-Code for turning on the tool",
         tool_on_sequence,
+        settings.machine.tool_on_sequence,
     }
     ToolOffSequence {
         "Tool Off Sequence",
         "G-Code for turning off the tool",
         tool_off_sequence,
+        settings.machine.tool_off_sequence,
     }
     BeginSequence {
         "Program Begin Sequence",
         "G-Code for initializing the machine at the beginning of the program",
         begin_sequence,
+        settings.machine.begin_sequence,
     }
     EndSequence {
         "Program End Sequence",
         "G-Code for stopping/idling the machine at the end of the program",
         end_sequence,
+        settings.machine.end_sequence,
     }
 }
 
@@ -252,7 +258,8 @@ macro_rules! form_input {
     ($($name: ident {
         $label: literal,
         $desc: literal,
-        $accessor: expr $(=> $idx: literal)?,
+        $form_accessor: expr $(=> $form_idx: literal)?,
+        $app_accessor: expr $(=> $app_idx: literal)?,
     })*) => {
         $(
             paste! {
@@ -260,12 +267,12 @@ macro_rules! form_input {
                 fn [<$name:snake:lower _input>]() -> Html {
                     let app = use_store::<AppStore>();
                     let form = use_store::<BasicStore<FormState>>();
-                    let oninput = form.dispatch().input(|state, value| state.$accessor $([$idx])? = value.parse::<f64>());
+                    let oninput = form.dispatch().input(|state, value| state.$form_accessor $([$form_idx])? = value.parse::<f64>());
                     html! {
-                        <FormGroup success={form.state().map(|state| (state.$accessor $([$idx])?).is_ok())}>
+                        <FormGroup success={form.state().map(|state| (state.$form_accessor $([$form_idx])?).is_ok())}>
                             <Input<f64, ParseFloatError> label=$label desc=$desc
-                                default={app.state().map(|state| state.$accessor $([$idx])?).unwrap_or_else(|| AppState::default().$accessor $([$idx])?)}
-                                parsed={form.state().map(|state| (state.$accessor $([$idx])?).clone())}
+                                default={app.state().map(|state| state.$app_accessor $([$app_idx])?).unwrap_or_else(|| AppState::default().$app_accessor $([$app_idx])?)}
+                                parsed={form.state().map(|state| (state.$form_accessor $([$form_idx])?).clone())}
                                 oninput={oninput}
                             />
                         </FormGroup>
@@ -281,26 +288,31 @@ form_input! {
         "Tolerance",
         "Curve interpolation tolerance (mm)",
         tolerance,
+        settings.conversion.tolerance,
     }
     Feedrate {
         "Feedrate",
         "Machine feedrate (mm/min)",
         feedrate,
+        settings.conversion.feedrate,
     }
     Dpi {
         "Dots per Inch",
         "Used for scaling visual units (pixels, points, picas, etc.)",
         dpi,
+        settings.conversion.dpi,
     }
     OriginX {
         "Origin X",
         "X-axis coordinate for the bottom left corner of the machine",
         origin => 0,
+        settings.postprocess.origin => 0,
     }
     OriginY {
         "Origin Y",
         "Y-axis coordinate for the bottom left corner of the machine",
         origin => 1,
+        settings.postprocess.origin => 1,
     }
 }
 
@@ -357,18 +369,7 @@ pub fn settings_form() -> Html {
         let close_ref = close_ref.clone();
         app.dispatch().reduce_callback(move |app| {
             if let (false, Some(form)) = (disabled, form.state()) {
-                app.tolerance = *form.tolerance.as_ref().unwrap();
-                app.feedrate = *form.feedrate.as_ref().unwrap();
-                app.origin = [
-                    *form.origin[0].as_ref().unwrap(),
-                    *form.origin[1].as_ref().unwrap(),
-                ];
-                app.circular_interpolation = form.circular_interpolation;
-                app.dpi = *form.dpi.as_ref().unwrap();
-                app.tool_on_sequence = form.tool_on_sequence.clone().and_then(Result::ok);
-                app.tool_off_sequence = form.tool_off_sequence.clone().and_then(Result::ok);
-                app.begin_sequence = form.begin_sequence.clone().and_then(Result::ok);
-                app.end_sequence = form.end_sequence.clone().and_then(Result::ok);
+                app.settings = form.as_ref().try_into().unwrap();
 
                 // TODO: this is a poor man's crutch for closing the Modal.
                 // There is probably a better way.
@@ -384,7 +385,17 @@ pub fn settings_form() -> Html {
             id="settings"
             header={
                 html!(
-                    <h5>{ "Settings" }</h5>
+                    <>
+                        <h2>{ "Settings" }</h2>
+                        <p>{"Persisted using "}
+                            // Opening new tabs is usually bad.
+                            // But if we don't, the user is at risk of losing the settings they've entered so far.
+                            <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage" target="_blank">
+                                {"local storage"}
+                            </a>
+                            {"."}
+                        </p>
+                    </>
                 )
             }
             body={html!(
@@ -411,15 +422,6 @@ pub fn settings_form() -> Html {
             footer={
                 html!(
                     <>
-                        <p>
-                            {"These settings are persisted using local storage. Learn more "}
-                            // Opening new tabs is usually bad.
-                            // But if we don't, the user is at risk of losing the settings they've entered so far.
-                            <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage" target="_blank">
-                                {"on MDN"}
-                            </a>
-                            {"."}
-                        </p>
                         <Button
                             style={ButtonStyle::Primary}
                             disabled={disabled}
@@ -436,8 +438,120 @@ pub fn settings_form() -> Html {
                     </>
                 )
             }
-        >
-        </Modal>
+        />
+    }
+}
+
+#[function_component(ImportExportModal)]
+pub fn import_export_modal() -> Html {
+    let app = use_store::<AppStore>();
+    let import_state = use_state(|| Option::<Result<Settings, String>>::None);
+
+    let export_onclick =
+        app.dispatch()
+            .reduce_callback(|app| match serde_json::to_vec_pretty(&app.settings) {
+                Ok(settings_json_bytes) => {
+                    let filename = format!("svg2gcode_settings");
+                    let filepath = Path::new(&filename).with_extension("json");
+                    crate::util::prompt_download(&filepath, &settings_json_bytes);
+                }
+                Err(serde_json_err) => {}
+            });
+
+    let settings_upload_onchange = {
+        let import_state = import_state.clone();
+        app.dispatch()
+            .future_callback_with(move |app, file_list: FileList| {
+                let import_state = import_state.clone();
+                async move {
+                    let file = file_list.item(0).unwrap();
+                    let filename = file.name();
+
+                    let res = read_as_bytes(&gloo_file::File::from(file))
+                        .await
+                        .map_err(|err| format!("Error reading {}: {}", &filename, err))
+                        .and_then(|bytes| {
+                            serde_json::from_slice::<Settings>(&bytes)
+                                .map_err(|err| format!("Error parsing {}: {}", &filename, err))
+                        });
+
+                    match res {
+                        Ok(settings) => {
+                            import_state.set(Some(Ok(settings)));
+                        }
+                        Err(err) => {
+                            import_state.set(Some(Err(err)));
+                        }
+                    }
+                }
+            })
+    };
+
+    let import_save_onclick = {
+        let import_state = import_state.clone();
+        app.dispatch().reduce_callback(move |app| {
+            if let Some(Ok(ref settings)) = *import_state {
+                app.settings = settings.clone();
+                import_state.set(None);
+            }
+        })
+    };
+
+    let close_ref = NodeRef::default();
+
+    html! {
+        <Modal
+            id="import_export"
+            header={html!(
+                <>
+                    <h2>{"Import/Export Settings"}</h2>
+                    <p>{"Uses JSON, compatible with the "}<a href="https://github.com/sameer/svg2gcode/releases">{"command line interface"}</a>{"."}</p>
+                </>
+            )}
+            body={
+                html!(
+                    <>
+                        <h3>{"Import"}</h3>
+                        <FormGroup success={import_state.as_ref().map(Result::is_ok)}>
+                            <FileUpload<Settings, String>
+                                label="Select settings JSON file"
+                                accept=".json"
+                                multiple={false}
+                                onchange={settings_upload_onchange}
+                                parsed={(*import_state).clone()}
+                                button={html_nested!(
+                                    <Button
+                                        style={ButtonStyle::Primary}
+                                        disabled={import_state.is_none()}
+                                        title="Save"
+                                        onclick={import_save_onclick}
+                                    />
+                                )}
+                            />
+                        </FormGroup>
+
+                        <h3>{"Export"}</h3>
+                        <Button
+                            style={ButtonStyle::Primary}
+                            disabled={false}
+                            title="Export"
+                            icon={html_nested!(<Icon name={IconName::Download}/>)}
+                            onclick={export_onclick}
+                        />
+                    </>
+                )
+            }
+            footer={
+                html!(
+                    <HyperlinkButton
+                        ref={close_ref}
+                        style={ButtonStyle::Default}
+                        title="Close"
+                        href="#close"
+                    />
+                )
+            }
+        />
     }
 }
 
@@ -527,7 +641,7 @@ pub fn svg_input() -> Html {
                 url_input_parsed.set(None);
                 let res = JsFuture::from(window().unwrap().fetch_with_str(&request_url))
                     .await
-                    .map(|res| res.dyn_into::<Response>().unwrap());
+                    .map(JsCast::unchecked_into::<Response>);
                 url_add_loading.set(false);
                 match res {
                     Ok(res) => {

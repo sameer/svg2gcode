@@ -1,6 +1,6 @@
 [package]
 name = "svg2gcode-web"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["Sameer Puri <crates@purisa.me>"]
 edition = "2018"
 description = "Convert vector graphics to g-code for pen plotters, laser engravers, and other CNC machines"
@@ -10,7 +10,7 @@ license = "MIT"
 
 [dependencies]
 wasm-bindgen = "0.2"
-svg2gcode = { path = "../lib" }
+svg2gcode = { path = "../lib", features = ["serde"] }
 roxmltree = "0"
 g-code = "0"
 codespan-reporting = "0.11"
@@ -19,6 +19,7 @@ serde = "1"
 paste = "1"
 log = "0"
 svgtypes = "0"
+serde_json = "1"
 
 yew = { git = "https://github.com/yewstack/yew.git" }
 yewdux-functional = { git = "https://github.com/intendednull/yewdux.git" }

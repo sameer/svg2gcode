@@ -11,3 +11,12 @@ div.card-container {
   margin-top: 1em;
   margin-bottom: 1em;
 }
+
+div.modal-container {
+  max-height: 90vh !important;
+}
+
+div.input-group,
+div.has-icon-right {
+  flex: auto;
+}

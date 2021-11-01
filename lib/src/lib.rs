@@ -1,3 +1,6 @@
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 /// Approximate [Bézier curves](https://en.wikipedia.org/wiki/B%C3%A9zier_curve) with [Circular arcs](https://en.wikipedia.org/wiki/Circular_arc)
 mod arc;
 /// Converts an SVG to G-Code in an internal representation
@@ -11,11 +14,18 @@ mod postprocess;
 /// This concept is referred to as [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics).
 mod turtle;
 
-pub use converter::{svg2program, ConversionOptions};
-pub use machine::Machine;
-pub use machine::SupportedFunctionality;
-pub use postprocess::set_origin;
+pub use converter::{svg2program, ConversionConfig, ConversionOptions};
+pub use machine::{Machine, MachineConfig, SupportedFunctionality};
+pub use postprocess::{set_origin, PostprocessConfig};
 pub use turtle::Turtle;
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Settings {
+    pub conversion: ConversionConfig,
+    pub machine: MachineConfig,
+    pub postprocess: PostprocessConfig,
+}
 
 #[cfg(test)]
 mod test {
@@ -28,10 +38,8 @@ mod test {
         circular_interpolation: bool,
         dimensions: [Option<Length>; 2],
     ) -> String {
-        let options = ConversionOptions {
-            dimensions,
-            ..Default::default()
-        };
+        let config = ConversionConfig::default();
+        let options = ConversionOptions { dimensions };
         let document = roxmltree::Document::parse(input).unwrap();
 
         let mut turtle = Turtle::new(Machine::new(
@@ -43,7 +51,7 @@ mod test {
             None,
             None,
         ));
-        let mut program = converter::svg2program(&document, options, &mut turtle);
+        let mut program = converter::svg2program(&document, &config, options, &mut turtle);
         postprocess::set_origin(&mut program, [0., 0.]);
 
         let mut acc = String::new();

@@ -228,15 +228,16 @@ checksum = "af51b1b4a7fdff033703db39de8802c673eb91855f2e0d47dcf3bf2c0ef01f99"
 
 [[package]]
 name = "g-code"
-version = "0.3.1"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2403e3a8d80208fa702f2bc4588d8ea28ed456c7e552891eea6e7e9c68582167"
+checksum = "8220033ab3971720c5ec54c4b7d36b35b87e3e58d53785152ffbdfd72d8e4c80"
 dependencies = [
  "codespan",
  "codespan-reporting",
  "paste",
  "peg",
  "rust_decimal",
+ "serde",
 ]
 
 [[package]]
@@ -632,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "svg2gcode"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "cairo-rs",
  "euclid",
@@ -641,19 +642,22 @@ dependencies = [
  "lyon_geom",
  "paste",
  "roxmltree",
+ "serde",
+ "serde_json",
  "svgtypes",
  "uom",
 ]
 
 [[package]]
 name = "svg2gcode-cli"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "codespan-reporting",
  "env_logger",
  "g-code",
  "log",
  "roxmltree",
+ "serde_json",
  "structopt",
  "svg2gcode",
  "svgtypes",
@@ -661,7 +665,7 @@ dependencies = [
 
 [[package]]
 name = "svg2gcode-web"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "base64",
  "codespan",
@@ -674,6 +678,7 @@ dependencies = [
  "paste",
  "roxmltree",
  "serde",
+ "serde_json",
  "svg2gcode",
  "svgtypes",
  "wasm-bindgen",

@@ -8,43 +8,136 @@ use lyon_geom::{
     point, vector, ArcFlags,
 };
 use roxmltree::{Document, Node};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use svgtypes::{
-    Length, LengthListParser, LengthUnit, PathParser, PathSegment, TransformListParser,
-    TransformListToken, ViewBox,
+    Length, LengthListParser, PathParser, PathSegment, TransformListParser, TransformListToken,
+    ViewBox,
 };
 
 use crate::turtle::*;
 
 const SVG_TAG_NAME: &str = "svg";
 
-/// High-level output options
-#[derive(Debug)]
-pub struct ConversionOptions {
+/// High-level output configuration
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct ConversionConfig {
     /// Curve interpolation tolerance in millimeters
     pub tolerance: f64,
     /// Feedrate in millimeters / minute
     pub feedrate: f64,
     /// Dots per inch for pixels, picas, points, etc.
     pub dpi: f64,
-    /// Width and height override
-    ///
-    /// Useful when an SVG does not have a set width and height or you want to override it.
-    pub dimensions: [Option<Length>; 2],
 }
 
-impl Default for ConversionOptions {
+impl Default for ConversionConfig {
     fn default() -> Self {
         Self {
             tolerance: 0.002,
             feedrate: 300.0,
             dpi: 96.0,
-            dimensions: [None; 2],
         }
+    }
+}
+
+/// Options are specific to this conversion.
+///
+/// This is separate from [ConversionConfig] to support bulk processing in the web interface.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct ConversionOptions {
+    /// Width and height override
+    ///
+    /// Useful when an SVG does not have a set width and height or you want to override it.
+    #[cfg_attr(feature = "serde", serde(with = "length_serde"))]
+    pub dimensions: [Option<Length>; 2],
+}
+
+#[cfg(feature = "serde")]
+mod length_serde {
+    use serde::{
+        de::{SeqAccess, Visitor},
+        ser::SerializeSeq,
+        Deserialize, Deserializer, Serialize, Serializer,
+    };
+    use svgtypes::{Length, LengthUnit};
+
+    pub fn serialize<S>(length: &[Option<Length>; 2], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(2))?;
+        for i in 0..2 {
+            let length_def = length[i].clone().map(|length| LengthDef {
+                number: length.number,
+                unit: length.unit,
+            });
+            seq.serialize_element(&length_def)?;
+        }
+        seq.end()
+    }
+
+    struct OptionalLengthArrayVisitor;
+    impl<'de> Visitor<'de> for OptionalLengthArrayVisitor {
+        type Value = [Option<Length>; 2];
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(formatter, "SVG dimension array")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let x = seq.next_element::<Option<LengthDef>>()?.flatten();
+            let y = seq.next_element::<Option<LengthDef>>()?.flatten();
+            Ok([
+                x.map(|length_def| Length {
+                    number: length_def.number,
+                    unit: length_def.unit,
+                }),
+                y.map(|length_def| Length {
+                    number: length_def.number,
+                    unit: length_def.unit,
+                }),
+            ])
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<[Option<Length>; 2], D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(OptionalLengthArrayVisitor)
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct LengthDef {
+        number: f64,
+        #[serde(with = "LengthUnitDef")]
+        unit: LengthUnit,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(remote = "LengthUnit")]
+    enum LengthUnitDef {
+        None,
+        Em,
+        Ex,
+        Px,
+        In,
+        Cm,
+        Mm,
+        Pt,
+        Pc,
+        Percent,
     }
 }
 
 pub fn svg2program<'input>(
     doc: &Document,
+    config: &ConversionConfig,
     options: ConversionOptions,
     turtle: &'input mut Turtle<'input>,
 ) -> Vec<Token<'input>> {
@@ -110,13 +203,13 @@ pub fn svg2program<'input>(
                 .and_then(|mut parser| parser.next())
                 .transpose()
                 .expect("could not parse width")
-                .map(|width| length_to_mm(width, options.dpi, scale_w)),
+                .map(|width| length_to_mm(width, config.dpi, scale_w)),
             node.attribute("height")
                 .map(LengthListParser::from)
                 .and_then(|mut parser| parser.next())
                 .transpose()
                 .expect("could not parse height")
-                .map(|height| length_to_mm(height, options.dpi, scale_h)),
+                .map(|height| length_to_mm(height, config.dpi, scale_h)),
         );
         let aspect_ratio = match (view_box, dimensions) {
             (_, (Some(ref width), Some(ref height))) => *width / *height,
@@ -136,8 +229,8 @@ pub fn svg2program<'input>(
         }
 
         let dimensions_override = [
-            options.dimensions[0].map(|dim_x| length_to_mm(dim_x, options.dpi, scale_w)),
-            options.dimensions[1].map(|dim_y| length_to_mm(dim_y, options.dpi, scale_h)),
+            options.dimensions[0].map(|dim_x| length_to_mm(dim_x, config.dpi, scale_w)),
+            options.dimensions[1].map(|dim_y| length_to_mm(dim_y, config.dpi, scale_h)),
         ];
 
         match (dimensions_override, dimensions) {
@@ -203,7 +296,7 @@ pub fn svg2program<'input>(
                     is_inline: false,
                     inner: Cow::Owned(comment),
                 });
-                program.extend(apply_path(turtle, &options, d));
+                program.extend(apply_path(turtle, config, d));
             } else {
                 warn!("There is a path node containing no actual path: {:?}", node);
             }
@@ -238,7 +331,7 @@ fn node_name(node: &Node) -> String {
 
 fn apply_path<'input>(
     turtle: &'_ mut Turtle<'input>,
-    options: &ConversionOptions,
+    config: &ConversionConfig,
     path: &str,
 ) -> Vec<Token<'input>> {
     use PathSegment::*;
@@ -250,11 +343,11 @@ fn apply_path<'input>(
                 MoveTo { abs, x, y } => turtle.move_to(abs, x, y),
                 ClosePath { abs: _ } => {
                     // Ignore abs, should have identical effect: [9.3.4. The "closepath" command]("https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand)
-                    turtle.close(options.feedrate)
+                    turtle.close(config.feedrate)
                 }
-                LineTo { abs, x, y } => turtle.line(abs, x, y, options.feedrate),
-                HorizontalLineTo { abs, x } => turtle.line(abs, x, None, options.feedrate),
-                VerticalLineTo { abs, y } => turtle.line(abs, None, y, options.feedrate),
+                LineTo { abs, x, y } => turtle.line(abs, x, y, config.feedrate),
+                HorizontalLineTo { abs, x } => turtle.line(abs, x, None, config.feedrate),
+                VerticalLineTo { abs, y } => turtle.line(abs, None, y, config.feedrate),
                 CurveTo {
                     abs,
                     x1,
@@ -268,28 +361,28 @@ fn apply_path<'input>(
                     point(x1, y1),
                     point(x2, y2),
                     point(x, y),
-                    options.tolerance,
-                    options.feedrate,
+                    config.tolerance,
+                    config.feedrate,
                 ),
                 SmoothCurveTo { abs, x2, y2, x, y } => turtle.smooth_cubic_bezier(
                     abs,
                     point(x2, y2),
                     point(x, y),
-                    options.tolerance,
-                    options.feedrate,
+                    config.tolerance,
+                    config.feedrate,
                 ),
                 Quadratic { abs, x1, y1, x, y } => turtle.quadratic_bezier(
                     abs,
                     point(x1, y1),
                     point(x, y),
-                    options.tolerance,
-                    options.feedrate,
+                    config.tolerance,
+                    config.feedrate,
                 ),
                 SmoothQuadratic { abs, x, y } => turtle.smooth_quadratic_bezier(
                     abs,
                     point(x, y),
-                    options.tolerance,
-                    options.feedrate,
+                    config.tolerance,
+                    config.feedrate,
                 ),
                 EllipticalArc {
                     abs,
@@ -306,8 +399,8 @@ fn apply_path<'input>(
                     Angle::degrees(x_axis_rotation),
                     ArcFlags { large_arc, sweep },
                     point(x, y),
-                    options.feedrate,
-                    options.tolerance,
+                    config.feedrate,
+                    config.tolerance,
                 ),
             }
         })
@@ -372,4 +465,68 @@ fn length_to_mm(l: svgtypes::Length, dpi: f64, scale: Option<f64>) -> f64 {
     };
 
     length.get::<millimeter>()
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[cfg(feature = "serde")]
+    use svgtypes::LengthUnit;
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn serde_conversion_options_is_correct() {
+        let default_struct = ConversionOptions::default();
+        let default_json = "{\"dimensions\":[null,null]}";
+
+        assert_eq!(
+            serde_json::to_string(&default_struct).unwrap(),
+            default_json
+        );
+        assert_eq!(
+            serde_json::from_str::<ConversionOptions>(default_json).unwrap(),
+            default_struct
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn serde_conversion_options_with_single_dimension_is_correct() {
+        let mut r#struct = ConversionOptions::default();
+        r#struct.dimensions[0] = Some(Length {
+            number: 4.,
+            unit: LengthUnit::Mm,
+        });
+        let json = "{\"dimensions\":[{\"number\":4.0,\"unit\":\"Mm\"},null]}";
+
+        assert_eq!(serde_json::to_string(&r#struct).unwrap(), json);
+        assert_eq!(
+            serde_json::from_str::<ConversionOptions>(json).unwrap(),
+            r#struct
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn serde_conversion_options_with_both_dimensions_is_correct() {
+        let mut r#struct = ConversionOptions::default();
+        r#struct.dimensions = [
+            Some(Length {
+                number: 4.,
+                unit: LengthUnit::Mm,
+            }),
+            Some(Length {
+                number: 10.5,
+                unit: LengthUnit::In,
+            }),
+        ];
+        let json =
+            "{\"dimensions\":[{\"number\":4.0,\"unit\":\"Mm\"},{\"number\":10.5,\"unit\":\"In\"}]}";
+
+        assert_eq!(serde_json::to_string(&r#struct).unwrap(), json);
+        assert_eq!(
+            serde_json::from_str::<ConversionOptions>(json).unwrap(),
+            r#struct
+        );
+    }
 }

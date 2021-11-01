@@ -6,21 +6,19 @@ use g_code::{
 };
 use log::Level;
 use roxmltree::Document;
-use svg2gcode::{
-    set_origin, svg2program, ConversionOptions, Machine, SupportedFunctionality, Turtle,
-};
-use wasm_bindgen::JsCast;
-use web_sys::HtmlElement;
-use yew::{prelude::*, utils::window};
+use svg2gcode::{set_origin, svg2program, ConversionOptions, Machine, Turtle};
+use yew::prelude::*;
 use yewdux::prelude::{Dispatch, Dispatcher};
 
 mod inputs;
 mod spectre;
 mod state;
+mod util;
 
 use inputs::*;
 use spectre::*;
 use state::*;
+use util::*;
 
 struct App {
     app_dispatch: Dispatch<AppStore>,
@@ -73,34 +71,38 @@ impl Component for App {
                 self.link.send_future(async move {
                     for svg in app_state.svgs.iter() {
                         let options = ConversionOptions {
-                            tolerance: app_state.tolerance,
-                            feedrate: app_state.feedrate,
-                            dpi: app_state.dpi,
-                            dimensions: [None; 2],
+                            dimensions: svg.dimensions,
                         };
+
                         let machine = Machine::new(
-                            SupportedFunctionality {
-                                circular_interpolation: app_state.circular_interpolation,
-                            },
+                            app_state.settings.machine.supported_functionality.clone(),
                             app_state
+                                .settings
+                                .machine
                                 .tool_on_sequence
                                 .as_deref()
                                 .map(snippet_parser)
                                 .transpose()
                                 .unwrap(),
                             app_state
+                                .settings
+                                .machine
                                 .tool_off_sequence
                                 .as_deref()
                                 .map(snippet_parser)
                                 .transpose()
                                 .unwrap(),
                             app_state
+                                .settings
+                                .machine
                                 .begin_sequence
                                 .as_deref()
                                 .map(snippet_parser)
                                 .transpose()
                                 .unwrap(),
                             app_state
+                                .settings
+                                .machine
                                 .end_sequence
                                 .as_deref()
                                 .map(snippet_parser)
@@ -110,30 +112,23 @@ impl Component for App {
                         let document = Document::parse(svg.content.as_str()).unwrap();
 
                         let mut turtle = Turtle::new(machine);
-                        let mut program = svg2program(&document, options, &mut turtle);
+                        let mut program = svg2program(
+                            &document,
+                            &app_state.settings.conversion,
+                            options,
+                            &mut turtle,
+                        );
 
-                        set_origin(&mut program, app_state.origin);
+                        set_origin(&mut program, app_state.settings.postprocess.origin);
 
-                        let gcode_base64 = {
+                        let gcode = {
                             let mut acc = String::new();
                             format_gcode_fmt(&program, FormatOptions::default(), &mut acc).unwrap();
-                            base64::encode(acc.as_bytes())
+                            acc
                         };
 
-                        let window = window();
-                        let document = window.document().unwrap();
-                        let hyperlink = document.create_element("a").unwrap();
-
                         let filepath = Path::new(svg.filename.as_str()).with_extension("gcode");
-                        let filename = filepath.to_str().unwrap();
-                        hyperlink
-                            .set_attribute(
-                                "href",
-                                &format!("data:text/plain;base64,{}", gcode_base64),
-                            )
-                            .unwrap();
-                        hyperlink.set_attribute("download", filename).unwrap();
-                        hyperlink.unchecked_into::<HtmlElement>().click();
+                        prompt_download(filepath, &gcode.as_bytes());
                     }
 
                     AppMsg::Done
@@ -159,7 +154,7 @@ impl Component for App {
         // Having separate stores is somewhat of an anti-pattern in Redux,
         // but there's no easy way to do hydration after the app state is
         // restored from local storage.
-        let hydrated_form_state = FormState::from(self.app_state.as_ref());
+        let hydrated_form_state = FormState::from(&self.app_state.settings);
         let settings_hydrate_onclick = self.form_dispatch.reduce_callback_once(move |form| {
             *form = hydrated_form_state;
         });
@@ -226,8 +221,15 @@ impl Component for App {
                             onclick={settings_hydrate_onclick}
                             href="#settings"
                         />
+                        <HyperlinkButton
+                            title="Import/Export"
+                            style={ButtonStyle::Default}
+                            icon={IconName::Copy}
+                            href="#import_export"
+                        />
                     </ButtonGroup>
-                    <SettingsForm />
+                    <SettingsForm/>
+                    <ImportExportModal/>
                 </div>
                 <div class={classes!("text-right", "column")}>
                     <p>

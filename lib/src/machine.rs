@@ -1,4 +1,6 @@
 use g_code::{command, emit::Token, parse::ast::Snippet};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 /// Whether the tool is active (i.e. cutting)
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -41,13 +43,24 @@ pub struct Machine<'input> {
     supported_functionality: SupportedFunctionality,
     tool_state: Option<Tool>,
     distance_mode: Option<Distance>,
-    tool_on_action: Vec<Token<'input>>,
-    tool_off_action: Vec<Token<'input>>,
+    tool_on_sequence: Vec<Token<'input>>,
+    tool_off_sequence: Vec<Token<'input>>,
     program_begin_sequence: Vec<Token<'input>>,
     program_end_sequence: Vec<Token<'input>>,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct MachineConfig {
+    pub supported_functionality: SupportedFunctionality,
+    pub tool_on_sequence: Option<String>,
+    pub tool_off_sequence: Option<String>,
+    pub begin_sequence: Option<String>,
+    pub end_sequence: Option<String>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SupportedFunctionality {
     /// Indicates support for G2/G3 circular interpolation.
     ///
@@ -58,17 +71,17 @@ pub struct SupportedFunctionality {
 impl<'input> Machine<'input> {
     pub fn new(
         supported_functionality: SupportedFunctionality,
-        tool_on_action: Option<Snippet<'input>>,
-        tool_off_action: Option<Snippet<'input>>,
+        tool_on_sequence: Option<Snippet<'input>>,
+        tool_off_sequence: Option<Snippet<'input>>,
         program_begin_sequence: Option<Snippet<'input>>,
         program_end_sequence: Option<Snippet<'input>>,
     ) -> Self {
         Self {
             supported_functionality,
-            tool_on_action: tool_on_action
+            tool_on_sequence: tool_on_sequence
                 .map(|s| s.iter_emit_tokens().collect())
                 .unwrap_or_default(),
-            tool_off_action: tool_off_action
+            tool_off_sequence: tool_off_sequence
                 .map(|s| s.iter_emit_tokens().collect())
                 .unwrap_or_default(),
             program_begin_sequence: program_begin_sequence
@@ -89,7 +102,7 @@ impl<'input> Machine<'input> {
     pub fn tool_on(&mut self) -> Vec<Token<'input>> {
         if self.tool_state == Some(Tool::Off) || self.tool_state == None {
             self.tool_state = Some(Tool::On);
-            self.tool_on_action.clone()
+            self.tool_on_sequence.clone()
         } else {
             vec![]
         }
@@ -99,7 +112,7 @@ impl<'input> Machine<'input> {
     pub fn tool_off(&mut self) -> Vec<Token<'input>> {
         if self.tool_state == Some(Tool::On) || self.tool_state == None {
             self.tool_state = Some(Tool::Off);
-            self.tool_off_action.clone()
+            self.tool_off_sequence.clone()
         } else {
             vec![]
         }

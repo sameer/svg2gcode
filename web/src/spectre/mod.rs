@@ -96,23 +96,23 @@ where
             <label class="form-label" for={id.clone()}>
                 { props.label }
             </label>
-            <div class={classes!(if success || error { Some("has-icon-right") } else { None })}>
-                <div class={classes!(if props.button.is_some() { Some("input-group") } else { None })}>
+            <div class={classes!(if props.button.is_some() { Some("input-group") } else { None })}>
+                <div class={classes!(if props.button.is_some() { Some("input-group") } else { None }, if success || error { Some("has-icon-right") } else { None })}>
                     <input id={id} class="form-input" type={props.r#type.to_string()} ref={(*node_ref).clone()}
                         oninput={props.oninput.clone()} placeholder={ props.placeholder.as_ref().map(ToString::to_string) }
                     />
-                    { props.button.clone().map(Html::from).unwrap_or_default() }
-                </div>
-                {
-                    if let Some(parsed) = props.parsed.as_ref() {
-                        match parsed {
-                            Ok(_) => html!(<Icon form=true name={IconName::Check}/>),
-                            Err(_) => html!(<Icon form=true name={IconName::Cross}/>)
+                    {
+                        if let Some(parsed) = props.parsed.as_ref() {
+                            match parsed {
+                                Ok(_) => html!(<Icon form=true name={IconName::Check}/>),
+                                Err(_) => html!(<Icon form=true name={IconName::Cross}/>)
+                            }
+                        } else {
+                            html!()
                         }
-                    } else {
-                        html!()
                     }
-                }
+                </div>
+                { props.button.clone().map(Html::from).unwrap_or_default() }
             </div>
             {
                 if let Some(Err(ref err)) = props.parsed.as_ref() {
@@ -171,6 +171,8 @@ where
     pub parsed: Option<Result<T, E>>,
     #[prop_or_default]
     pub onchange: Callback<FileList>,
+    #[prop_or_default]
+    pub button: Option<VChild<Button>>,
 }
 
 #[function_component(FileUpload)]
@@ -187,25 +189,28 @@ where
             <label class="form-label" for={id.clone()}>
                 { props.label }
             </label>
-            <div class={classes!(if success || error { Some("has-icon-right") } else { None })}>
-                <input id={id} class="form-input" type="file" accept={props.accept} multiple={props.multiple}
-                    onchange={props.onchange.clone().reform(|x: ChangeData| {
-                        match x {
-                            ChangeData::Files(file_list) => file_list,
-                            _ => unreachable!()
+            <div class={classes!(if props.button.is_some() { Some("input-group") } else { None })}>
+                <div class={classes!(if props.button.is_some() { Some("input-group") } else { None }, if success || error { Some("has-icon-right") } else { None })}>
+                    <input id={id} class="form-input" type="file" accept={props.accept} multiple={props.multiple}
+                        onchange={props.onchange.clone().reform(|x: ChangeData| {
+                            match x {
+                                ChangeData::Files(file_list) => file_list,
+                                _ => unreachable!()
+                            }
+                        })}
+                    />
+                    {
+                        if let Some(parsed) = props.parsed.as_ref() {
+                            match parsed {
+                                Ok(_) => html!(<Icon form=true name={IconName::Check}/>),
+                                Err(_) => html!(<Icon form=true name={IconName::Cross}/>)
+                            }
+                        } else {
+                            html!()
                         }
-                    })}
-                />
-                {
-                    if let Some(parsed) = props.parsed.as_ref() {
-                        match parsed {
-                            Ok(_) => html!(<Icon form=true name={IconName::Check}/>),
-                            Err(_) => html!(<Icon form=true name={IconName::Cross}/>)
-                        }
-                    } else {
-                        html!()
                     }
-                }
+                </div>
+                { props.button.clone().map(Html::from).unwrap_or_default() }
             </div>
             {
                 if let Some(Err(ref err)) = props.parsed.as_ref() {

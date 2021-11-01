@@ -1,3 +1,6 @@
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 use euclid::default::Box2D;
 use g_code::emit::{
     command::{ABSOLUTE_DISTANCE_MODE_FIELD, RELATIVE_DISTANCE_MODE_FIELD},
@@ -6,6 +9,12 @@ use g_code::emit::{
 use lyon_geom::{point, vector, Point};
 
 type F64Point = Point<f64>;
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct PostprocessConfig {
+    pub origin: [f64; 2],
+}
 
 /// Moves all the commands so that they are beyond a specified position
 pub fn set_origin(tokens: &mut [Token<'_>], origin: [f64; 2]) {
