@@ -10,13 +10,13 @@ use svg2gcode::{set_origin, svg2program, ConversionOptions, Machine, Turtle};
 use yew::prelude::*;
 use yewdux::prelude::{Dispatch, Dispatcher};
 
-mod inputs;
-mod spectre;
+mod forms;
+mod ui;
 mod state;
 mod util;
 
-use inputs::*;
-use spectre::*;
+use forms::*;
+use ui::*;
 use state::*;
 use util::*;
 
@@ -167,7 +167,7 @@ impl Component for App {
                     <p>
                         { env!("CARGO_PKG_DESCRIPTION") }
                     </p>
-                    <SvgInput/>
+                    <SvgForm/>
                     <div class={classes!("card-container", "columns")}>
                         {
                             for self.app_state.svgs.iter().enumerate().map(|(i, svg)| {
@@ -220,12 +220,6 @@ impl Component for App {
                             icon={IconName::Edit}
                             onclick={settings_hydrate_onclick}
                             href="#settings"
-                        />
-                        <HyperlinkButton
-                            title="Import/Export"
-                            style={ButtonStyle::Default}
-                            icon={IconName::Copy}
-                            href="#import_export"
                         />
                     </ButtonGroup>
                     <SettingsForm/>
