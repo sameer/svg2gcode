@@ -169,7 +169,7 @@ pub fn import_export_modal() -> Html {
         app.dispatch()
             .reduce_callback(move |app| match serde_json::to_vec_pretty(&app.settings) {
                 Ok(settings_json_bytes) => {
-                    let filename = format!("svg2gcode_settings");
+                    let filename = "svg2gcode_settings";
                     let filepath = Path::new(&filename).with_extension("json");
                     crate::util::prompt_download(&filepath, &settings_json_bytes);
                 }
@@ -409,7 +409,7 @@ pub fn svg_form() -> Html {
     };
 
     html! {
-        <FormGroup success={file_upload_res.as_ref().map(Result::is_ok).or(url_input_parsed.as_ref().map(Result::is_ok))}>
+        <FormGroup success={file_upload_res.as_ref().map(Result::is_ok).or_else(|| url_input_parsed.as_ref().map(Result::is_ok))}>
             <FileUpload<(), String>
                 label="Select SVG files"
                 accept=".svg"
