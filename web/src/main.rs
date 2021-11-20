@@ -11,13 +11,13 @@ use yew::prelude::*;
 use yewdux::prelude::{Dispatch, Dispatcher};
 
 mod forms;
-mod ui;
 mod state;
+mod ui;
 mod util;
 
 use forms::*;
-use ui::*;
 use state::*;
+use ui::*;
 use util::*;
 
 struct App {

@@ -1,7 +1,7 @@
 use paste::paste;
 use std::num::ParseFloatError;
 use yew::prelude::*;
-use yewdux::prelude::{BasicStore};
+use yewdux::prelude::BasicStore;
 use yewdux_functional::use_store;
 use yewdux_input::*;
 

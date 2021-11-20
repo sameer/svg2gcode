@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{convert::TryInto, num::ParseFloatError};
 use svg2gcode::{
-    Settings, ConversionConfig, MachineConfig, PostprocessConfig, SupportedFunctionality,
+    ConversionConfig, MachineConfig, PostprocessConfig, Settings, SupportedFunctionality,
 };
 use svgtypes::Length;
 use yewdux::prelude::{BasicStore, Persistent, PersistentStore};
@@ -57,8 +57,7 @@ impl From<&Settings> for FormState {
         Self {
             tolerance: Ok(settings.conversion.tolerance),
             feedrate: Ok(settings.conversion.feedrate),
-            circular_interpolation: 
-                settings
+            circular_interpolation: settings
                 .machine
                 .supported_functionality
                 .circular_interpolation,
@@ -67,30 +66,10 @@ impl From<&Settings> for FormState {
                 Ok(settings.postprocess.origin[1]),
             ],
             dpi: Ok(settings.conversion.dpi),
-            tool_on_sequence: 
-                settings
-                .machine
-                .tool_on_sequence
-                .clone()
-                .map(Result::Ok),
-            tool_off_sequence: 
-                settings
-                .machine
-                .tool_off_sequence
-                .clone()
-                .map(Result::Ok),
-            begin_sequence: 
-                settings
-                .machine
-                .begin_sequence
-                .clone()
-                .map(Result::Ok),
-            end_sequence: 
-                settings
-                .machine
-                .end_sequence
-                .clone()
-                .map(Result::Ok),
+            tool_on_sequence: settings.machine.tool_on_sequence.clone().map(Result::Ok),
+            tool_off_sequence: settings.machine.tool_off_sequence.clone().map(Result::Ok),
+            begin_sequence: settings.machine.begin_sequence.clone().map(Result::Ok),
+            end_sequence: settings.machine.end_sequence.clone().map(Result::Ok),
         }
     }
 }
