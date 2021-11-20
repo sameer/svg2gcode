@@ -19,8 +19,11 @@ use crate::turtle::*;
 
 #[cfg(feature = "serde")]
 mod length_serde;
+mod visit;
 
 const SVG_TAG_NAME: &str = "svg";
+const CLIP_PATH_TAG_NAME: &str = "clipPath";
+const PATH_TAG_NAME: &str = "path";
 
 /// High-level output configuration
 #[derive(Debug, Clone, PartialEq)]
@@ -57,58 +60,48 @@ pub struct ConversionOptions {
     pub dimensions: [Option<Length>; 2],
 }
 
-
-pub fn svg2program<'input>(
-    doc: &Document,
-    config: &ConversionConfig,
+struct ConversionVisitor<'a, 'input: 'a> {
+    turtle: &'a mut Turtle<'input>,
+    name_stack: Vec<String>,
+    program: Vec<Token<'input>>,
+    config: &'a ConversionConfig,
     options: ConversionOptions,
-    turtle: &'input mut Turtle<'input>,
-) -> Vec<Token<'input>> {
-    let mut program = command!(UnitsMillimeters {})
-        .into_token_vec()
-        .drain(..)
-        .collect::<Vec<_>>();
-    program.extend(turtle.machine.absolute());
-    program.extend(turtle.machine.program_begin());
-    program.extend(turtle.machine.absolute());
+}
 
-    // Part 1 of converting from SVG to g-code coordinates
-    turtle.push_transform(Transform2D::scale(1., -1.));
+impl<'a, 'input: 'a> ConversionVisitor<'a, 'input> {
+    fn begin(&mut self) {
+        self.program = command!(UnitsMillimeters {})
+            .into_token_vec()
+            .drain(..)
+            .collect::<Vec<_>>();
+        self.program.extend(self.turtle.machine.absolute());
+        self.program.extend(self.turtle.machine.program_begin());
+        self.program.extend(self.turtle.machine.absolute());
 
-    // Depth-first SVG DOM traversal
-    let mut node_stack = vec![(doc.root(), doc.root().children())];
-    let mut name_stack: Vec<String> = vec![];
+        // Part 1 of converting from SVG to g-code coordinates
+        self.turtle.push_transform(Transform2D::scale(1., -1.));
+    }
 
-    while let Some((parent, mut children)) = node_stack.pop() {
-        let node: Node = match children.next() {
-            Some(child) => {
-                node_stack.push((parent, children));
-                child
-            }
-            // Last node in this group has been processed
-            None => {
-                if parent.has_attribute("viewBox")
-                    || parent.has_attribute("transform")
-                    || parent.has_attribute("width")
-                    || parent.has_attribute("height")
-                    || (parent.has_tag_name(SVG_TAG_NAME)
-                        && options.dimensions.iter().any(Option::is_some))
-                {
-                    turtle.pop_transform();
-                }
-                name_stack.pop();
-                continue;
-            }
-        };
+    fn end(&mut self) {
+        self.turtle.pop_all_transforms();
+        self.program.extend(self.turtle.machine.tool_off());
+        self.program.extend(self.turtle.machine.absolute());
+        self.program.extend(self.turtle.machine.program_end());
+        self.program
+            .append(&mut command!(ProgramEnd {}).into_token_vec());
+    }
+}
+
+impl<'a, 'input: 'a> visit::XmlVisitor for ConversionVisitor<'a, 'input> {
+    fn visit(&mut self, node: Node) {
+        // Depth-first SVG DOM traversal
 
         if node.node_type() != roxmltree::NodeType::Element {
             debug!("Encountered a non-element: {:?}", node);
-            continue;
         }
 
-        if node.tag_name().name() == "clipPath" {
+        if node.tag_name().name() == CLIP_PATH_TAG_NAME {
             warn!("Clip paths are not supported: {:?}", node);
-            continue;
         }
 
         let mut transforms = vec![];
@@ -126,13 +119,13 @@ pub fn svg2program<'input>(
                 .and_then(|mut parser| parser.next())
                 .transpose()
                 .expect("could not parse width")
-                .map(|width| length_to_mm(width, config.dpi, scale_w)),
+                .map(|width| length_to_mm(width, self.config.dpi, scale_w)),
             node.attribute("height")
                 .map(LengthListParser::from)
                 .and_then(|mut parser| parser.next())
                 .transpose()
                 .expect("could not parse height")
-                .map(|height| length_to_mm(height, config.dpi, scale_h)),
+                .map(|height| length_to_mm(height, self.config.dpi, scale_h)),
         );
         let aspect_ratio = match (view_box, dimensions) {
             (_, (Some(ref width), Some(ref height))) => *width / *height,
@@ -152,8 +145,8 @@ pub fn svg2program<'input>(
         }
 
         let dimensions_override = [
-            options.dimensions[0].map(|dim_x| length_to_mm(dim_x, config.dpi, scale_w)),
-            options.dimensions[1].map(|dim_y| length_to_mm(dim_y, config.dpi, scale_h)),
+            self.options.dimensions[0].map(|dim_x| length_to_mm(dim_x, self.config.dpi, scale_w)),
+            self.options.dimensions[1].map(|dim_y| length_to_mm(dim_y, self.config.dpi, scale_h)),
         ];
 
         match (dimensions_override, dimensions) {
@@ -199,48 +192,70 @@ pub fn svg2program<'input>(
             )
         }
 
-        if !transforms.is_empty() {
-            let transform = transforms
+        self.turtle.push_transform(
+            transforms
                 .iter()
-                .fold(Transform2D::identity(), |acc, t| acc.then(t));
-            turtle.push_transform(transform);
-        }
+                .fold(Transform2D::identity(), |acc, t| acc.then(t)),
+        );
 
-        if node.tag_name().name() == "path" {
+        if node.tag_name().name() == PATH_TAG_NAME {
             if let Some(d) = node.attribute("d") {
-                turtle.reset();
+                self.turtle.reset();
                 let mut comment = String::new();
-                name_stack.iter().for_each(|name| {
+                self.name_stack.iter().for_each(|name| {
                     comment += name;
                     comment += " > ";
                 });
                 comment += &node_name(&node);
-                program.push(Token::Comment {
+                self.program.push(Token::Comment {
                     is_inline: false,
                     inner: Cow::Owned(comment),
                 });
-                program.extend(apply_path(turtle, config, d));
+                self.program
+                    .extend(apply_path(&mut self.turtle, &self.config, d));
             } else {
                 warn!("There is a path node containing no actual path: {:?}", node);
             }
         }
 
         if node.has_children() {
-            node_stack.push((node, node.children()));
-            name_stack.push(node_name(&node));
-        } else if !transforms.is_empty() {
-            // Pop transform early, since this is the only element that has it
-            turtle.pop_transform();
+            self.name_stack.push(node_name(&node));
+        } else {
+            // Pop transform since this is the only element that has it
+            self.turtle.pop_transform();
+
+            let mut parent = Some(node);
+            while let Some(p) = parent {
+                if p.next_sibling().is_some() || p.is_root() {
+                    break;
+                }
+                // Pop the parent transform since this is the last child
+                self.turtle.pop_transform();
+                self.name_stack.pop();
+                parent = p.parent();
+            }
         }
     }
+}
 
-    turtle.pop_all_transforms();
-    program.extend(turtle.machine.tool_off());
-    program.extend(turtle.machine.absolute());
-    program.extend(turtle.machine.program_end());
-    program.append(&mut command!(ProgramEnd {}).into_token_vec());
+pub fn svg2program<'a, 'input: 'a>(
+    doc: &'a Document,
+    config: &ConversionConfig,
+    options: ConversionOptions,
+    turtle: &'a mut Turtle<'input>,
+) -> Vec<Token<'input>> {
+    let mut conversion_visitor = ConversionVisitor {
+        turtle,
+        config,
+        options,
+        name_stack: vec![],
+        program: vec![],
+    };
+    conversion_visitor.begin();
+    visit::depth_first_visit(doc, &mut conversion_visitor);
+    conversion_visitor.end();
 
-    program
+    conversion_visitor.program
 }
 
 fn node_name(node: &Node) -> String {
