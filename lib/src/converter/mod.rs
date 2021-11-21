@@ -246,31 +246,47 @@ pub fn svg2program<'a, 'input: 'a>(
     options: ConversionOptions,
     machine: Machine<'input>,
 ) -> Vec<Token<'input>> {
-    let bounding_box = {
-        let mut visitor = ConversionVisitor {
-            terrarium: Terrarium::new(PreprocessTurtle::default()),
-            config,
-            options: options.clone(),
-            name_stack: vec![],
+    let mut origin_transform = Transform2D::identity();
+    loop {
+        let bounding_box = {
+            let mut visitor = ConversionVisitor {
+                terrarium: Terrarium::new(PreprocessTurtle::default()),
+                config,
+                options: options.clone(),
+                name_stack: vec![],
+            };
+
+            visitor.terrarium.push_transform(origin_transform);
+            visitor.begin();
+            visit::depth_first_visit(doc, &mut visitor);
+            visitor.end();
+            visitor.terrarium.pop_transform();
+
+            visitor.terrarium.turtle.bounding_box
         };
 
-        visitor.begin();
-        visit::depth_first_visit(doc, &mut visitor);
-        visitor.end();
-
-        visitor.terrarium.turtle.bounding_box
-    };
-
-    let origin_transform = {
-        let mut transform = Transform2D::identity();
-        if let Some(origin_x) = config.origin[0] {
-            transform = transform.then_translate(vector(origin_x - bounding_box.min.x, 0.));
+        if (!bounding_box.min.x.is_sign_negative() && !bounding_box.min.y.is_sign_negative())
+            || bounding_box
+                .min
+                .to_vector()
+                .abs()
+                .lower_than(vector(std::f64::EPSILON, std::f64::EPSILON))
+                .all()
+        {
+            break;
         }
-        if let Some(origin_y) = config.origin[1] {
-            transform = transform.then_translate(vector(0., origin_y - bounding_box.min.y));
-        }
-        transform
-    };
+
+        origin_transform = origin_transform.then(&{
+            let mut transform = Transform2D::identity();
+            if let Some(origin_x) = config.origin[0] {
+                transform = transform.then_translate(vector(origin_x - bounding_box.min.x, 0.));
+            }
+            if let Some(origin_y) = config.origin[1] {
+                transform = transform.then_translate(vector(0., origin_y - bounding_box.min.y));
+            }
+            transform
+        });
+    }
 
     let mut conversion_visitor = ConversionVisitor {
         terrarium: Terrarium::new(GCodeTurtle {
