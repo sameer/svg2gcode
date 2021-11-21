@@ -35,6 +35,7 @@ impl<'a> TryInto<Settings> for &'a FormState {
                 tolerance: self.tolerance.clone()?,
                 feedrate: self.feedrate.clone()?,
                 dpi: self.dpi.clone()?,
+                origin: [Some(self.origin[0].clone()?), Some(self.origin[1].clone()?)],
             },
             machine: MachineConfig {
                 supported_functionality: SupportedFunctionality {
@@ -62,8 +63,8 @@ impl From<&Settings> for FormState {
                 .supported_functionality
                 .circular_interpolation,
             origin: [
-                Ok(settings.postprocess.origin[0]),
-                Ok(settings.postprocess.origin[1]),
+                Ok(settings.conversion.origin[0].unwrap_or(settings.postprocess.origin[0])),
+                Ok(settings.conversion.origin[1].unwrap_or(settings.postprocess.origin[1])),
             ],
             dpi: Ok(settings.conversion.dpi),
             tool_on_sequence: settings.machine.tool_on_sequence.clone().map(Result::Ok),

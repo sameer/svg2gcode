@@ -5,9 +5,14 @@ pub trait XmlVisitor {
 }
 
 pub fn depth_first_visit(doc: &Document, visitor: &mut impl XmlVisitor) {
-    let mut stack = doc.root().children().rev().collect::<Vec<_>>();
+    let mut stack = doc
+        .root()
+        .children()
+        .rev()
+        .filter(|x| x.is_element())
+        .collect::<Vec<_>>();
     while let Some(node) = stack.pop() {
         visitor.visit(node);
-        stack.extend(node.children().rev());
+        stack.extend(node.children().rev().filter(|x| x.is_element()));
     }
 }

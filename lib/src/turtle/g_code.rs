@@ -2,12 +2,11 @@ use std::borrow::Cow;
 use std::fmt::Debug;
 
 use ::g_code::{command, emit::Token};
-use lyon_geom::Point;
-use lyon_geom::{CubicBezierSegment, QuadraticBezierSegment, SvgArc};
+use lyon_geom::{CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc};
 
+use super::Turtle;
 use crate::arc::{ArcOrLineSegment, FlattenWithArcs};
 use crate::machine::Machine;
-use super::Turtle;
 
 /// Turtle graphics simulator for mapping path segments into g-code
 #[derive(Debug)]

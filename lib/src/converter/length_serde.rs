@@ -11,7 +11,7 @@ where
 {
     let mut seq = serializer.serialize_seq(Some(2))?;
     for i in 0..2 {
-        let length_def = length[i].clone().map(|length| LengthDef {
+        let length_def = length[i].map(|length| LengthDef {
             number: length.number,
             unit: length.unit,
         });

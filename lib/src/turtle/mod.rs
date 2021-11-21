@@ -1,13 +1,16 @@
 use std::fmt::Debug;
 
-use lyon_geom::euclid::{default::Transform2D, Angle};
-use lyon_geom::{point, vector, Point, Vector};
-use lyon_geom::{ArcFlags, CubicBezierSegment, QuadraticBezierSegment, SvgArc};
+use lyon_geom::{
+    euclid::{default::Transform2D, Angle},
+    point, vector, ArcFlags, CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc, Vector,
+};
 
-use crate::arc::{Transformed};
+use crate::arc::Transformed;
 
 mod g_code;
+mod preprocess;
 pub use self::g_code::GCodeTurtle;
+pub use preprocess::PreprocessTurtle;
 
 pub trait Turtle: Debug {
     fn begin(&mut self);
@@ -27,7 +30,7 @@ pub struct Terrarium<T: Turtle + std::fmt::Debug> {
     current_position: Point<f64>,
     initial_position: Point<f64>,
     current_transform: Transform2D<f64>,
-    transform_stack: Vec<Transform2D<f64>>,
+    pub transform_stack: Vec<Transform2D<f64>>,
     previous_quadratic_control: Option<Point<f64>>,
     previous_cubic_control: Option<Point<f64>>,
 }
