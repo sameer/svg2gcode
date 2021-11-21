@@ -42,7 +42,7 @@ mod test {
         let options = ConversionOptions { dimensions };
         let document = roxmltree::Document::parse(input).unwrap();
 
-        let mut turtle = Turtle::new(Machine::new(
+        let machine = Machine::new(
             SupportedFunctionality {
                 circular_interpolation,
             },
@@ -50,8 +50,8 @@ mod test {
             None,
             None,
             None,
-        ));
-        let mut program = converter::svg2program(&document, &config, options, &mut turtle);
+        );
+        let mut program = converter::svg2program(&document, &config, options, machine);
         postprocess::set_origin(&mut program, [0., 0.]);
 
         let mut acc = String::new();

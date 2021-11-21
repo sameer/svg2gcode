@@ -111,12 +111,11 @@ impl Component for App {
                         );
                         let document = Document::parse(svg.content.as_str()).unwrap();
 
-                        let mut turtle = Turtle::new(machine);
                         let mut program = svg2program(
                             &document,
                             &app_state.settings.conversion,
                             options,
-                            &mut turtle,
+                            machine,
                         );
 
                         set_origin(&mut program, app_state.settings.postprocess.origin);

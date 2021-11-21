@@ -1,5 +1,5 @@
-use std::borrow::Cow;
 use std::str::FromStr;
+use std::{borrow::Cow, fmt::Debug};
 
 use g_code::{command, emit::Token};
 use log::{debug, warn};
@@ -15,7 +15,7 @@ use svgtypes::{
     ViewBox,
 };
 
-use crate::turtle::*;
+use crate::{turtle::*, Machine};
 
 #[cfg(feature = "serde")]
 mod length_serde;
@@ -60,39 +60,29 @@ pub struct ConversionOptions {
     pub dimensions: [Option<Length>; 2],
 }
 
-struct ConversionVisitor<'a, 'input: 'a> {
-    turtle: &'a mut Turtle<'input>,
+#[derive(Debug)]
+struct ConversionVisitor<'a, T: Turtle> {
+    terrarium: Terrarium<T>,
     name_stack: Vec<String>,
-    program: Vec<Token<'input>>,
     config: &'a ConversionConfig,
     options: ConversionOptions,
 }
 
-impl<'a, 'input: 'a> ConversionVisitor<'a, 'input> {
+impl<'a, 'input: 'a> ConversionVisitor<'a, GCodeTurtle<'input>> {
     fn begin(&mut self) {
-        self.program = command!(UnitsMillimeters {})
-            .into_token_vec()
-            .drain(..)
-            .collect::<Vec<_>>();
-        self.program.extend(self.turtle.machine.absolute());
-        self.program.extend(self.turtle.machine.program_begin());
-        self.program.extend(self.turtle.machine.absolute());
+        self.terrarium.turtle.begin();
 
         // Part 1 of converting from SVG to g-code coordinates
-        self.turtle.push_transform(Transform2D::scale(1., -1.));
+        self.terrarium.push_transform(Transform2D::scale(1., -1.));
     }
 
     fn end(&mut self) {
-        self.turtle.pop_all_transforms();
-        self.program.extend(self.turtle.machine.tool_off());
-        self.program.extend(self.turtle.machine.absolute());
-        self.program.extend(self.turtle.machine.program_end());
-        self.program
-            .append(&mut command!(ProgramEnd {}).into_token_vec());
+        self.terrarium.pop_all_transforms();
+        self.terrarium.turtle.end();
     }
 }
 
-impl<'a, 'input: 'a> visit::XmlVisitor for ConversionVisitor<'a, 'input> {
+impl<'a, T: Turtle> visit::XmlVisitor for ConversionVisitor<'a, T> {
     fn visit(&mut self, node: Node) {
         // Depth-first SVG DOM traversal
 
@@ -192,7 +182,7 @@ impl<'a, 'input: 'a> visit::XmlVisitor for ConversionVisitor<'a, 'input> {
             )
         }
 
-        self.turtle.push_transform(
+        self.terrarium.push_transform(
             transforms
                 .iter()
                 .fold(Transform2D::identity(), |acc, t| acc.then(t)),
@@ -200,19 +190,15 @@ impl<'a, 'input: 'a> visit::XmlVisitor for ConversionVisitor<'a, 'input> {
 
         if node.tag_name().name() == PATH_TAG_NAME {
             if let Some(d) = node.attribute("d") {
-                self.turtle.reset();
+                self.terrarium.reset();
                 let mut comment = String::new();
                 self.name_stack.iter().for_each(|name| {
                     comment += name;
                     comment += " > ";
                 });
                 comment += &node_name(&node);
-                self.program.push(Token::Comment {
-                    is_inline: false,
-                    inner: Cow::Owned(comment),
-                });
-                self.program
-                    .extend(apply_path(&mut self.turtle, &self.config, d));
+                self.terrarium.turtle.comment(comment);
+                apply_path(&mut self.terrarium, &self.config, d);
             } else {
                 warn!("There is a path node containing no actual path: {:?}", node);
             }
@@ -222,7 +208,7 @@ impl<'a, 'input: 'a> visit::XmlVisitor for ConversionVisitor<'a, 'input> {
             self.name_stack.push(node_name(&node));
         } else {
             // Pop transform since this is the only element that has it
-            self.turtle.pop_transform();
+            self.terrarium.pop_transform();
 
             let mut parent = Some(node);
             while let Some(p) = parent {
@@ -230,7 +216,7 @@ impl<'a, 'input: 'a> visit::XmlVisitor for ConversionVisitor<'a, 'input> {
                     break;
                 }
                 // Pop the parent transform since this is the last child
-                self.turtle.pop_transform();
+                self.terrarium.pop_transform();
                 self.name_stack.pop();
                 parent = p.parent();
             }
@@ -242,20 +228,24 @@ pub fn svg2program<'a, 'input: 'a>(
     doc: &'a Document,
     config: &ConversionConfig,
     options: ConversionOptions,
-    turtle: &'a mut Turtle<'input>,
+    machine: Machine<'input>,
 ) -> Vec<Token<'input>> {
     let mut conversion_visitor = ConversionVisitor {
-        turtle,
+        terrarium: Terrarium::new(GCodeTurtle {
+            machine,
+            tolerance: config.tolerance,
+            feedrate: config.feedrate,
+            program: vec![],
+        }),
         config,
         options,
         name_stack: vec![],
-        program: vec![],
     };
     conversion_visitor.begin();
     visit::depth_first_visit(doc, &mut conversion_visitor);
     conversion_visitor.end();
 
-    conversion_visitor.program
+    conversion_visitor.terrarium.turtle.program
 }
 
 fn node_name(node: &Node) -> String {
@@ -267,25 +257,25 @@ fn node_name(node: &Node) -> String {
     name
 }
 
-fn apply_path<'input>(
-    turtle: &'_ mut Turtle<'input>,
+fn apply_path<'input, T: Turtle + Debug>(
+    turtle: &mut Terrarium<T>,
     config: &ConversionConfig,
     path: &str,
-) -> Vec<Token<'input>> {
+) {
     use PathSegment::*;
     PathParser::from(path)
         .map(|segment| segment.expect("could not parse path segment"))
-        .flat_map(|segment| {
+        .for_each(|segment| {
             debug!("Drawing {:?}", &segment);
             match segment {
                 MoveTo { abs, x, y } => turtle.move_to(abs, x, y),
                 ClosePath { abs: _ } => {
                     // Ignore abs, should have identical effect: [9.3.4. The "closepath" command]("https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand)
-                    turtle.close(config.feedrate)
+                    turtle.close()
                 }
-                LineTo { abs, x, y } => turtle.line(abs, x, y, config.feedrate),
-                HorizontalLineTo { abs, x } => turtle.line(abs, x, None, config.feedrate),
-                VerticalLineTo { abs, y } => turtle.line(abs, None, y, config.feedrate),
+                LineTo { abs, x, y } => turtle.line(abs, x, y),
+                HorizontalLineTo { abs, x } => turtle.line(abs, x, None),
+                VerticalLineTo { abs, y } => turtle.line(abs, None, y),
                 CurveTo {
                     abs,
                     x1,
@@ -294,34 +284,14 @@ fn apply_path<'input>(
                     y2,
                     x,
                     y,
-                } => turtle.cubic_bezier(
-                    abs,
-                    point(x1, y1),
-                    point(x2, y2),
-                    point(x, y),
-                    config.tolerance,
-                    config.feedrate,
-                ),
-                SmoothCurveTo { abs, x2, y2, x, y } => turtle.smooth_cubic_bezier(
-                    abs,
-                    point(x2, y2),
-                    point(x, y),
-                    config.tolerance,
-                    config.feedrate,
-                ),
-                Quadratic { abs, x1, y1, x, y } => turtle.quadratic_bezier(
-                    abs,
-                    point(x1, y1),
-                    point(x, y),
-                    config.tolerance,
-                    config.feedrate,
-                ),
-                SmoothQuadratic { abs, x, y } => turtle.smooth_quadratic_bezier(
-                    abs,
-                    point(x, y),
-                    config.tolerance,
-                    config.feedrate,
-                ),
+                } => turtle.cubic_bezier(abs, point(x1, y1), point(x2, y2), point(x, y)),
+                SmoothCurveTo { abs, x2, y2, x, y } => {
+                    turtle.smooth_cubic_bezier(abs, point(x2, y2), point(x, y))
+                }
+                Quadratic { abs, x1, y1, x, y } => {
+                    turtle.quadratic_bezier(abs, point(x1, y1), point(x, y))
+                }
+                SmoothQuadratic { abs, x, y } => turtle.smooth_quadratic_bezier(abs, point(x, y)),
                 EllipticalArc {
                     abs,
                     rx,
@@ -337,12 +307,9 @@ fn apply_path<'input>(
                     Angle::degrees(x_axis_rotation),
                     ArcFlags { large_arc, sweep },
                     point(x, y),
-                    config.feedrate,
-                    config.tolerance,
                 ),
             }
-        })
-        .collect()
+        });
 }
 
 fn svg_transform_into_euclid_transform(svg_transform: TransformListToken) -> Transform2D<f64> {

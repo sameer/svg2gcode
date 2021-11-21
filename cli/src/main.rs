@@ -13,7 +13,7 @@ use structopt::StructOpt;
 use svgtypes::LengthListParser;
 
 use svg2gcode::{
-    set_origin, svg2program, ConversionOptions, Machine, Settings, SupportedFunctionality, Turtle,
+    set_origin, svg2program, ConversionOptions, Machine, Settings, SupportedFunctionality,
 };
 
 #[derive(Debug, StructOpt)]
@@ -253,8 +253,7 @@ fn main() -> io::Result<()> {
 
     let document = roxmltree::Document::parse(&input).unwrap();
 
-    let mut turtle = Turtle::new(machine);
-    let mut program = svg2program(&document, &settings.conversion, options, &mut turtle);
+    let mut program = svg2program(&document, &settings.conversion, options, machine);
 
     set_origin(&mut program, settings.postprocess.origin);
 
