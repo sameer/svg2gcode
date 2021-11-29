@@ -188,6 +188,11 @@ pub fn svg2program<'input>(
             continue;
         }
 
+        if node.attribute("style") == Some("display:none") {
+            // Skip any nodes marked as hidden
+            continue;
+        }
+
         let mut transforms = vec![];
 
         let view_box = node
