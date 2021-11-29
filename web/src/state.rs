@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{convert::TryInto, num::ParseFloatError};
 use svg2gcode::{
-    Settings, ConversionConfig, MachineConfig, PostprocessConfig, SupportedFunctionality,
+    ConversionConfig, MachineConfig, PostprocessConfig, Settings, SupportedFunctionality,
 };
 use svgtypes::Length;
 use yewdux::prelude::{BasicStore, Persistent, PersistentStore};
@@ -35,6 +35,7 @@ impl<'a> TryInto<Settings> for &'a FormState {
                 tolerance: self.tolerance.clone()?,
                 feedrate: self.feedrate.clone()?,
                 dpi: self.dpi.clone()?,
+                origin: [Some(self.origin[0].clone()?), Some(self.origin[1].clone()?)],
             },
             machine: MachineConfig {
                 supported_functionality: SupportedFunctionality {
@@ -57,40 +58,19 @@ impl From<&Settings> for FormState {
         Self {
             tolerance: Ok(settings.conversion.tolerance),
             feedrate: Ok(settings.conversion.feedrate),
-            circular_interpolation: 
-                settings
+            circular_interpolation: settings
                 .machine
                 .supported_functionality
                 .circular_interpolation,
             origin: [
-                Ok(settings.postprocess.origin[0]),
-                Ok(settings.postprocess.origin[1]),
+                Ok(settings.conversion.origin[0].unwrap_or(settings.postprocess.origin[0])),
+                Ok(settings.conversion.origin[1].unwrap_or(settings.postprocess.origin[1])),
             ],
             dpi: Ok(settings.conversion.dpi),
-            tool_on_sequence: 
-                settings
-                .machine
-                .tool_on_sequence
-                .clone()
-                .map(Result::Ok),
-            tool_off_sequence: 
-                settings
-                .machine
-                .tool_off_sequence
-                .clone()
-                .map(Result::Ok),
-            begin_sequence: 
-                settings
-                .machine
-                .begin_sequence
-                .clone()
-                .map(Result::Ok),
-            end_sequence: 
-                settings
-                .machine
-                .end_sequence
-                .clone()
-                .map(Result::Ok),
+            tool_on_sequence: settings.machine.tool_on_sequence.clone().map(Result::Ok),
+            tool_off_sequence: settings.machine.tool_off_sequence.clone().map(Result::Ok),
+            begin_sequence: settings.machine.begin_sequence.clone().map(Result::Ok),
+            end_sequence: settings.machine.end_sequence.clone().map(Result::Ok),
         }
     }
 }

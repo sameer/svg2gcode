@@ -6,18 +6,18 @@ use g_code::{
 };
 use log::Level;
 use roxmltree::Document;
-use svg2gcode::{set_origin, svg2program, ConversionOptions, Machine, Turtle};
+use svg2gcode::{svg2program, ConversionOptions, Machine};
 use yew::prelude::*;
 use yewdux::prelude::{Dispatch, Dispatcher};
 
 mod forms;
-mod ui;
 mod state;
+mod ui;
 mod util;
 
 use forms::*;
-use ui::*;
 use state::*;
+use ui::*;
 use util::*;
 
 struct App {
@@ -111,15 +111,12 @@ impl Component for App {
                         );
                         let document = Document::parse(svg.content.as_str()).unwrap();
 
-                        let mut turtle = Turtle::new(machine);
-                        let mut program = svg2program(
+                        let program = svg2program(
                             &document,
                             &app_state.settings.conversion,
                             options,
-                            &mut turtle,
+                            machine,
                         );
-
-                        set_origin(&mut program, app_state.settings.postprocess.origin);
 
                         let gcode = {
                             let mut acc = String::new();

@@ -42,7 +42,7 @@ mod test {
         let options = ConversionOptions { dimensions };
         let document = roxmltree::Document::parse(input).unwrap();
 
-        let mut turtle = Turtle::new(Machine::new(
+        let machine = Machine::new(
             SupportedFunctionality {
                 circular_interpolation,
             },
@@ -50,9 +50,8 @@ mod test {
             None,
             None,
             None,
-        ));
-        let mut program = converter::svg2program(&document, &config, options, &mut turtle);
-        postprocess::set_origin(&mut program, [0., 0.]);
+        );
+        let program = converter::svg2program(&document, &config, options, machine);
 
         let mut acc = String::new();
         format_gcode_fmt(&program, FormatOptions::default(), &mut acc).unwrap();
@@ -132,5 +131,35 @@ mod test {
             get_actual(svg, true, [None; 2]),
             include_str!("../tests/smooth_curves_circular_interpolation.gcode")
         );
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn deserialize_v1_config_succeeds() {
+        let json = r#"
+        {
+            "conversion": {
+              "tolerance": 0.002,
+              "feedrate": 300.0,
+              "dpi": 96.0
+            },
+            "machine": {
+              "supported_functionality": {
+                "circular_interpolation": true
+              },
+              "tool_on_sequence": null,
+              "tool_off_sequence": null,
+              "begin_sequence": null,
+              "end_sequence": null
+            },
+            "postprocess": {
+              "origin": [
+                0.0,
+                0.0
+              ]
+            }
+          }
+        "#;
+        serde_json::from_str::<Settings>(json).unwrap();
     }
 }

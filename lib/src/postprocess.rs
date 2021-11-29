@@ -13,10 +13,18 @@ type F64Point = Point<f64>;
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct PostprocessConfig {
+    #[deprecated(
+        since = "0.7.0",
+        note = "Setting the origin is now a preprocessing operation"
+    )]
     pub origin: [f64; 2],
 }
 
 /// Moves all the commands so that they are beyond a specified position
+#[deprecated(
+    since = "0.7.0",
+    note = "Setting the origin is now a preprocessing operation"
+)]
 pub fn set_origin(tokens: &mut [Token<'_>], origin: [f64; 2]) {
     let offset =
         -get_bounding_box(tokens.iter()).min.to_vector() + F64Point::from(origin).to_vector();

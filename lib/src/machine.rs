@@ -9,31 +9,11 @@ pub enum Tool {
     On,
 }
 
-impl std::ops::Not for Tool {
-    type Output = Self;
-    fn not(self) -> Self {
-        match self {
-            Self::Off => Self::On,
-            Self::On => Self::Off,
-        }
-    }
-}
-
 /// The distance mode for movement commands
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Distance {
     Absolute,
     Relative,
-}
-
-impl std::ops::Not for Distance {
-    type Output = Self;
-    fn not(self) -> Self {
-        match self {
-            Self::Absolute => Self::Relative,
-            Self::Relative => Self::Absolute,
-        }
-    }
 }
 
 /// Generic machine state simulation, assuming nothing is known about the machine when initialized.

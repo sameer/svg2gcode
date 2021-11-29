@@ -1,40 +1,57 @@
-use crate::arc::{ArcOrLineSegment, FlattenWithArcs, Transformed};
-use crate::machine::Machine;
-use g_code::{command, emit::Token};
-use lyon_geom::euclid::{default::Transform2D, Angle};
-use lyon_geom::{point, vector, Point, Vector};
-use lyon_geom::{ArcFlags, CubicBezierSegment, QuadraticBezierSegment, SvgArc};
+use std::fmt::Debug;
 
-type F64Point = Point<f64>;
+use lyon_geom::{
+    euclid::{default::Transform2D, Angle},
+    point, vector, ArcFlags, CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc, Vector,
+};
 
-/// Turtle graphics simulator for paths that outputs the g-code representation for each operation.
-/// Handles transforms, position, offsets, etc.  See https://www.w3.org/TR/SVG/paths.html
-#[derive(Debug)]
-pub struct Turtle<'input> {
-    current_position: F64Point,
-    initial_position: F64Point,
-    current_transform: Transform2D<f64>,
-    transform_stack: Vec<Transform2D<f64>>,
-    pub machine: Machine<'input>,
-    previous_control: Option<F64Point>,
+use crate::arc::Transformed;
+
+mod g_code;
+mod preprocess;
+pub use self::g_code::GCodeTurtle;
+pub use preprocess::PreprocessTurtle;
+
+pub trait Turtle: Debug {
+    fn begin(&mut self);
+    fn end(&mut self);
+    fn comment(&mut self, comment: String);
+    fn move_to(&mut self, to: Point<f64>);
+    fn line_to(&mut self, to: Point<f64>);
+    fn arc(&mut self, svg_arc: SvgArc<f64>);
+    fn cubic_bezier(&mut self, cbs: CubicBezierSegment<f64>);
+    fn quadratic_bezier(&mut self, qbs: QuadraticBezierSegment<f64>);
 }
 
-impl<'input> Turtle<'input> {
+/// Wrapper for [Turtle] that handles transforms, position, offsets, etc.  See https://www.w3.org/TR/SVG/paths.html
+#[derive(Debug)]
+pub struct Terrarium<T: Turtle + std::fmt::Debug> {
+    pub turtle: T,
+    current_position: Point<f64>,
+    initial_position: Point<f64>,
+    current_transform: Transform2D<f64>,
+    pub transform_stack: Vec<Transform2D<f64>>,
+    previous_quadratic_control: Option<Point<f64>>,
+    previous_cubic_control: Option<Point<f64>>,
+}
+
+impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     /// Create a turtle at the origin with no transform
-    pub fn new(machine: Machine<'input>) -> Self {
+    pub fn new(turtle: T) -> Self {
         Self {
+            turtle,
             current_position: Point::zero(),
             initial_position: Point::zero(),
             current_transform: Transform2D::identity(),
             transform_stack: vec![],
-            machine,
-            previous_control: None,
+            previous_quadratic_control: None,
+            previous_cubic_control: None,
         }
     }
 
     /// Move the turtle to the given absolute/relative coordinates in the current transform
     /// https://www.w3.org/TR/SVG/paths.html#PathDataMovetoCommands
-    pub fn move_to<X, Y>(&mut self, abs: bool, x: X, y: Y) -> Vec<Token<'input>>
+    pub fn move_to<X, Y>(&mut self, abs: bool, x: X, y: Y)
     where
         X: Into<Option<f64>>,
         Y: Into<Option<f64>>,
@@ -65,89 +82,31 @@ impl<'input> Turtle<'input> {
         let to = self.current_transform.transform_point(point(x, y));
         self.current_position = to;
         self.initial_position = to;
-        self.previous_control = None;
-
-        self.machine
-            .tool_off()
-            .drain(..)
-            .chain(self.machine.absolute())
-            .chain(
-                command!(RapidPositioning {
-                    X: to.x as f64,
-                    Y: to.y as f64,
-                })
-                .into_token_vec(),
-            )
-            .collect()
-    }
-
-    fn linear_interpolation(x: f64, y: f64, feedrate: f64) -> Vec<Token<'static>> {
-        command!(LinearInterpolation {
-            X: x,
-            Y: y,
-            F: feedrate,
-        })
-        .into_token_vec()
-    }
-
-    fn circular_interpolation(svg_arc: SvgArc<f64>, feedrate: f64) -> Vec<Token<'input>> {
-        debug_assert!((svg_arc.radii.x.abs() - svg_arc.radii.y.abs()).abs() < f64::EPSILON);
-        match (svg_arc.flags.large_arc, svg_arc.flags.sweep) {
-            (false, true) => command!(CounterclockwiseCircularInterpolation {
-                X: svg_arc.to.x,
-                Y: svg_arc.to.y,
-                R: svg_arc.radii.x,
-                F: feedrate,
-            })
-            .into_token_vec(),
-            (false, false) => command!(ClockwiseCircularInterpolation {
-                X: svg_arc.to.x,
-                Y: svg_arc.to.y,
-                R: svg_arc.radii.x,
-                F: feedrate,
-            })
-            .into_token_vec(),
-            (true, _) => {
-                let (left, right) = svg_arc.to_arc().split(0.5);
-                let mut token_vec = Self::circular_interpolation(left.to_svg_arc(), feedrate);
-                token_vec.append(&mut Self::circular_interpolation(
-                    right.to_svg_arc(),
-                    feedrate,
-                ));
-                token_vec
-            }
-        }
+        self.previous_quadratic_control = None;
+        self.previous_cubic_control = None;
+        self.turtle.move_to(to);
     }
 
     /// Close an SVG path, cutting back to its initial position
     /// https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand
-    pub fn close(&mut self, feedrate: f64) -> Vec<Token<'input>> {
+    pub fn close(&mut self) {
         // See https://www.w3.org/TR/SVG/paths.html#Segment-CompletingClosePath
         // which could result in a G91 G1 X0 Y0
-        if (self.current_position - self.initial_position)
+        if !(self.current_position - self.initial_position)
             .abs()
             .lower_than(vector(std::f64::EPSILON, std::f64::EPSILON))
             .all()
         {
-            return vec![];
+            self.turtle.line_to(self.initial_position);
         }
         self.current_position = self.initial_position;
-
-        self.machine
-            .tool_on()
-            .drain(..)
-            .chain(self.machine.absolute())
-            .chain(Self::linear_interpolation(
-                self.initial_position.x,
-                self.initial_position.y,
-                feedrate,
-            ))
-            .collect()
+        self.previous_quadratic_control = None;
+        self.previous_cubic_control = None;
     }
 
     /// Draw a line from the current position in the current transform to the specified position
     /// https://www.w3.org/TR/SVG/paths.html#PathDataLinetoCommands
-    pub fn line<X, Y>(&mut self, abs: bool, x: X, y: Y, feedrate: f64) -> Vec<Token<'input>>
+    pub fn line<X, Y>(&mut self, abs: bool, x: X, y: Y)
     where
         X: Into<Option<f64>>,
         Y: Into<Option<f64>>,
@@ -177,59 +136,10 @@ impl<'input> Turtle<'input> {
 
         let to = self.current_transform.transform_point(point(x, y));
         self.current_position = to;
-        self.previous_control = None;
+        self.previous_quadratic_control = None;
+        self.previous_cubic_control = None;
 
-        self.machine
-            .tool_on()
-            .drain(..)
-            .chain(self.machine.absolute())
-            .chain(Self::linear_interpolation(to.x, to.y, feedrate))
-            .collect()
-    }
-
-    /// Draw a cubic bezier curve segment
-    /// The public bezier functions call this command after converting to a cubic bezier segment
-    /// https://www.w3.org/TR/SVG/paths.html#PathDataCubicBezierCommands
-    fn bezier(
-        &mut self,
-        cbs: CubicBezierSegment<f64>,
-        tolerance: f64,
-        feedrate: f64,
-    ) -> Vec<Token<'input>> {
-        let tokens: Vec<_> = if self
-            .machine
-            .supported_functionality()
-            .circular_interpolation
-        {
-            FlattenWithArcs::<f64>::flattened(&cbs, tolerance)
-                .drain(..)
-                .flat_map(|segment| match segment {
-                    ArcOrLineSegment::Arc(arc) => Self::circular_interpolation(arc, feedrate),
-                    ArcOrLineSegment::Line(line) => {
-                        Self::linear_interpolation(line.to.x, line.to.y, feedrate)
-                    }
-                })
-                .collect()
-        } else {
-            cbs.flattened(tolerance)
-                .flat_map(|point| Self::linear_interpolation(point.x, point.y, feedrate))
-                .collect()
-        };
-
-        self.current_position = cbs.to;
-
-        // See https://www.w3.org/TR/SVG/paths.html#ReflectedControlPoints
-        self.previous_control = Some(point(
-            2. * self.current_position.x - cbs.ctrl2.x,
-            2. * self.current_position.y - cbs.ctrl2.y,
-        ));
-
-        self.machine
-            .tool_on()
-            .drain(..)
-            .chain(self.machine.absolute())
-            .chain(tokens)
-            .collect()
+        self.turtle.line_to(to);
     }
 
     /// Draw a cubic curve from the current point to (x, y) with specified control points (x1, y1) and (x2, y2)
@@ -240,9 +150,7 @@ impl<'input> Turtle<'input> {
         mut ctrl1: Point<f64>,
         mut ctrl2: Point<f64>,
         mut to: Point<f64>,
-        tolerance: f64,
-        feedrate: f64,
-    ) -> Vec<Token<'input>> {
+    ) {
         let from = self.current_position;
         if !abs {
             let inverse_transform = self.current_transform.inverse().unwrap();
@@ -261,21 +169,24 @@ impl<'input> Turtle<'input> {
             ctrl2,
             to,
         };
-        self.bezier(cbs, tolerance, feedrate)
+
+        self.current_position = cbs.to;
+
+        // See https://www.w3.org/TR/SVG/paths.html#ReflectedControlPoints
+        self.previous_cubic_control = Some(point(
+            2. * self.current_position.x - cbs.ctrl2.x,
+            2. * self.current_position.y - cbs.ctrl2.y,
+        ));
+        self.previous_quadratic_control = None;
+
+        self.turtle.cubic_bezier(cbs);
     }
 
     /// Draw a shorthand/smooth cubic bezier segment, where the first control point was already given
     /// https://www.w3.org/TR/SVG/paths.html#PathDataCubicBezierCommands
-    pub fn smooth_cubic_bezier(
-        &mut self,
-        abs: bool,
-        mut ctrl2: Point<f64>,
-        mut to: Point<f64>,
-        tolerance: f64,
-        feedrate: f64,
-    ) -> Vec<Token<'input>> {
+    pub fn smooth_cubic_bezier(&mut self, abs: bool, mut ctrl2: Point<f64>, mut to: Point<f64>) {
         let from = self.current_position;
-        let ctrl1 = self.previous_control.unwrap_or(self.current_position);
+        let ctrl1 = self.previous_cubic_control.unwrap_or(self.current_position);
         if !abs {
             let inverse_transform = self.current_transform.inverse().unwrap();
             let original_current_position = inverse_transform.transform_point(from);
@@ -291,20 +202,26 @@ impl<'input> Turtle<'input> {
             ctrl2,
             to,
         };
-        self.bezier(cbs, tolerance, feedrate)
+
+        self.current_position = cbs.to;
+
+        // See https://www.w3.org/TR/SVG/paths.html#ReflectedControlPoints
+        self.previous_cubic_control = Some(point(
+            2. * self.current_position.x - cbs.ctrl2.x,
+            2. * self.current_position.y - cbs.ctrl2.y,
+        ));
+        self.previous_quadratic_control = None;
+
+        self.turtle.cubic_bezier(cbs);
     }
 
     /// Draw a shorthand/smooth cubic bezier segment, where the control point was already given
     /// https://www.w3.org/TR/SVG/paths.html#PathDataQuadraticBezierCommands
-    pub fn smooth_quadratic_bezier(
-        &mut self,
-        abs: bool,
-        mut to: Point<f64>,
-        tolerance: f64,
-        feedrate: f64,
-    ) -> Vec<Token<'input>> {
+    pub fn smooth_quadratic_bezier(&mut self, abs: bool, mut to: Point<f64>) {
         let from = self.current_position;
-        let ctrl = self.previous_control.unwrap_or(self.current_position);
+        let ctrl = self
+            .previous_quadratic_control
+            .unwrap_or(self.current_position);
         if !abs {
             let inverse_transform = self.current_transform.inverse().unwrap();
             let original_current_position = inverse_transform.transform_point(from);
@@ -313,19 +230,22 @@ impl<'input> Turtle<'input> {
         to = self.current_transform.transform_point(to);
 
         let qbs = QuadraticBezierSegment { from, ctrl, to };
-        self.bezier(qbs.to_cubic(), tolerance, feedrate)
+
+        self.current_position = qbs.to;
+
+        // See https://www.w3.org/TR/SVG/paths.html#ReflectedControlPoints
+        self.previous_quadratic_control = Some(point(
+            2. * self.current_position.x - qbs.ctrl.x,
+            2. * self.current_position.y - qbs.ctrl.y,
+        ));
+        self.previous_cubic_control = None;
+
+        self.turtle.quadratic_bezier(qbs);
     }
 
     /// Draw a quadratic bezier segment
     /// https://www.w3.org/TR/SVG/paths.html#PathDataQuadraticBezierCommands
-    pub fn quadratic_bezier(
-        &mut self,
-        abs: bool,
-        mut ctrl: Point<f64>,
-        mut to: Point<f64>,
-        tolerance: f64,
-        feedrate: f64,
-    ) -> Vec<Token<'input>> {
+    pub fn quadratic_bezier(&mut self, abs: bool, mut ctrl: Point<f64>, mut to: Point<f64>) {
         let from = self.current_position;
         if !abs {
             let inverse_transform = self.current_transform.inverse().unwrap();
@@ -337,7 +257,17 @@ impl<'input> Turtle<'input> {
         to = self.current_transform.transform_point(to);
 
         let qbs = QuadraticBezierSegment { from, ctrl, to };
-        self.bezier(qbs.to_cubic(), tolerance, feedrate)
+
+        self.current_position = qbs.to;
+
+        // See https://www.w3.org/TR/SVG/paths.html#ReflectedControlPoints
+        self.previous_quadratic_control = Some(point(
+            2. * self.current_position.x - qbs.ctrl.x,
+            2. * self.current_position.y - qbs.ctrl.y,
+        ));
+        self.previous_cubic_control = None;
+
+        self.turtle.quadratic_bezier(qbs);
     }
 
     /// Draw an elliptical arc segment
@@ -349,9 +279,7 @@ impl<'input> Turtle<'input> {
         x_rotation: Angle<f64>,
         flags: ArcFlags,
         mut to: Point<f64>,
-        feedrate: f64,
-        tolerance: f64,
-    ) -> Vec<Token<'input>> {
+    ) {
         let from = self
             .current_transform
             .inverse()
@@ -370,39 +298,11 @@ impl<'input> Turtle<'input> {
         }
         .transformed(&self.current_transform);
 
-        let arc_tokens = if svg_arc.is_straight_line() {
-            Self::linear_interpolation(svg_arc.to.x, svg_arc.to.y, feedrate)
-        } else if self
-            .machine
-            .supported_functionality()
-            .circular_interpolation
-        {
-            FlattenWithArcs::flattened(&svg_arc, tolerance)
-                .drain(..)
-                .flat_map(|segment| match segment {
-                    ArcOrLineSegment::Arc(arc) => Self::circular_interpolation(arc, feedrate),
-                    ArcOrLineSegment::Line(line) => {
-                        Self::linear_interpolation(line.to.x, line.to.y, feedrate)
-                    }
-                })
-                .collect()
-        } else {
-            svg_arc
-                .to_arc()
-                .flattened(tolerance)
-                .flat_map(|point| Self::linear_interpolation(point.x, point.y, feedrate))
-                .collect()
-        };
-
         self.current_position = svg_arc.to;
-        self.previous_control = None;
+        self.previous_quadratic_control = None;
+        self.previous_cubic_control = None;
 
-        self.machine
-            .tool_on()
-            .drain(..)
-            .chain(self.machine.absolute())
-            .chain(arc_tokens)
-            .collect()
+        self.turtle.arc(svg_arc);
     }
 
     /// Push a generic transform onto the stack
@@ -435,7 +335,8 @@ impl<'input> Turtle<'input> {
         self.current_position = self
             .current_transform
             .transform_point(self.current_position);
-        self.previous_control = None;
+        self.previous_quadratic_control = None;
+        self.previous_cubic_control = None;
         self.initial_position = self.current_position;
     }
 }

@@ -12,9 +12,7 @@ use std::{
 use structopt::StructOpt;
 use svgtypes::LengthListParser;
 
-use svg2gcode::{
-    set_origin, svg2program, ConversionOptions, Machine, Settings, SupportedFunctionality, Turtle,
-};
+use svg2gcode::{svg2program, ConversionOptions, Machine, Settings, SupportedFunctionality};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "svg2gcode", author, about)]
@@ -113,7 +111,6 @@ fn main() -> io::Result<()> {
             }
         }
         {
-            let postprocess = &mut settings.postprocess;
             if let Some(origin) = opt.origin {
                 for (i, dimension_origin) in origin
                     .split(',')
@@ -121,13 +118,13 @@ fn main() -> io::Result<()> {
                         if point.is_empty() {
                             Default::default()
                         } else {
-                            point.parse().expect("could not parse coordinate")
+                            point.parse::<f64>().expect("could not parse coordinate")
                         }
                     })
                     .take(2)
                     .enumerate()
                 {
-                    postprocess.origin[i] = dimension_origin;
+                    settings.conversion.origin[i] = Some(dimension_origin);
                 }
             }
         }
@@ -135,11 +132,11 @@ fn main() -> io::Result<()> {
     };
 
     if let Some(export_path) = opt.export {
-        let mut config_json_bytes = serde_json::to_vec_pretty(&settings)?;
+        let config_json_bytes = serde_json::to_vec_pretty(&settings)?;
         if export_path.to_string_lossy() == "-" {
-            return io::stdout().write_all(&mut config_json_bytes);
+            return io::stdout().write_all(&config_json_bytes);
         } else {
-            return File::create(export_path)?.write_all(&mut config_json_bytes);
+            return File::create(export_path)?.write_all(&config_json_bytes);
         }
     }
 
@@ -253,10 +250,7 @@ fn main() -> io::Result<()> {
 
     let document = roxmltree::Document::parse(&input).unwrap();
 
-    let mut turtle = Turtle::new(machine);
-    let mut program = svg2program(&document, &settings.conversion, options, &mut turtle);
-
-    set_origin(&mut program, settings.postprocess.origin);
+    let program = svg2program(&document, &settings.conversion, options, machine);
 
     if let Some(out_path) = opt.out {
         format_gcode_io(&program, FormatOptions::default(), File::create(out_path)?)
