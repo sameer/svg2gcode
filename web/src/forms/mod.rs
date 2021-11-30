@@ -255,7 +255,7 @@ pub fn import_export_modal() -> Html {
                         <Button
                             style={ButtonStyle::Primary}
                             disabled={false}
-                            title="Export"
+                            title="Download as JSON"
                             icon={html_nested!(<Icon name={IconName::Download}/>)}
                             onclick={export_onclick}
                         />
