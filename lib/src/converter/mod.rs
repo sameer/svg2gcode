@@ -107,11 +107,6 @@ impl<'a, T: Turtle> visit::XmlVisitor for ConversionVisitor<'a, T> {
             warn!("Clip paths are not supported: {:?}", node);
         }
 
-        if node.attribute("style") == Some("display:none") {
-            // Skip any nodes marked as hidden
-            continue;
-        }
-
         let mut transforms = vec![];
 
         let view_box = node
