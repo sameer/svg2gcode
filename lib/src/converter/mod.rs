@@ -102,7 +102,7 @@ impl<'a, 'input: 'a> ConversionVisitor<'a, PreprocessTurtle> {
 }
 
 impl<'a, T: Turtle> visit::XmlVisitor for ConversionVisitor<'a, T> {
-    fn visit(&mut self, node: Node) {
+    fn visit_enter(&mut self, node: Node) {
         if node.tag_name().name() == CLIP_PATH_TAG_NAME {
             warn!("Clip paths are not supported: {:?}", node);
         }
@@ -217,26 +217,12 @@ impl<'a, T: Turtle> visit::XmlVisitor for ConversionVisitor<'a, T> {
             }
         }
 
-        if node.first_element_child().is_some() {
-            self.name_stack.push(node_name(&node));
-        } else {
-            // Pop transform since this is the only element that has it
-            self.terrarium.pop_transform();
+        self.name_stack.push(node_name(&node));
+    }
 
-            let mut parent = Some(node);
-            while let Some(p) = parent {
-                if p.next_sibling_element().is_some()
-                    || p.is_root()
-                    || p.tag_name().name() == SVG_TAG_NAME
-                {
-                    break;
-                }
-                // Pop the parent transform since this is the last child
-                self.terrarium.pop_transform();
-                self.name_stack.pop();
-                parent = p.parent_element();
-            }
-        }
+    fn visit_exit(&mut self, _node: Node) {
+        self.terrarium.pop_transform();
+        self.name_stack.pop();
     }
 }
 
