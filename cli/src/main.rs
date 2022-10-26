@@ -88,7 +88,7 @@ fn main() -> io::Result<()> {
             let conversion = &mut settings.conversion;
             conversion.dpi = opt.dpi.unwrap_or(conversion.dpi);
             conversion.feedrate = opt.feedrate.unwrap_or(conversion.feedrate);
-            conversion.tolerance = opt.dpi.unwrap_or(conversion.tolerance);
+            conversion.tolerance = opt.tolerance.unwrap_or(conversion.tolerance);
         }
         {
             let machine = &mut settings.machine;
