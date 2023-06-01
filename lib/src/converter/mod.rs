@@ -11,8 +11,8 @@ use roxmltree::{Document, Node};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use svgtypes::{
-    Length, LengthListParser, PathParser, PathSegment, TransformListParser, TransformListToken,
-    ViewBox,
+    Length, LengthListParser, PathParser, PathSegment, PointsParser, TransformListParser,
+    TransformListToken, ViewBox,
 };
 
 use crate::{turtle::*, Machine};
@@ -24,6 +24,7 @@ mod visit;
 const SVG_TAG_NAME: &str = "svg";
 const CLIP_PATH_TAG_NAME: &str = "clipPath";
 const PATH_TAG_NAME: &str = "path";
+const POLYLINE_TAG_NAME: &str = "polyline";
 
 /// High-level output configuration
 #[derive(Debug, Clone, PartialEq)]
@@ -214,6 +215,28 @@ impl<'a, T: Turtle> visit::XmlVisitor for ConversionVisitor<'a, T> {
                 apply_path(&mut self.terrarium, d);
             } else {
                 warn!("There is a path node containing no actual path: {:?}", node);
+            }
+        } else if node.tag_name().name() == POLYLINE_TAG_NAME {
+            if let Some(points) = node.attribute("points") {
+                self.terrarium.reset();
+                let mut comment = String::new();
+                self.name_stack.iter().for_each(|name| {
+                    comment += name;
+                    comment += " > ";
+                });
+                comment += &node_name(&node);
+                self.terrarium.turtle.comment(comment);
+
+                let mut pp = PointsParser::from(points);
+
+                if let Some((x, y)) = pp.next() {
+                    self.terrarium.move_to(true, x, y);
+                }
+                while let Some((x, y)) = pp.next() {
+                    self.terrarium.line(true, x, y);
+                }
+            } else {
+                warn!("There is a polyline node containing no actual path: {:?}", node);
             }
         }
 
