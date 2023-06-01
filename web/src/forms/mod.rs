@@ -65,13 +65,21 @@ pub fn settings_form() -> Html {
     // but historically hasn't been the case, on change is safer.
     let on_circular_interpolation_change =
         form_dispatch.reduce_mut_callback_with(|form, event: Event| {
-            let checkbox = event.target_unchecked_into::<HtmlInputElement>();
-            form.circular_interpolation = checkbox.checked();
+            form.circular_interpolation =
+                event.target_unchecked_into::<HtmlInputElement>().checked();
         });
-    let circular_interpolation_checked = form_state.circular_interpolation;
+
+    let on_checksums_change = form_dispatch.reduce_mut_callback_with(|form, event: Event| {
+        form.checksums = event.target_unchecked_into::<HtmlInputElement>().checked();
+    });
+
+    let on_line_numbers_change = form_dispatch.reduce_mut_callback_with(|form, event: Event| {
+        form.line_numbers = event.target_unchecked_into::<HtmlInputElement>().checked();
+    });
 
     let save_onclick = {
         let close_ref = close_ref.clone();
+        let form_state = form_state.clone();
         app_dispatch.reduce_mut_callback(move |app| {
             if !disabled {
                 app.settings = form_state.as_ref().try_into().unwrap();
@@ -104,25 +112,65 @@ pub fn settings_form() -> Html {
                 )
             }
             body={html!(
-                <>
-                    <ToleranceInput/>
-                    <FeedrateInput/>
-                    <OriginXInput/>
-                    <OriginYInput/>
-                    <FormGroup>
-                        <Checkbox
-                            label="Enable circular interpolation (experimental)"
-                            desc="Please check if your machine supports G2/G3 commands before enabling this"
-                            checked={circular_interpolation_checked}
-                            onchange={on_circular_interpolation_change}
-                        />
-                    </FormGroup>
-                    <DpiInput/>
-                    <ToolOnSequenceInput/>
-                    <ToolOffSequenceInput/>
-                    <BeginSequenceInput/>
-                    <EndSequenceInput/>
-                </>
+                <div class="columns">
+                    <div class="column col-6 col-sm-12">
+                        <ToleranceInput/>
+                    </div>
+                    <div class="column col-6 col-sm-12">
+                        <FeedrateInput/>
+                    </div>
+                    <div class="column col-6 col-sm-12">
+                        <OriginXInput/>
+                    </div>
+                    <div class="column col-6 col-sm-12">
+                        <OriginYInput/>
+                    </div>
+                    <div class="column col-12">
+                        <FormGroup>
+                            <Checkbox
+                                label="Enable circular interpolation (experimental)"
+                                desc="Please check if your machine supports G2/G3 commands before enabling this"
+                                checked={form_state.circular_interpolation}
+                                onchange={on_circular_interpolation_change}
+                            />
+                        </FormGroup>
+                    </div>
+                    <div class="column col-12">
+                        <DpiInput/>
+                    </div>
+                    <div class="column col-12">
+                        <ToolOnSequenceInput/>
+                    </div>
+                    <div class="column col-12">
+                        <ToolOffSequenceInput/>
+                    </div>
+                    <div class="column col-12">
+                        <BeginSequenceInput/>
+                    </div>
+                    <div class="column col-12">
+                        <EndSequenceInput/>
+                    </div>
+                    <div class="column col-6 col-sm-12">
+                        <FormGroup>
+                            <Checkbox
+                                label="Generate checksums"
+                                desc="Useful when streaming g-code"
+                                checked={form_state.checksums}
+                                onchange={on_checksums_change}
+                            />
+                        </FormGroup>
+                    </div>
+                    <div class="column col-6 col-sm-12">
+                        <FormGroup>
+                            <Checkbox
+                                label="Generate line numbers"
+                                desc="Useful when streaming g-code or debugging"
+                                checked={form_state.line_numbers}
+                                onchange={on_line_numbers_change}
+                            />
+                        </FormGroup>
+                    </div>
+                </div>
             )}
             footer={
                 html!(
@@ -221,9 +269,9 @@ pub fn import_export_modal() -> Html {
         let close_ref = close_ref.clone();
         app_dispatch.reduce_mut_callback(move |app| {
             if let Some(Ok(ref settings)) = *import_state {
-                app.settings = settings.clone();     
+                app.settings = settings.clone();
                 // App only hydrates the form on start now, so need to do it again here
-                form_dispatch.reduce_mut(|form| *form = (&app.settings).into());           
+                form_dispatch.reduce_mut(|form| *form = (&app.settings).into());
                 import_state.set(None);
                 // TODO: another way to close the modal?
                 if let Some(element) = close_ref.cast::<HtmlElement>() {

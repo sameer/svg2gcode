@@ -162,4 +162,57 @@ mod test {
         "#;
         serde_json::from_str::<Settings>(json).unwrap();
     }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn deserialize_v2_config_succeeds() {
+        let json = r#"
+        {
+            "conversion": {
+              "tolerance": 0.002,
+              "feedrate": 300.0,
+              "dpi": 96.0
+            },
+            "machine": {
+              "supported_functionality": {
+                "circular_interpolation": true
+              },
+              "tool_on_sequence": null,
+              "tool_off_sequence": null,
+              "begin_sequence": null,
+              "end_sequence": null
+            },
+            "postprocess": { }
+          }
+        "#;
+        serde_json::from_str::<Settings>(json).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn deserialize_v3_config_succeeds() {
+        let json = r#"
+        {
+            "conversion": {
+              "tolerance": 0.002,
+              "feedrate": 300.0,
+              "dpi": 96.0
+            },
+            "machine": {
+              "supported_functionality": {
+                "circular_interpolation": true
+              },
+              "tool_on_sequence": null,
+              "tool_off_sequence": null,
+              "begin_sequence": null,
+              "end_sequence": null
+            },
+            "postprocess": {
+                "checksums": false,
+                "line_numbers": false
+            }
+          }
+        "#;
+        serde_json::from_str::<Settings>(json).unwrap();
+    }
 }

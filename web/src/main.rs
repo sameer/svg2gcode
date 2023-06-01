@@ -21,19 +21,6 @@ use ui::*;
 use util::*;
 use yewdux::prelude::{use_store, Dispatch};
 
-// struct App {
-//     app_store: Rc<AppState>,
-//     form_state: Rc<FormState>,
-//     generating: bool,
-// }
-
-// enum AppMsg {
-//     AppState(Rc<AppState>),
-//     FormState(Rc<FormState>),
-//     Generate,
-//     Done,
-// }
-
 #[function_component]
 fn App(_props: &()) -> Html {
     let generating = use_state_eq(|| false);
@@ -104,8 +91,17 @@ fn App(_props: &()) -> Html {
                     svg2program(&document, &app_store.settings.conversion, options, machine);
 
                 let gcode = {
-                    let mut acc = String::new();
-                    format_gcode_fmt(&program, FormatOptions::default(), &mut acc).unwrap();
+                    let mut acc: String = String::new();
+                    format_gcode_fmt(
+                        &program,
+                        FormatOptions {
+                            checksums: app_store.settings.postprocess.checksums,
+                            line_numbers: app_store.settings.postprocess.line_numbers,
+                            ..Default::default()
+                        },
+                        &mut acc,
+                    )
+                    .unwrap();
                     acc
                 };
 

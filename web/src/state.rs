@@ -19,6 +19,8 @@ pub struct FormState {
     pub tool_off_sequence: Option<Result<String, String>>,
     pub begin_sequence: Option<Result<String, String>>,
     pub end_sequence: Option<Result<String, String>>,
+    pub checksums: bool,
+    pub line_numbers: bool,
 }
 
 impl Default for FormState {
@@ -75,7 +77,10 @@ impl<'a> TryInto<Settings> for &'a FormState {
                     .transpose()
                     .map_err(FormStateConversionError::GCode)?,
             },
-            postprocess: PostprocessConfig {},
+            postprocess: PostprocessConfig {
+                checksums: self.checksums,
+                line_numbers: self.line_numbers,
+            },
         })
     }
 }
@@ -98,6 +103,8 @@ impl From<&Settings> for FormState {
             tool_off_sequence: settings.machine.tool_off_sequence.clone().map(Ok),
             begin_sequence: settings.machine.begin_sequence.clone().map(Ok),
             end_sequence: settings.machine.end_sequence.clone().map(Ok),
+            checksums: settings.postprocess.checksums,
+            line_numbers: settings.postprocess.line_numbers,
         }
     }
 }

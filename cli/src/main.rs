@@ -67,6 +67,17 @@ struct Opt {
     /// Please check if your machine supports G2/G3 commands before enabling this.
     #[structopt(long)]
     circular_interpolation: Option<bool>,
+
+    #[structopt(long)]
+    /// Include line numbers at the beginning of each line
+    ///
+    /// Useful for debugging/streaming g-code
+    line_numbers: Option<bool>,
+    #[structopt(long)]
+    /// Include checksums at the end of each line
+    ///
+    /// Useful for streaming g-code
+    checksums: Option<bool>,
 }
 
 fn main() -> io::Result<()> {
@@ -128,6 +139,15 @@ fn main() -> io::Result<()> {
                 }
             }
         }
+
+        if let Some(line_numbers) = opt.line_numbers {
+            settings.postprocess.line_numbers = line_numbers;
+        }
+
+        if let Some(checksums) = opt.checksums {
+            settings.postprocess.checksums = checksums;
+        }
+
         settings
     };
 
@@ -253,8 +273,24 @@ fn main() -> io::Result<()> {
     let program = svg2program(&document, &settings.conversion, options, machine);
 
     if let Some(out_path) = opt.out {
-        format_gcode_io(&program, FormatOptions::default(), File::create(out_path)?)
+        format_gcode_io(
+            &program,
+            FormatOptions {
+                line_numbers: settings.postprocess.line_numbers,
+                checksums: settings.postprocess.checksums,
+                ..Default::default()
+            },
+            File::create(out_path)?,
+        )
     } else {
-        format_gcode_io(&program, FormatOptions::default(), std::io::stdout())
+        format_gcode_io(
+            &program,
+            FormatOptions {
+                line_numbers: settings.postprocess.line_numbers,
+                checksums: settings.postprocess.checksums,
+                ..Default::default()
+            },
+            std::io::stdout(),
+        )
     }
 }
