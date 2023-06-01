@@ -4,13 +4,15 @@ use svg2gcode::{
     ConversionConfig, MachineConfig, PostprocessConfig, Settings, SupportedFunctionality,
 };
 use svgtypes::Length;
-use yewdux::prelude::{BasicStore, Persistent, PersistentStore};
+use thiserror::Error;
+use yewdux::store::Store;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Store)]
+#[store]
 pub struct FormState {
     pub tolerance: Result<f64, ParseFloatError>,
     pub feedrate: Result<f64, ParseFloatError>,
-    pub origin: [Result<f64, ParseFloatError>; 2],
+    pub origin: [Option<Result<f64, ParseFloatError>>; 2],
     pub circular_interpolation: bool,
     pub dpi: Result<f64, ParseFloatError>,
     pub tool_on_sequence: Option<Result<String, String>>,
@@ -26,8 +28,16 @@ impl Default for FormState {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum FormStateConversionError {
+    #[error(transparent)]
+    Float(#[from] ParseFloatError),
+    #[error("could not parse gcode: {0}")]
+    GCode(String),
+}
+
 impl<'a> TryInto<Settings> for &'a FormState {
-    type Error = ParseFloatError;
+    type Error = FormStateConversionError;
 
     fn try_into(self) -> Result<Settings, Self::Error> {
         Ok(Settings {
@@ -35,20 +45,37 @@ impl<'a> TryInto<Settings> for &'a FormState {
                 tolerance: self.tolerance.clone()?,
                 feedrate: self.feedrate.clone()?,
                 dpi: self.dpi.clone()?,
-                origin: [Some(self.origin[0].clone()?), Some(self.origin[1].clone()?)],
+                origin: [
+                    self.origin[0].clone().transpose()?,
+                    self.origin[1].clone().transpose()?,
+                ],
             },
             machine: MachineConfig {
                 supported_functionality: SupportedFunctionality {
                     circular_interpolation: self.circular_interpolation,
                 },
-                tool_on_sequence: self.tool_on_sequence.clone().and_then(Result::ok),
-                tool_off_sequence: self.tool_off_sequence.clone().and_then(Result::ok),
-                begin_sequence: self.begin_sequence.clone().and_then(Result::ok),
-                end_sequence: self.end_sequence.clone().and_then(Result::ok),
+                tool_on_sequence: self
+                    .tool_on_sequence
+                    .clone()
+                    .transpose()
+                    .map_err(FormStateConversionError::GCode)?,
+                tool_off_sequence: self
+                    .tool_off_sequence
+                    .clone()
+                    .transpose()
+                    .map_err(FormStateConversionError::GCode)?,
+                begin_sequence: self
+                    .begin_sequence
+                    .clone()
+                    .transpose()
+                    .map_err(FormStateConversionError::GCode)?,
+                end_sequence: self
+                    .end_sequence
+                    .clone()
+                    .transpose()
+                    .map_err(FormStateConversionError::GCode)?,
             },
-            postprocess: PostprocessConfig {
-                origin: [self.origin[0].clone()?, self.origin[1].clone()?],
-            },
+            postprocess: PostprocessConfig {},
         })
     }
 }
@@ -63,21 +90,20 @@ impl From<&Settings> for FormState {
                 .supported_functionality
                 .circular_interpolation,
             origin: [
-                Ok(settings.conversion.origin[0].unwrap_or(settings.postprocess.origin[0])),
-                Ok(settings.conversion.origin[1].unwrap_or(settings.postprocess.origin[1])),
+                settings.conversion.origin[0].map(Ok),
+                settings.conversion.origin[1].map(Ok),
             ],
             dpi: Ok(settings.conversion.dpi),
-            tool_on_sequence: settings.machine.tool_on_sequence.clone().map(Result::Ok),
-            tool_off_sequence: settings.machine.tool_off_sequence.clone().map(Result::Ok),
-            begin_sequence: settings.machine.begin_sequence.clone().map(Result::Ok),
-            end_sequence: settings.machine.end_sequence.clone().map(Result::Ok),
+            tool_on_sequence: settings.machine.tool_on_sequence.clone().map(Ok),
+            tool_off_sequence: settings.machine.tool_off_sequence.clone().map(Ok),
+            begin_sequence: settings.machine.begin_sequence.clone().map(Ok),
+            end_sequence: settings.machine.end_sequence.clone().map(Ok),
         }
     }
 }
 
-pub type AppStore = PersistentStore<AppState>;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Store)]
+#[store(storage = "local", storage_tab_sync)]
 pub struct AppState {
     pub first_visit: bool,
     pub settings: Settings,
@@ -101,7 +127,3 @@ impl Default for AppState {
         }
     }
 }
-
-impl Persistent for AppState {}
-
-pub type FormStore = BasicStore<FormState>;

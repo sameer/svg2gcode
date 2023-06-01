@@ -16,7 +16,7 @@ mod turtle;
 
 pub use converter::{svg2program, ConversionConfig, ConversionOptions};
 pub use machine::{Machine, MachineConfig, SupportedFunctionality};
-pub use postprocess::{set_origin, PostprocessConfig};
+pub use postprocess::PostprocessConfig;
 pub use turtle::Turtle;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

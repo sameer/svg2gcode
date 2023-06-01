@@ -1,17 +1,19 @@
-use gloo_file::futures::{read_as_bytes, read_as_text};
+use gloo_file::{
+    callbacks::{read_as_bytes, FileReader},
+    futures::read_as_text,
+};
 use js_sys::TypeError;
 use roxmltree::Document;
 use std::{convert::TryInto, path::Path};
 use svg2gcode::Settings;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{window, FileList, HtmlElement, Response};
+use web_sys::{window, Event, FileList, HtmlElement, HtmlInputElement, Response};
 use yew::prelude::*;
-use yewdux::prelude::{BasicStore, Dispatcher};
-use yewdux_functional::use_store;
+use yewdux::{functional::use_store, prelude::Dispatch};
 
 use crate::{
-    state::{AppStore, FormState, Svg},
+    state::{AppState, FormState, Svg},
     ui::{
         Button, ButtonStyle, Checkbox, FileUpload, FormGroup, HyperlinkButton, Icon, IconName,
         Input, InputType, Modal,
@@ -26,59 +28,53 @@ use inputs::*;
 
 #[function_component(SettingsForm)]
 pub fn settings_form() -> Html {
-    let app = use_store::<AppStore>();
-    let form = use_store::<BasicStore<FormState>>();
+    let app_dispatch = Dispatch::<AppState>::new();
+    let (form_state, form_dispatch) = use_store::<FormState>();
 
-    // let handle = use_state(|| None);
-    let disabled = form
-        .state()
-        .map(|state| {
-            state.tolerance.is_err()
-                || state.feedrate.is_err()
-                || state.dpi.is_err()
-                || state.origin.iter().all(Result::is_err)
-                || state
-                    .tool_on_sequence
-                    .as_ref()
-                    .map(Result::is_err)
-                    .unwrap_or(false)
-                || state
-                    .tool_off_sequence
-                    .as_ref()
-                    .map(Result::is_err)
-                    .unwrap_or(false)
-                || state
-                    .begin_sequence
-                    .as_ref()
-                    .map(Result::is_err)
-                    .unwrap_or(false)
-                || state
-                    .end_sequence
-                    .as_ref()
-                    .map(Result::is_err)
-                    .unwrap_or(false)
-        })
-        .unwrap_or(true);
+    let disabled = form_state.tolerance.is_err()
+        || form_state.feedrate.is_err()
+        || form_state.dpi.is_err()
+        || form_state
+            .origin
+            .iter()
+            .all(|opt| opt.as_ref().map_or(false, |r| r.is_err()))
+        || form_state
+            .tool_on_sequence
+            .as_ref()
+            .map(Result::is_err)
+            .unwrap_or(false)
+        || form_state
+            .tool_off_sequence
+            .as_ref()
+            .map(Result::is_err)
+            .unwrap_or(false)
+        || form_state
+            .begin_sequence
+            .as_ref()
+            .map(Result::is_err)
+            .unwrap_or(false)
+        || form_state
+            .end_sequence
+            .as_ref()
+            .map(Result::is_err)
+            .unwrap_or(false);
 
-    let close_ref = NodeRef::default();
+    let close_ref = use_node_ref();
 
+    // MDN says on input should fire for checkboxes
+    // but historically hasn't been the case, on change is safer.
     let on_circular_interpolation_change =
-        form.dispatch().reduce_callback_with(|form, change_data| {
-            if let ChangeData::Value(_) = change_data {
-                form.circular_interpolation = !form.circular_interpolation;
-            }
+        form_dispatch.reduce_mut_callback_with(|form, event: Event| {
+            let checkbox = event.target_unchecked_into::<HtmlInputElement>();
+            form.circular_interpolation = checkbox.checked();
         });
-    let circular_interpolation_checked = form
-        .state()
-        .map(|state| state.circular_interpolation)
-        .unwrap_or(false);
+    let circular_interpolation_checked = form_state.circular_interpolation;
 
     let save_onclick = {
         let close_ref = close_ref.clone();
-        app.dispatch().reduce_callback(move |app| {
-            if let (false, Some(form)) = (disabled, form.state()) {
-                app.settings = form.as_ref().try_into().unwrap();
-
+        app_dispatch.reduce_mut_callback(move |app| {
+            if !disabled {
+                app.settings = form_state.as_ref().try_into().unwrap();
                 // TODO: this is a poor man's crutch for closing the Modal.
                 // There is probably a better way.
                 if let Some(element) = close_ref.cast::<HtmlElement>() {
@@ -102,6 +98,7 @@ pub fn settings_form() -> Html {
                                 {"local storage"}
                             </a>
                             {"."}
+                            {" Reloading the page clears unsaved settings."}
                         </p>
                     </>
                 )
@@ -114,7 +111,7 @@ pub fn settings_form() -> Html {
                     <OriginYInput/>
                     <FormGroup>
                         <Checkbox
-                            label="Enable circular interpolation"
+                            label="Enable circular interpolation (experimental)"
                             desc="Please check if your machine supports G2/G3 commands before enabling this"
                             checked={circular_interpolation_checked}
                             onchange={on_circular_interpolation_change}
@@ -146,10 +143,10 @@ pub fn settings_form() -> Html {
                         />
                         {" "}
                         <HyperlinkButton
-                            ref={close_ref}
                             title="Close"
                             href="#close"
                             style={ButtonStyle::Default}
+                            noderef={close_ref}
                         />
                     </>
                 )
@@ -160,36 +157,45 @@ pub fn settings_form() -> Html {
 
 #[function_component(ImportExportModal)]
 pub fn import_export_modal() -> Html {
-    let app = use_store::<AppStore>();
+    let app_dispatch = Dispatch::<AppState>::new();
+    let form_dispatch = Dispatch::<FormState>::new();
+
     let import_state = use_state(|| Option::<Result<Settings, String>>::None);
+
+    let import_reading = use_state(|| Option::<FileReader>::None);
+    let import_reading_setter = import_reading.setter();
 
     let export_error = use_state(|| Option::<String>::None);
     let export_onclick = {
         let export_error = export_error.clone();
-        app.dispatch()
-            .reduce_callback(move |app| match serde_json::to_vec_pretty(&app.settings) {
+        app_dispatch.reduce_mut_callback(move |app| {
+            match serde_json::to_vec_pretty(&app.settings) {
                 Ok(settings_json_bytes) => {
                     let filename = "svg2gcode_settings";
                     let filepath = Path::new(&filename).with_extension("json");
-                    crate::util::prompt_download(&filepath, &settings_json_bytes);
+                    crate::util::prompt_download(filepath, settings_json_bytes);
                 }
                 Err(serde_json_err) => {
                     export_error.set(Some(serde_json_err.to_string()));
                 }
-            })
+            }
+        })
     };
+
+    let close_ref = use_node_ref();
 
     let settings_upload_onchange = {
         let import_state = import_state.clone();
-        app.dispatch()
-            .future_callback_with(move |app, file_list: FileList| {
-                let import_state = import_state.clone();
-                async move {
-                    let file = file_list.item(0).unwrap();
-                    let filename = file.name();
+        Callback::from(move |file_list: FileList| {
+            let import_state = import_state.clone();
 
-                    let res = read_as_bytes(&gloo_file::File::from(file))
-                        .await
+            let file = file_list.item(0).unwrap();
+            let filename = file.name();
+            let import_reading_setter_inner = import_reading_setter.clone();
+            import_reading_setter.clone().set(Some(read_as_bytes(
+                &gloo_file::File::from(file),
+                move |res| {
+                    let res = res
                         .map_err(|err| format!("Error reading {}: {}", &filename, err))
                         .and_then(|bytes| {
                             serde_json::from_slice::<Settings>(&bytes)
@@ -204,21 +210,28 @@ pub fn import_export_modal() -> Html {
                             import_state.set(Some(Err(err)));
                         }
                     }
-                }
-            })
+                    import_reading_setter_inner.set(None);
+                },
+            )));
+        })
     };
 
     let import_save_onclick = {
         let import_state = import_state.clone();
-        app.dispatch().reduce_callback(move |app| {
+        let close_ref = close_ref.clone();
+        app_dispatch.reduce_mut_callback(move |app| {
             if let Some(Ok(ref settings)) = *import_state {
-                app.settings = settings.clone();
+                app.settings = settings.clone();     
+                // App only hydrates the form on start now, so need to do it again here
+                form_dispatch.reduce_mut(|form| *form = (&app.settings).into());           
                 import_state.set(None);
+                // TODO: another way to close the modal?
+                if let Some(element) = close_ref.cast::<HtmlElement>() {
+                    element.click();
+                }
             }
         })
     };
-
-    let close_ref = NodeRef::default();
 
     html! {
         <Modal
@@ -243,9 +256,10 @@ pub fn import_export_modal() -> Html {
                                 button={html_nested!(
                                     <Button
                                         style={ButtonStyle::Primary}
-                                        disabled={import_state.is_none()}
+                                        disabled={import_state.as_ref().map_or(true, |r| r.is_err()) || import_reading.is_some()}
                                         title="Save"
                                         onclick={import_save_onclick}
+                                        input_group=true
                                     />
                                 )}
                             />
@@ -274,10 +288,10 @@ pub fn import_export_modal() -> Html {
             footer={
                 html!(
                     <HyperlinkButton
-                        ref={close_ref}
                         style={ButtonStyle::Default}
                         title="Close"
                         href="#close"
+                        noderef={close_ref}
                     />
                 )
             }
@@ -287,47 +301,44 @@ pub fn import_export_modal() -> Html {
 
 #[function_component(SvgForm)]
 pub fn svg_form() -> Html {
-    let app = use_store::<AppStore>();
+    let app_dispatch = Dispatch::<AppState>::new();
 
-    let file_upload_state = use_ref(Vec::default);
+    let file_upload_state = use_mut_ref(Vec::default);
     let file_upload_state_cloned = file_upload_state.clone();
     let file_upload_onchange =
-        app.dispatch()
-            .future_callback_with(move |app, file_list: FileList| {
-                let file_upload_state_cloned = file_upload_state_cloned.clone();
-                async move {
-                    let mut results = Vec::with_capacity(file_list.length() as usize);
-                    for file in (0..file_list.length()).filter_map(|i| file_list.item(i)) {
-                        let filename = file.name();
-                        results.push(
-                            read_as_text(&gloo_file::File::from(file))
-                                .await
-                                .map_err(|err| err.to_string())
-                                .and_then(|text| {
-                                    if let Some(err) = Document::parse(&text).err() {
-                                        Err(format!("Error parsing {}: {}", &filename, err))
-                                    } else {
-                                        Ok(Svg {
-                                            content: text,
-                                            filename,
-                                            dimensions: [None; 2],
-                                        })
-                                    }
-                                }),
-                        );
-                    }
-                    app.reduce(move |app| {
-                        // Clear any errors from previous entry, add new successfully parsed SVGs
-                        (*file_upload_state_cloned).borrow_mut().clear();
-                        for result in results.iter() {
-                            (*file_upload_state_cloned)
-                                .borrow_mut()
-                                .push(result.clone().map(|_| ()));
-                        }
-                        app.svgs.extend(results.drain(..).filter_map(Result::ok));
-                    });
+        app_dispatch.reduce_mut_future_callback_with(move |app, file_list: FileList| {
+            let file_upload_state_cloned = file_upload_state_cloned.clone();
+            Box::pin(async move {
+                let mut results = Vec::with_capacity(file_list.length() as usize);
+                for file in (0..file_list.length()).filter_map(|i| file_list.item(i)) {
+                    let filename = file.name();
+                    results.push(
+                        read_as_text(&gloo_file::File::from(file))
+                            .await
+                            .map_err(|err| err.to_string())
+                            .and_then(|text| {
+                                if let Some(err) = Document::parse(&text).err() {
+                                    Err(format!("Error parsing {}: {}", &filename, err))
+                                } else {
+                                    Ok(Svg {
+                                        content: text,
+                                        filename,
+                                        dimensions: [None; 2],
+                                    })
+                                }
+                            }),
+                    );
                 }
-            });
+                // Clear any errors from previous entry, add new successfully parsed SVGs
+                (*file_upload_state_cloned).borrow_mut().clear();
+                for result in results.iter() {
+                    (*file_upload_state_cloned)
+                        .borrow_mut()
+                        .push(result.clone().map(|_| ()));
+                }
+                app.svgs.extend(results.drain(..).filter_map(Result::ok));
+            })
+        });
 
     let file_upload_errors = file_upload_state
         .borrow()
@@ -348,8 +359,9 @@ pub fn svg_form() -> Html {
     let url_input_oninput = {
         let url_input_state = url_input_state.clone();
         let url_input_parsed = url_input_parsed.clone();
-        Callback::from(move |url: InputData| {
-            url_input_state.set(Some(url.value));
+        Callback::from(move |event: InputEvent| {
+            let url = event.target_unchecked_into::<HtmlInputElement>();
+            url_input_state.set(Some(url.value()));
             url_input_parsed.set(None);
         })
     };
@@ -360,14 +372,14 @@ pub fn svg_form() -> Html {
         let url_input_parsed = url_input_parsed.clone();
         let url_add_loading = url_add_loading.clone();
 
-        app.dispatch().future_callback_with(move |app, _| {
+        app_dispatch.reduce_mut_future_callback_with(move |app, _| {
             let url_input_state = url_input_state.clone();
             let url_input_parsed = url_input_parsed.clone();
             let url_add_loading = url_add_loading.clone();
             url_add_loading.set(true);
 
             let request_url = url_input_state.as_ref().unwrap().clone();
-            async move {
+            Box::pin(async move {
                 url_input_parsed.set(None);
                 let res = JsFuture::from(window().unwrap().fetch_with_str(&request_url))
                     .await
@@ -387,12 +399,10 @@ pub fn svg_form() -> Html {
                                 &response_url, err
                             ))));
                         } else {
-                            app.reduce(move |app| {
-                                app.svgs.push(Svg {
-                                    content: text,
-                                    filename: response_url,
-                                    dimensions: [None; 2],
-                                })
+                            app.svgs.push(Svg {
+                                content: text,
+                                filename: response_url,
+                                dimensions: [None; 2],
                             });
                         };
                     }
@@ -404,7 +414,7 @@ pub fn svg_form() -> Html {
                         ))));
                     }
                 }
-            }
+            })
         })
     };
 

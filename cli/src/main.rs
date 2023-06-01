@@ -97,17 +97,17 @@ fn main() -> io::Result<()> {
                     .circular_interpolation
                     .unwrap_or(machine.supported_functionality.circular_interpolation),
             };
-            if let Some(sequence) = opt.tool_on_sequence {
-                machine.tool_on_sequence.insert(sequence);
+            if let seq @ Some(_) = opt.tool_on_sequence {
+                machine.tool_on_sequence = seq;
             }
-            if let Some(sequence) = opt.tool_off_sequence {
-                machine.tool_off_sequence.insert(sequence);
+            if let seq @ Some(_) = opt.tool_off_sequence {
+                machine.tool_off_sequence = seq;
             }
-            if let Some(sequence) = opt.begin_sequence {
-                machine.begin_sequence.insert(sequence);
+            if let seq @ Some(_) = opt.begin_sequence {
+                machine.begin_sequence = seq;
             }
-            if let Some(sequence) = opt.end_sequence {
-                machine.end_sequence.insert(sequence);
+            if let seq @ Some(_) = opt.end_sequence {
+                machine.end_sequence = seq;
             }
         }
         {
@@ -240,7 +240,7 @@ fn main() -> io::Result<()> {
                     &mut writer,
                     &config,
                     &codespan_reporting::files::SimpleFile::new(filename, gcode.as_ref().unwrap()),
-                    &g_code::parse::into_diagnostic(&err),
+                    &g_code::parse::into_diagnostic(err),
                 )
                 .unwrap();
             }

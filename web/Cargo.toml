@@ -1,8 +1,8 @@
 [package]
 name = "svg2gcode-web"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Sameer Puri <crates@purisa.me>"]
-edition = "2018"
+edition = "2021"
 description = "Convert vector graphics to g-code for pen plotters, laser engravers, and other CNC machines"
 repository = "https://github.com/sameer/svg2gcode"
 homepage = "https://sameer.github.io/svg2gcode/"
@@ -11,24 +11,23 @@ license = "MIT"
 [dependencies]
 wasm-bindgen = "0.2"
 svg2gcode = { path = "../lib", features = ["serde"] }
-roxmltree = "0"
-g-code = "0"
+roxmltree = "0.18"
+g-code = "0.3"
 codespan-reporting = "0.11"
 codespan = "0.11"
 serde = "1"
 paste = "1"
-log = "0"
-svgtypes = "0"
+log = "0.4"
+svgtypes = "0.11"
 serde_json = "1"
+thiserror = "1.0"
 
-yew = { git = "https://github.com/yewstack/yew.git" }
-yewdux-functional = { git = "https://github.com/intendednull/yewdux.git" }
-yewdux-input = { git = "https://github.com/intendednull/yewdux.git" }
-yewdux = { git = "https://github.com/intendednull/yewdux.git" }
+yew = { version ="0.20", features = ["csr"] }
+yewdux = "0.9.2"
 web-sys = { version = "0.3", features = [] }
 wasm-logger = "0.2"
-gloo-file = { version = "0.1", features = ["futures"] }
-gloo-timers = "0.1"
-base64 = "0.13"
+gloo-file = { version = "0.2", features = ["futures"] }
+gloo-timers = "0.2"
+base64 = "0.21"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"

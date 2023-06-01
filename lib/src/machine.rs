@@ -80,7 +80,7 @@ impl<'input> Machine<'input> {
 
     /// Output gcode to turn the tool on.
     pub fn tool_on(&mut self) -> Vec<Token<'input>> {
-        if self.tool_state == Some(Tool::Off) || self.tool_state == None {
+        if self.tool_state == Some(Tool::Off) || self.tool_state.is_none() {
             self.tool_state = Some(Tool::On);
             self.tool_on_sequence.clone()
         } else {
@@ -90,7 +90,7 @@ impl<'input> Machine<'input> {
 
     /// Output gcode to turn the tool off.
     pub fn tool_off(&mut self) -> Vec<Token<'input>> {
-        if self.tool_state == Some(Tool::On) || self.tool_state == None {
+        if self.tool_state == Some(Tool::On) || self.tool_state.is_none() {
             self.tool_state = Some(Tool::Off);
             self.tool_off_sequence.clone()
         } else {
@@ -110,7 +110,7 @@ impl<'input> Machine<'input> {
 
     /// Output absolute distance field if mode was relative or unknown.
     pub fn absolute(&mut self) -> Vec<Token<'input>> {
-        if self.distance_mode == Some(Distance::Relative) || self.distance_mode == None {
+        if self.distance_mode == Some(Distance::Relative) || self.distance_mode.is_none() {
             self.distance_mode = Some(Distance::Absolute);
             command!(AbsoluteDistanceMode {}).into_token_vec()
         } else {
@@ -120,7 +120,7 @@ impl<'input> Machine<'input> {
 
     /// Output relative distance field if mode was absolute or unknown.
     pub fn relative(&mut self) -> Vec<Token<'input>> {
-        if self.distance_mode == Some(Distance::Absolute) || self.distance_mode == None {
+        if self.distance_mode == Some(Distance::Absolute) || self.distance_mode.is_none() {
             self.distance_mode = Some(Distance::Relative);
             command!(RelativeDistanceMode {}).into_token_vec()
         } else {

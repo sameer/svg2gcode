@@ -91,8 +91,8 @@ impl<'input> Turtle for GCodeTurtle<'input> {
         self.tool_off();
         self.program.append(
             &mut command!(RapidPositioning {
-                X: to.x as f64,
-                Y: to.y as f64,
+                X: to.x,
+                Y: to.y,
             })
             .into_token_vec(),
         );

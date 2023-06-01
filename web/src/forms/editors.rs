@@ -2,12 +2,12 @@ use codespan_reporting::term::{emit, termcolor::NoColor, Config};
 use g_code::parse::{into_diagnostic, snippet_parser};
 use gloo_timers::callback::Timeout;
 use paste::paste;
+use web_sys::HtmlInputElement;
 use yew::prelude::*;
-use yewdux_functional::use_store;
-use yewdux_input::*;
+use yewdux::functional::{use_store, use_store_value};
 
 use crate::{
-    state::{AppState, AppStore, FormStore},
+    state::{AppState, FormState},
     ui::{FormGroup, TextArea},
 };
 
@@ -23,13 +23,14 @@ macro_rules! gcode_input {
                 #[function_component([<$name Input>])]
                 pub fn [<$name:snake:lower _input>]() -> Html {
                     const VALIDATION_TIMEOUT: u32 = 350;
-                    let app = use_store::<AppStore>();
-                    let form = use_store::<FormStore>();
+                    let app_state = use_store_value::<AppState>();
+                    let (form_state, form_dispatch) = use_store::<FormState>();
 
                     let timeout = use_state::<Option<Timeout>, _>(|| None);
                     let oninput = {
                         let timeout = timeout.clone();
-                        form.dispatch().input(move |state, value| {
+                        form_dispatch.reduce_mut_callback_with(move |state, event: InputEvent| {
+                            let value = event.target_unchecked_into::<HtmlInputElement>().value();
                             let res = Some(match snippet_parser(&value) {
                                 Ok(_) => Ok(value),
                                 Err(err) => {
@@ -45,7 +46,7 @@ macro_rules! gcode_input {
                                     Err(String::from_utf8_lossy(buf.get_ref().as_slice()).to_string())
                                 }
                             }).filter(|res| {
-                                !res.as_ref().ok().map(|value| value.is_empty()).unwrap_or(false)
+                                !res.as_ref().ok().map_or(false, |value| value.is_empty())
                             });
 
                             let timeout_inner = timeout.clone();
@@ -56,10 +57,10 @@ macro_rules! gcode_input {
                         })
                     };
                     html! {
-                        <FormGroup success={form.state().map(|state| (state.$form_accessor $([$form_idx])?).as_ref().map(Result::is_ok)).flatten()}>
+                        <FormGroup success={form_state.$form_accessor $([$form_idx])?.as_ref().map(Result::is_ok)}>
                             <TextArea<String, String> label=$label desc=$desc
-                                default={app.state().map(|state| (state.$app_accessor $([$app_idx])?).clone()).unwrap_or_else(|| AppState::default().$app_accessor $([$app_idx])?)}
-                                parsed={form.state().and_then(|state| (state.$form_accessor $([$form_idx])?).clone()).filter(|_| timeout.is_none())}
+                                default={(app_state.$app_accessor $([$app_idx])?).clone()}
+                                parsed={(form_state.$form_accessor $([$form_idx])?).clone().filter(|_| timeout.is_none())}
                                 oninput={oninput}
                             />
                         </FormGroup>

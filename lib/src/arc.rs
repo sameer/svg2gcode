@@ -99,7 +99,7 @@ where
         }
         let mut acc = vec![];
 
-        self.for_each_monotonic_range(|range| {
+        self.for_each_monotonic_range(&mut |range| {
             let inner_bezier = self.split_range(range);
 
             if (inner_bezier.to - inner_bezier.from).square_length() < S::EPSILON {

@@ -1,9 +1,9 @@
 use std::fmt::Display;
-use web_sys::{FileList, HtmlInputElement, MouseEvent};
+use web_sys::{FileList, HtmlInputElement, MouseEvent, InputEvent, Event};
 use yew::{
     classes, function_component, html, use_state,
     virtual_dom::{VChild, VNode},
-    Callback, ChangeData, Children, Html, InputData, NodeRef, Properties,
+    Callback, Children, Html, NodeRef, Properties, TargetCast, use_node_ref, use_force_update,
 };
 
 macro_rules! css_class_enum {
@@ -57,7 +57,7 @@ where
     #[prop_or(InputType::Text)]
     pub r#type: InputType,
     #[prop_or_default]
-    pub oninput: Callback<InputData>,
+    pub oninput: Callback<InputEvent>,
     #[prop_or_default]
     pub button: Option<VChild<Button>>,
 }
@@ -79,8 +79,17 @@ where
     let error = props.parsed.as_ref().map(|x| x.is_err()).unwrap_or(false);
     let id = props.label.to_lowercase().replace(' ', "-");
 
+    // To properly set the default value, we need to force a second render
+    // so the noderef becomes valid.
+    let first_render = use_state(|| true);
+    let trigger = use_force_update();
     let applied_default_value = use_state(|| false);
-    let node_ref = use_state(NodeRef::default);
+    let node_ref = use_node_ref();
+
+    if *first_render {
+        first_render.set(false);
+        trigger.force_update();
+    }
 
     if let (false, Some(default), Some(input_element)) = (
         *applied_default_value,
@@ -98,7 +107,7 @@ where
             </label>
             <div class={classes!(if props.button.is_some() { Some("input-group") } else { None })}>
                 <div class={classes!(if props.button.is_some() { Some("input-group") } else { None }, if success || error { Some("has-icon-right") } else { None })}>
-                    <input id={id} class="form-input" type={props.r#type.to_string()} ref={(*node_ref).clone()}
+                    <input id={id} class="form-input" type={props.r#type.to_string()} ref={node_ref.clone()}
                         oninput={props.oninput.clone()} placeholder={ props.placeholder.as_ref().map(ToString::to_string) }
                     />
                     {
@@ -134,7 +143,7 @@ pub struct CheckboxProps {
     #[prop_or(false)]
     pub checked: bool,
     #[prop_or_default]
-    pub onchange: Callback<ChangeData>,
+    pub onchange: Callback<Event>,
 }
 
 #[function_component(Checkbox)]
@@ -192,11 +201,8 @@ where
             <div class={classes!(if props.button.is_some() { Some("input-group") } else { None })}>
                 <div class={classes!(if props.button.is_some() { Some("input-group") } else { None }, if success || error { Some("has-icon-right") } else { None })}>
                     <input id={id} class="form-input" type="file" accept={props.accept} multiple={props.multiple}
-                        onchange={props.onchange.clone().reform(|x: ChangeData| {
-                            match x {
-                                ChangeData::Files(file_list) => file_list,
-                                _ => unreachable!()
-                            }
+                        onchange={props.onchange.clone().reform(|x: Event| {
+                            x.target_unchecked_into::<HtmlInputElement>().files().expect("this is a file input")
                         })}
                     />
                     {
@@ -312,7 +318,7 @@ where
     pub placeholder: Option<String>,
     pub default: Option<String>,
     #[prop_or_default]
-    pub oninput: Callback<InputData>,
+    pub oninput: Callback<InputEvent>,
     pub rows: Option<usize>,
     pub cols: Option<usize>,
 }
@@ -327,8 +333,18 @@ where
     let error = props.parsed.as_ref().map(|x| x.is_err()).unwrap_or(false);
     let id = props.label.to_lowercase().replace(' ', "-");
 
+
+    // To properly set the default value, we need to force a second render
+    // so the noderef becomes valid.
+    let first_render = use_state(|| true);
+    let trigger = use_force_update();
     let applied_default_value = use_state(|| false);
-    let node_ref = use_state(NodeRef::default);
+    let node_ref = use_node_ref();
+
+    if *first_render {
+        first_render.set(false);
+        trigger.force_update();
+    }
 
     if let (false, Some(default), Some(input_element)) = (
         *applied_default_value,
@@ -346,7 +362,7 @@ where
             </label>
             <div class={classes!(if success || error { Some("has-icon-right") } else { None })}>
                 <textarea class="form-input" id={id} oninput={props.oninput.clone()}
-                    ref={(*node_ref).clone()}
+                    ref={node_ref}
                     placeholder={props.placeholder.as_ref().cloned()}
                     rows={props.rows.as_ref().map(ToString::to_string)}
                     cols={props.cols.as_ref().map(ToString::to_string)}
@@ -405,6 +421,8 @@ pub struct ButtonProps {
     pub icon: Option<VChild<Icon>>,
     #[prop_or_default]
     pub onclick: Callback<MouseEvent>,
+    #[prop_or_default]
+    pub noderef: NodeRef,
 }
 
 #[function_component(Button)]
@@ -420,6 +438,7 @@ pub fn button(props: &ButtonProps) -> Html {
             )}
             disabled={props.disabled}
             onclick={props.onclick.clone()}
+            ref={props.noderef.clone()}
         >
             { props.title.map(Into::into).unwrap_or_else(|| html!()) }
             { if props.icon.is_some() && props.title.is_some() { " " } else { "" } }
@@ -442,6 +461,8 @@ pub struct HyperlinkButtonProps {
     pub href: &'static str,
     #[prop_or_default]
     pub onclick: Callback<MouseEvent>,
+    #[prop_or_default]
+    pub noderef: NodeRef,
 }
 
 #[function_component(HyperlinkButton)]
@@ -457,6 +478,7 @@ pub fn hyperlink_button(props: &HyperlinkButtonProps) -> Html {
             disabled={props.disabled}
             href={props.href}
             onclick={props.onclick.clone()}
+            ref={props.noderef.clone()}
         >
             { props.title.map(Into::into).unwrap_or_else(|| html!()) }
             { if props.icon.is_some() && props.title.is_some() { " " } else { "" } }

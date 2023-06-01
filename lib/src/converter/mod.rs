@@ -50,7 +50,7 @@ impl Default for ConversionConfig {
             tolerance: 0.002,
             feedrate: 300.0,
             dpi: 96.0,
-            origin: [Some(0.); 2],
+            origin: zero_origin(),
         }
     }
 }

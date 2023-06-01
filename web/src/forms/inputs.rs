@@ -1,12 +1,10 @@
 use paste::paste;
 use std::num::ParseFloatError;
 use yew::prelude::*;
-use yewdux::prelude::BasicStore;
-use yewdux_functional::use_store;
-use yewdux_input::*;
+use yewdux::functional::{use_store, use_store_value};
 
 use crate::{
-    state::{AppState, AppStore, FormState},
+    state::{AppState, FormState},
     ui::*,
 };
 
@@ -21,14 +19,25 @@ macro_rules! form_input {
             paste! {
                 #[function_component([<$name Input>])]
                 pub fn [<$name:snake:lower _input>]() -> Html {
-                    let app = use_store::<AppStore>();
-                    let form = use_store::<BasicStore<FormState>>();
-                    let oninput = form.dispatch().input(|state, value| state.$form_accessor $([$form_idx])? = value.parse::<f64>());
+                    let app_state = use_store_value::<AppState>();
+                    let (form_state, form_dispatch) = use_store::<FormState>();
+                    let oninput = form_dispatch.reduce_mut_callback_with(|state, event: InputEvent| {
+                        let value = event.target_unchecked_into::<web_sys::HtmlInputElement>().value();
+                        let parsed = value.parse::<f64>();
+
+                        // Handle Option origins
+                        $(
+                            let _ = $app_idx;
+                            let parsed = if value.is_empty() { None } else { Some(parsed) };
+                        )?
+                        state.$form_accessor $([$form_idx])? = parsed;
+                    });
                     html! {
-                        <FormGroup success={form.state().map(|state| (state.$form_accessor $([$form_idx])?).is_ok())}>
+                        // unwrap_or(&Ok(0.)) is just a macro hack to make None a valid state
+                        <FormGroup success={form_state.$form_accessor $([$form_idx] .as_ref().unwrap_or(&Ok(0.)))?.is_ok()}>
                             <Input<f64, ParseFloatError> label=$label desc=$desc
-                                default={app.state().map(|state| state.$app_accessor $([$app_idx])?).unwrap_or_else(|| AppState::default().$app_accessor $([$app_idx])?)}
-                                parsed={form.state().map(|state| (state.$form_accessor $([$form_idx])?).clone())}
+                                default={app_state.$app_accessor $([$app_idx])?}
+                                parsed={form_state.$form_accessor $([$form_idx])?.clone()}
                                 oninput={oninput}
                             />
                         </FormGroup>
@@ -62,12 +71,12 @@ form_input! {
         "Origin X",
         "X-axis coordinate for the bottom left corner of the machine",
         origin => 0,
-        settings.postprocess.origin => 0,
+        settings.conversion.origin => 0,
     }
     OriginY {
         "Origin Y",
         "Y-axis coordinate for the bottom left corner of the machine",
         origin => 1,
-        settings.postprocess.origin => 1,
+        settings.conversion.origin => 1,
     }
 }
