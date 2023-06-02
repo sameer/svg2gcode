@@ -21,6 +21,7 @@ log = "0.4"
 svgtypes = "0.11"
 serde_json = "1"
 thiserror = "1.0"
+zip = { version = "0.6", default-features = false }
 
 yew = { version ="0.20", features = ["csr"] }
 yewdux = "0.9.2"

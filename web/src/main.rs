@@ -1,10 +1,14 @@
-use std::path::Path;
+use std::{
+    io::Cursor,
+    path::{Path, PathBuf},
+};
 
 use base64::Engine;
 use g_code::{
-    emit::{format_gcode_fmt, FormatOptions},
+    emit::{format_gcode_fmt, format_gcode_io, FormatOptions},
     parse::snippet_parser,
 };
+use js_sys::Date;
 use log::Level;
 use roxmltree::Document;
 use svg2gcode::{svg2program, ConversionOptions, Machine};
@@ -20,6 +24,7 @@ use state::*;
 use ui::*;
 use util::*;
 use yewdux::prelude::{use_store, Dispatch};
+use zip::{write::FileOptions, CompressionMethod, ZipWriter};
 
 #[function_component]
 fn App(_props: &()) -> Html {
@@ -45,6 +50,13 @@ fn App(_props: &()) -> Html {
         let app_store = app_store.clone();
         Callback::from(move |_| {
             generating_setter.set(true);
+            let mut zip = ZipWriter::new(Cursor::new(vec![]));
+            let opts = FileOptions::default().compression_method(CompressionMethod::Stored);
+
+            if app_store.svgs.len() > 1 {
+                zip.add_directory("svg2gcode_output", opts.clone()).unwrap();
+            }
+
             for svg in app_store.svgs.iter() {
                 let options = ConversionOptions {
                     dimensions: svg.dimensions,
@@ -90,24 +102,59 @@ fn App(_props: &()) -> Html {
                 let program =
                     svg2program(&document, &app_store.settings.conversion, options, machine);
 
-                let gcode = {
-                    let mut acc: String = String::new();
-                    format_gcode_fmt(
+                let filepath = if app_store.svgs.len() > 1 {
+                    PathBuf::from("svg2gcode_output")
+                        .join(Path::new(svg.filename.as_str()).with_extension("gcode"))
+                } else {
+                    Path::new(svg.filename.as_str()).with_extension("gcode")
+                };
+
+                if app_store.svgs.len() > 1 {
+                    zip.start_file(filepath.to_string_lossy(), opts.clone())
+                        .unwrap();
+
+                    format_gcode_io(
                         &program,
                         FormatOptions {
                             checksums: app_store.settings.postprocess.checksums,
                             line_numbers: app_store.settings.postprocess.line_numbers,
                             ..Default::default()
                         },
-                        &mut acc,
+                        &mut zip,
                     )
                     .unwrap();
-                    acc
-                };
-
-                let filepath = Path::new(svg.filename.as_str()).with_extension("gcode");
-                prompt_download(filepath, gcode.as_bytes());
+                } else if app_store.svgs.len() == 1 {
+                    let gcode = {
+                        let mut acc = String::new();
+                        format_gcode_fmt(
+                            &program,
+                            FormatOptions {
+                                checksums: app_store.settings.postprocess.checksums,
+                                line_numbers: app_store.settings.postprocess.line_numbers,
+                                ..Default::default()
+                            },
+                            &mut acc,
+                        )
+                        .unwrap();
+                        acc
+                    };
+                    prompt_download(filepath, gcode.as_bytes());
+                }
             }
+
+            if app_store.svgs.len() > 1 {
+                zip.set_comment(format!(
+                    "Created with svg2gcode: https://sameer.github.io/svg2gcode/\n{}",
+                    env!("CARGO_PKG_DESCRIPTION")
+                ));
+                let output = zip.finish().unwrap();
+                let date = Date::new_0().to_iso_string();
+                prompt_download(
+                    format!("svg2gcode_bulk_download_{date}.zip"),
+                    output.get_ref(),
+                );
+            }
+
             generating_setter.set(false);
         })
     };
@@ -122,6 +169,26 @@ fn App(_props: &()) -> Html {
                     { env!("CARGO_PKG_DESCRIPTION") }
                 </p>
                 <SvgForm/>
+                <ButtonGroup>
+                    <Button
+                        title="Generate G-Code"
+                        style={ButtonStyle::Primary}
+                        loading={*generating}
+                        icon={
+                            html_nested! (
+                                <Icon name={IconName::Download} />
+                            )
+                        }
+                        disabled={generate_disabled}
+                        onclick={generate_onclick}
+                    />
+                    <HyperlinkButton
+                        title="Settings"
+                        style={ButtonStyle::Default}
+                        icon={IconName::Edit}
+                        href="#settings"
+                    />
+                </ButtonGroup>
                 <div class={classes!("card-container", "columns")}>
                     {
                         for app_store.svgs.iter().enumerate().map(|(i, svg)| {
@@ -155,26 +222,6 @@ fn App(_props: &()) -> Html {
                         })
                     }
                 </div>
-                <ButtonGroup>
-                    <Button
-                        title="Generate G-Code"
-                        style={ButtonStyle::Primary}
-                        loading={*generating}
-                        icon={
-                            html_nested! (
-                                <Icon name={IconName::Download} />
-                            )
-                        }
-                        disabled={generate_disabled}
-                        onclick={generate_onclick}
-                    />
-                    <HyperlinkButton
-                        title="Settings"
-                        style={ButtonStyle::Default}
-                        icon={IconName::Edit}
-                        href="#settings"
-                    />
-                </ButtonGroup>
                 <SettingsForm/>
                 <ImportExportModal/>
             </div>
