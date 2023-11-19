@@ -1,9 +1,9 @@
 use std::fmt::Display;
-use web_sys::{FileList, HtmlInputElement, MouseEvent, InputEvent, Event};
+use web_sys::{Event, FileList, HtmlInputElement, InputEvent, MouseEvent};
 use yew::{
-    classes, function_component, html, use_state,
+    classes, function_component, html, use_force_update, use_node_ref, use_state,
     virtual_dom::{VChild, VNode},
-    Callback, Children, Html, NodeRef, Properties, TargetCast, use_node_ref, use_force_update,
+    AttrValue, Callback, Children, Html, NodeRef, Properties, TargetCast, ToHtml,
 };
 
 macro_rules! css_class_enum {
@@ -50,9 +50,13 @@ where
     E: Display + Clone + PartialEq,
 {
     pub label: &'static str,
+    #[prop_or_default]
     pub desc: Option<&'static str>,
+    #[prop_or_default]
     pub parsed: Option<Result<T, E>>,
+    #[prop_or_default]
     pub placeholder: Option<T>,
+    #[prop_or_default]
     pub default: Option<T>,
     #[prop_or(InputType::Text)]
     pub r#type: InputType,
@@ -125,7 +129,7 @@ where
             </div>
             {
                 if let Some(Err(ref err)) = props.parsed.as_ref() {
-                    html!{ <pre class="form-input-hint">{ err }</pre> }
+                    html!{ <pre class="form-input-hint">{ err.to_string() }</pre> }
                 } else if let Some(desc) = props.desc {
                     html! { <p class="form-input-hint">{ desc }</p> }
                 } else {
@@ -170,13 +174,16 @@ pub fn checkbox(props: &CheckboxProps) -> Html {
 pub struct FileUploadProps<T, E>
 where
     T: Clone + PartialEq,
-    E: Display + Clone + PartialEq,
+    E: Display + Clone + PartialEq + ToHtml,
 {
     pub label: &'static str,
+    #[prop_or_default]
     pub desc: Option<&'static str>,
+    #[prop_or_default]
     pub accept: Option<&'static str>,
     #[prop_or(false)]
     pub multiple: bool,
+    #[prop_or_default]
     pub parsed: Option<Result<T, E>>,
     #[prop_or_default]
     pub onchange: Callback<FileList>,
@@ -188,7 +195,7 @@ where
 pub fn file_upload<T, E>(props: &FileUploadProps<T, E>) -> Html
 where
     T: Clone + PartialEq,
-    E: Display + Clone + PartialEq,
+    E: Display + Clone + PartialEq + ToHtml,
 {
     let success = props.parsed.as_ref().map(|x| x.is_ok()).unwrap_or(false);
     let error = props.parsed.as_ref().map(|x| x.is_err()).unwrap_or(false);
@@ -285,6 +292,7 @@ pub fn input_group(props: &InputGroupProps) -> Html {
 pub struct FormGroupProps {
     #[prop_or_default]
     pub children: Children,
+    #[prop_or_default]
     pub success: Option<bool>,
 }
 
@@ -310,16 +318,19 @@ pub fn form_group(props: &FormGroupProps) -> Html {
 pub struct TextAreaProps<T, E>
 where
     T: Display + Clone + PartialEq,
-    E: Display + Clone + PartialEq,
+    E: Display + Clone + PartialEq + ToHtml,
 {
     pub label: &'static str,
     pub desc: Option<&'static str>,
     pub parsed: Option<Result<T, E>>,
-    pub placeholder: Option<String>,
-    pub default: Option<String>,
+    #[prop_or_default]
+    pub placeholder: Option<AttrValue>,
+    pub default: Option<AttrValue>,
     #[prop_or_default]
     pub oninput: Callback<InputEvent>,
+    #[prop_or_default]
     pub rows: Option<usize>,
+    #[prop_or_default]
     pub cols: Option<usize>,
 }
 
@@ -327,12 +338,11 @@ where
 pub fn text_area<T, E>(props: &TextAreaProps<T, E>) -> Html
 where
     T: Display + Clone + PartialEq,
-    E: Display + Clone + PartialEq,
+    E: Display + Clone + PartialEq + ToHtml,
 {
     let success = props.parsed.as_ref().map(|x| x.is_ok()).unwrap_or(false);
     let error = props.parsed.as_ref().map(|x| x.is_err()).unwrap_or(false);
     let id = props.label.to_lowercase().replace(' ', "-");
-
 
     // To properly set the default value, we need to force a second render
     // so the noderef becomes valid.
@@ -411,13 +421,15 @@ impl Default for ButtonStyle {
 pub struct ButtonProps {
     #[prop_or_default]
     pub style: ButtonStyle,
-    #[prop_or(false)]
+    #[prop_or_default]
     pub disabled: bool,
-    #[prop_or(false)]
+    #[prop_or_default]
     pub loading: bool,
-    #[prop_or(false)]
+    #[prop_or_default]
     pub input_group: bool,
+    #[prop_or_default]
     pub title: Option<&'static str>,
+    #[prop_or_default]
     pub icon: Option<VChild<Icon>>,
     #[prop_or_default]
     pub onclick: Callback<MouseEvent>,
@@ -457,6 +469,7 @@ pub struct HyperlinkButtonProps {
     #[prop_or(false)]
     pub loading: bool,
     pub title: Option<&'static str>,
+    #[prop_or_default]
     pub icon: Option<IconName>,
     pub href: &'static str,
     #[prop_or_default]

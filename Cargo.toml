@@ -7,3 +7,4 @@ members = [
 default-members = [
     "cli"
 ]
+resolver = "2"
