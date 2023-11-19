@@ -10,7 +10,7 @@ license = "MIT"
 
 [dependencies]
 wasm-bindgen = "0.2"
-svg2gcode = { path = "../lib", features = ["serde"] }
+svg2gcode = { version = "0.1.4", features = ["serde"] }
 roxmltree = "0.19"
 g-code = "0.3"
 codespan-reporting = "0.11"
