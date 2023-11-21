@@ -27,6 +27,8 @@ Check it out at https://sameer.github.io/svg2gcode. Just select an SVG and click
 cargo run --release -- examples/Vanderbilt_Commodores_logo.svg --off 'M4' --on 'M5' -o out.gcode
 ```
 
+To convert curves to G02/G03 Gcode commands, use flag `--circular-interpolation true`.
+
 ![Vanderbilt Commodores Logo](examples/Vanderbilt_Commodores_logo.svg)
 
 #### Output, rendered at [https://ncviewer.com]()
