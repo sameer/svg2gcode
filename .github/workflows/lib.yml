@@ -41,15 +41,15 @@ jobs:
           command: build
           args: -p svg2gcode
         env:
-          RUSTFLAGS: '-Zinstrument-coverage'
-          RUSTDOCFLAGS: '-Zinstrument-coverage'
+          RUSTFLAGS: '-Cinstrument-coverage'
+          RUSTDOCFLAGS: '-Cinstrument-coverage'
       - uses: actions-rs/cargo@v1
         with:
           command: test
           args: --all-features --no-fail-fast -p svg2gcode
         env:
-          RUSTFLAGS: '-Zinstrument-coverage'
-          RUSTDOCFLAGS: '-Zinstrument-coverage'
+          RUSTFLAGS: '-Cinstrument-coverage'
+          RUSTDOCFLAGS: '-Cinstrument-coverage'
           LLVM_PROFILE_FILE: 'codecov-instrumentation-%p-%m.profraw'
       - name: grcov
         run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch -o lcov.info
