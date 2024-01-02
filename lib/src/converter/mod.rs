@@ -21,11 +21,6 @@ use crate::{turtle::*, Machine};
 mod length_serde;
 mod visit;
 
-const SVG_TAG_NAME: &str = "svg";
-const CLIP_PATH_TAG_NAME: &str = "clipPath";
-const PATH_TAG_NAME: &str = "path";
-const POLYLINE_TAG_NAME: &str = "polyline";
-
 /// High-level output configuration
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -77,6 +72,35 @@ struct ConversionVisitor<'a, T: Turtle> {
     options: ConversionOptions,
 }
 
+impl<T: Turtle> ConversionVisitor<'_, T> {
+    /// Push a comment with the current node name (including the stack that led to it)
+    fn push_node_name_comment(&mut self, node: &Node) {
+        let mut comment = String::new();
+        self.name_stack.iter().for_each(|name| {
+            comment += name;
+            comment += " > ";
+        });
+        comment += &node_name(node);
+
+        self.terrarium.turtle.comment(comment);
+    }
+
+    // Parses a SVG dimension attribute into millimeters.
+    // Unit-less dimensions are assumed to be in pixels (as per the SVG spec)
+    fn parse_dimension(&self, node: &Node, attribute: &str, scale: Option<f64>) -> Option<f64> {
+        let mut value = LengthListParser::from(node.attribute(attribute)?)
+            .next()?
+            .ok()?;
+
+        // SVG defaults to pixels, so we need adjust the found unit to reflect that.
+        if value.unit == svgtypes::LengthUnit::None {
+            value.unit = svgtypes::LengthUnit::Px;
+        }
+
+        Some(length_to_mm(value, self.config.dpi, scale))
+    }
+}
+
 impl<'a, 'input: 'a> ConversionVisitor<'a, GCodeTurtle<'input>> {
     fn begin(&mut self) {
         // Part 1 of converting from SVG to g-code coordinates
@@ -104,80 +128,83 @@ impl<'a, 'input: 'a> ConversionVisitor<'a, PreprocessTurtle> {
 
 impl<'a, T: Turtle> visit::XmlVisitor for ConversionVisitor<'a, T> {
     fn visit_enter(&mut self, node: Node) {
-        if node.tag_name().name() == CLIP_PATH_TAG_NAME {
+        if node.tag_name().name() == "clipPath" {
             warn!("Clip paths are not supported: {:?}", node);
         }
 
         let mut transforms = vec![];
-
-        let view_box = node
-            .attribute("viewBox")
-            .map(ViewBox::from_str)
-            .transpose()
-            .expect("could not parse viewBox");
-        let scale_w = view_box.map(|view_box| view_box.w);
-        let scale_h = view_box.map(|view_box| view_box.h);
-        let dimensions = (
-            node.attribute("width")
-                .map(LengthListParser::from)
-                .and_then(|mut parser| parser.next())
+        if node.tag_name().name() == "svg" {
+            let view_box = node
+                .attribute("viewBox")
+                .map(ViewBox::from_str)
                 .transpose()
-                .expect("could not parse width")
-                .map(|width| length_to_mm(width, self.config.dpi, scale_w)),
-            node.attribute("height")
-                .map(LengthListParser::from)
-                .and_then(|mut parser| parser.next())
-                .transpose()
-                .expect("could not parse height")
-                .map(|height| length_to_mm(height, self.config.dpi, scale_h)),
-        );
-        let aspect_ratio = match (view_box, dimensions) {
-            (_, (Some(ref width), Some(ref height))) => *width / *height,
-            (Some(ref view_box), _) => view_box.w / view_box.h,
-            (None, (None, _)) | (None, (_, None)) => 1.,
-        };
+                .expect("could not parse viewBox");
+            let scale_w = view_box.map(|view_box| view_box.w);
+            let scale_h = view_box.map(|view_box| view_box.h);
+            let dimensions = (
+                node.attribute("width")
+                    .map(LengthListParser::from)
+                    .and_then(|mut parser| parser.next())
+                    .transpose()
+                    .expect("could not parse width")
+                    .map(|width| length_to_mm(width, self.config.dpi, scale_w)),
+                node.attribute("height")
+                    .map(LengthListParser::from)
+                    .and_then(|mut parser| parser.next())
+                    .transpose()
+                    .expect("could not parse height")
+                    .map(|height| length_to_mm(height, self.config.dpi, scale_h)),
+            );
+            let aspect_ratio = match (view_box, dimensions) {
+                (_, (Some(ref width), Some(ref height))) => *width / *height,
+                (Some(ref view_box), _) => view_box.w / view_box.h,
+                (None, (None, _)) | (None, (_, None)) => 1.,
+            };
 
-        if let Some(ref view_box) = view_box {
-            let view_box_transform = Transform2D::translation(-view_box.x, -view_box.y)
-                .then_scale(1. / view_box.w, 1. / view_box.h);
-            if node.has_tag_name(SVG_TAG_NAME) {
-                // Part 2 of converting from SVG to g-code coordinates
-                transforms.push(view_box_transform.then_translate(vector(0., -1.)));
-            } else {
-                transforms.push(view_box_transform);
+            if let Some(ref view_box) = view_box {
+                let view_box_transform = Transform2D::translation(-view_box.x, -view_box.y)
+                    .then_scale(1. / view_box.w, 1. / view_box.h);
+                if node.has_tag_name("svg") {
+                    // Part 2 of converting from SVG to g-code coordinates
+                    transforms.push(view_box_transform.then_translate(vector(0., -1.)));
+                } else {
+                    transforms.push(view_box_transform);
+                }
             }
-        }
 
-        let dimensions_override = [
-            self.options.dimensions[0].map(|dim_x| length_to_mm(dim_x, self.config.dpi, scale_w)),
-            self.options.dimensions[1].map(|dim_y| length_to_mm(dim_y, self.config.dpi, scale_h)),
-        ];
+            let dimensions_override = [
+                self.options.dimensions[0]
+                    .map(|dim_x| length_to_mm(dim_x, self.config.dpi, scale_w)),
+                self.options.dimensions[1]
+                    .map(|dim_y| length_to_mm(dim_y, self.config.dpi, scale_h)),
+            ];
 
-        match (dimensions_override, dimensions) {
-            ([Some(dim_x), Some(dim_y)], _) if node.has_tag_name(SVG_TAG_NAME) => {
-                transforms.push(Transform2D::scale(dim_x, dim_y));
-            }
-            ([Some(dim_x), None], _) if node.has_tag_name(SVG_TAG_NAME) => {
-                transforms.push(Transform2D::scale(dim_x, dim_x / aspect_ratio));
-            }
-            ([None, Some(dim_y)], _) if node.has_tag_name(SVG_TAG_NAME) => {
-                transforms.push(Transform2D::scale(aspect_ratio * dim_y, dim_y));
-            }
-            (_, (Some(width), Some(height))) => {
-                transforms.push(Transform2D::scale(width, height));
-            }
-            (_, (Some(width), None)) => {
-                transforms.push(Transform2D::scale(width, width / aspect_ratio));
-            }
-            (_, (None, Some(height))) => {
-                transforms.push(Transform2D::scale(aspect_ratio * height, height));
-            }
-            (_, (None, None)) => {
-                if let (Some(ViewBox { w, h, .. }), true) =
-                    (view_box, node.has_tag_name(SVG_TAG_NAME))
-                {
-                    transforms.push(Transform2D::scale(w, h));
-                    warn!("This SVG does not have width and/or height attributes! Assuming viewBox units are in millimeters");
+            match (dimensions_override, dimensions) {
+                ([Some(dim_x), Some(dim_y)], _) if node.has_tag_name("svg") => {
+                    transforms.push(Transform2D::scale(dim_x, dim_y));
+                }
+                ([Some(dim_x), None], _) if node.has_tag_name("svg") => {
+                    transforms.push(Transform2D::scale(dim_x, dim_x / aspect_ratio));
+                }
+                ([None, Some(dim_y)], _) if node.has_tag_name("svg") => {
+                    transforms.push(Transform2D::scale(aspect_ratio * dim_y, dim_y));
+                }
+                (_, (Some(width), Some(height))) => {
+                    transforms.push(Transform2D::scale(width, height));
+                }
+                (_, (Some(width), None)) => {
+                    transforms.push(Transform2D::scale(width, width / aspect_ratio));
+                }
+                (_, (None, Some(height))) => {
+                    transforms.push(Transform2D::scale(aspect_ratio * height, height));
+                }
+                (_, (None, None)) => {
+                    if let (Some(ViewBox { w, h, .. }), true) =
+                        (view_box, node.has_tag_name("svg"))
+                    {
+                        transforms.push(Transform2D::scale(w, h));
+                        warn!("This SVG does not have width and/or height attributes! Assuming viewBox units are in millimeters");
+                    }
                 }
             }
         }
@@ -202,44 +229,168 @@ impl<'a, T: Turtle> visit::XmlVisitor for ConversionVisitor<'a, T> {
                 .fold(Transform2D::identity(), |acc, t| acc.then(t)),
         );
 
-        if node.tag_name().name() == PATH_TAG_NAME {
-            if let Some(d) = node.attribute("d") {
-                self.terrarium.reset();
-                let mut comment = String::new();
-                self.name_stack.iter().for_each(|name| {
-                    comment += name;
-                    comment += " > ";
-                });
-                comment += &node_name(&node);
-                self.terrarium.turtle.comment(comment);
-                apply_path(&mut self.terrarium, d);
-            } else {
-                warn!("There is a path node containing no actual path: {:?}", node);
+        match node.tag_name().name() {
+            "path" => {
+                if let Some(d) = node.attribute("d") {
+                    self.terrarium.reset();
+                    self.push_node_name_comment(&node);
+                    apply_path(&mut self.terrarium, d);
+                } else {
+                    warn!("There is a path node containing no actual path: {:?}", node);
+                }
             }
-        } else if node.tag_name().name() == POLYLINE_TAG_NAME {
-            if let Some(points) = node.attribute("points") {
-                self.terrarium.reset();
-                let mut comment = String::new();
-                self.name_stack.iter().for_each(|name| {
-                    comment += name;
-                    comment += " > ";
-                });
-                comment += &node_name(&node);
-                self.terrarium.turtle.comment(comment);
+            "polyline" => {
+                if let Some(points) = node.attribute("points") {
+                    self.terrarium.reset();
+                    self.push_node_name_comment(&node);
+                    let mut pp = PointsParser::from(points);
 
-                let mut pp = PointsParser::from(points);
+                    if let Some((x, y)) = pp.next() {
+                        self.terrarium.move_to(true, x, y);
+                    }
+                    while let Some((x, y)) = pp.next() {
+                        self.terrarium.line(true, x, y);
+                    }
+                } else {
+                    warn!(
+                        "There is a polyline node containing no actual path: {:?}",
+                        node
+                    );
+                }
+            }
+            "polygon" => {
+                if let Some(points) = node.attribute("points") {
+                    self.terrarium.reset();
+                    self.push_node_name_comment(&node);
+                    let mut pp = PointsParser::from(points);
 
-                if let Some((x, y)) = pp.next() {
-                    self.terrarium.move_to(true, x, y);
+                    let first_point = pp.next();
+
+                    if let Some((x, y)) = first_point {
+                        self.terrarium.move_to(true, x, y);
+                    }
+
+                    for point in pp {
+                        self.terrarium.line(true, point.0, point.1);
+                    }
+
+                    if let Some((x, y)) = first_point {
+                        self.terrarium.line(true, x, y);
+                    }
+                } else {
+                    warn!(
+                        "There is a polyline node containing no actual path: {:?}",
+                        node
+                    );
                 }
-                while let Some((x, y)) = pp.next() {
-                    self.terrarium.line(true, x, y);
-                }
-            } else {
-                warn!(
-                    "There is a polyline node containing no actual path: {:?}",
-                    node
+            }
+            "rect" => {
+                let dimensions = (
+                    self.parse_dimension(&node, "width", None),
+                    self.parse_dimension(&node, "height", None),
                 );
+
+                let origin = (
+                    self.parse_dimension(&node, "x", None),
+                    self.parse_dimension(&node, "y", None),
+                );
+
+                let radii = (
+                    self.parse_dimension(&node, "rx", None).unwrap_or(0.),
+                    self.parse_dimension(&node, "ry", None).unwrap_or(0.),
+                );
+
+                if origin.0.is_none() || origin.1.is_none() {
+                    warn!("Rectangles without an origin are not supported: {:?}", node);
+                } else if dimensions.0.is_none() || dimensions.1.is_none() {
+                    warn!(
+                        "Rectangles without dimensions are not supported: {:?}",
+                        node
+                    );
+                } else {
+                    self.terrarium.reset();
+                    self.push_node_name_comment(&node);
+                    apply_rect(
+                        &mut self.terrarium,
+                        (origin.0.unwrap(), origin.1.unwrap()),
+                        (dimensions.0.unwrap(), dimensions.1.unwrap()),
+                        radii,
+                    );
+                }
+            }
+            "circle" => {
+                let origin = (
+                    self.parse_dimension(&node, "cx", None),
+                    self.parse_dimension(&node, "cy", None),
+                );
+
+                let radius = self.parse_dimension(&node, "r", None);
+
+                if origin.0.is_none() || origin.1.is_none() {
+                    warn!("Circles without an origin are not supported: {:?}", node);
+                } else if radius.is_none() {
+                    warn!("Circles without radius are not supported: {:?}", node);
+                } else {
+                    self.terrarium.reset();
+                    self.push_node_name_comment(&node);
+                    apply_ellipse(
+                        &mut self.terrarium,
+                        (origin.0.unwrap(), origin.1.unwrap()),
+                        (radius.unwrap(), radius.unwrap()),
+                    );
+                }
+            }
+            "ellipse" => {
+                let origin = (
+                    self.parse_dimension(&node, "cx", None),
+                    self.parse_dimension(&node, "cy", None),
+                );
+
+                let radii = (
+                    self.parse_dimension(&node, "rx", None),
+                    self.parse_dimension(&node, "ry", None),
+                );
+
+                if origin.0.is_none() || origin.1.is_none() {
+                    warn!("Circles without an origin are not supported: {:?}", node);
+                } else if radii.0.is_none() || radii.1.is_none() {
+                    warn!("Circles without radius are not supported: {:?}", node);
+                } else {
+                    self.terrarium.reset();
+                    self.push_node_name_comment(&node);
+                    apply_ellipse(
+                        &mut self.terrarium,
+                        (origin.0.unwrap(), origin.1.unwrap()),
+                        (radii.0.unwrap(), radii.1.unwrap()),
+                    );
+                }
+            }
+            "line" => {
+                let start = (
+                    self.parse_dimension(&node, "x1", None),
+                    self.parse_dimension(&node, "y1", None),
+                );
+
+                let end = (
+                    self.parse_dimension(&node, "x2", None),
+                    self.parse_dimension(&node, "y2", None),
+                );
+
+                if start.0.is_none() || start.1.is_none() {
+                    warn!("Circles without an origin are not supported: {:?}", node);
+                } else if end.0.is_none() || end.1.is_none() {
+                    warn!("Circles without radius are not supported: {:?}", node);
+                } else {
+                    self.terrarium.reset();
+                    self.push_node_name_comment(&node);
+                    self.terrarium
+                        .move_to(true, start.0.unwrap(), start.1.unwrap());
+                    self.terrarium.line(true, end.0.unwrap(), end.1.unwrap());
+                }
+            }
+            "style" | "svg" | "desc" | "metadata" => {}
+            _ => {
+                warn!("Node not implemented: {:?}", node);
             }
         }
 
@@ -366,6 +517,94 @@ fn apply_path<T: Turtle + Debug>(terrarium: &mut Terrarium<T>, path: &str) {
                 ),
             }
         });
+}
+
+fn apply_rect<T: Turtle>(
+    terrarium: &mut Terrarium<T>,
+    origin: (f64, f64),
+    dimensions: (f64, f64),
+    radii: (f64, f64),
+) {
+    let have_radius = radii.0 > 0.0 && radii.1 > 0.0;
+
+    terrarium.move_to(true, origin.0 + radii.0, origin.1);
+
+    // Top line
+    terrarium.line(true, origin.0 + dimensions.0 - radii.0, None);
+    // Top right corner
+    if have_radius {
+        terrarium.elliptical(
+            true,
+            vector(radii.0, radii.1),
+            Angle::zero(),
+            ArcFlags {
+                large_arc: false,
+                sweep: true,
+            },
+            point(origin.0 + dimensions.0, origin.1 + radii.1),
+        );
+    }
+    // Right line
+    terrarium.line(true, None, origin.1 + dimensions.1 - radii.1);
+    // Bottom right corner
+    if have_radius {
+        terrarium.elliptical(
+            true,
+            vector(radii.0, radii.1),
+            Angle::zero(),
+            ArcFlags {
+                large_arc: false,
+                sweep: true,
+            },
+            point(origin.0 + dimensions.0 - radii.0, origin.1 + dimensions.1),
+        );
+    }
+    // Bottom line
+    terrarium.line(true, origin.0 + radii.0, None);
+    // Bottom left corner
+    if have_radius {
+        terrarium.elliptical(
+            true,
+            vector(radii.0, radii.1),
+            Angle::zero(),
+            ArcFlags {
+                large_arc: false,
+                sweep: true,
+            },
+            point(origin.0, origin.1 + dimensions.1 - radii.1),
+        );
+    }
+    // Left line
+    terrarium.line(true, None, origin.1 + radii.1);
+    // Top left corner
+    if have_radius {
+        terrarium.elliptical(
+            true,
+            vector(radii.0, radii.1),
+            Angle::zero(),
+            ArcFlags {
+                large_arc: false,
+                sweep: true,
+            },
+            point(origin.0 + radii.0, origin.1),
+        );
+    }
+}
+
+fn apply_ellipse<T: Turtle>(terrarium: &mut Terrarium<T>, origin: (f64, f64), radii: (f64, f64)) {
+    terrarium.move_to(true, origin.0 + radii.0, origin.1);
+
+    // Top half
+    terrarium.elliptical(
+        true,
+        vector(radii.0, radii.1),
+        Angle::zero(),
+        ArcFlags {
+            large_arc: true,
+            sweep: true,
+        },
+        point(origin.0 + radii.0, origin.1),
+    );
 }
 
 fn svg_transform_into_euclid_transform(svg_transform: TransformListToken) -> Transform2D<f64> {
