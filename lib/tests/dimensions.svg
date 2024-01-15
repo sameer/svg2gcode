@@ -1,0 +1,108 @@
+<?xml version="1.0" standalone="no"?>
+<svg
+    width="200mm"
+    height="400mm"
+    viewBox="0 -20 100 200"
+    xmlns="http://www.w3.org/2000/svg"
+    version="1.1"
+>
+    <!-- Manually constructed SVG
+    
+        It draws several lines, each with a different unit, but all of them
+        should be exactly 50 units long. As the 100px width viewport maps to
+        200mm, that should equal 100mm. This has been verified with Inkscape
+        and Firefox.
+
+        The viewbox doesn't start on origin on purpose, so we also test 
+        origin-based math here.
+
+        Two units are font-dependent (em and ex). Calculations with those are
+        underdefined as long as there's no font support. These cases these are
+        marked with class="font-dependent", and styled in red.
+    -->
+
+    <style>
+        * {
+            stroke: #059;
+            stroke-width: 1;
+            fill: none;
+        }
+
+        .font-dependent {
+            stroke: #f00;
+        }
+    </style>
+
+    <!-- A line around the page, so a visual inspection is easy -->
+    <g transform="translate(0 -20)">
+        <polygon  points="0,0 0,100 100,100 100,0 0,0" id="page-bounds"/>
+    </g>
+
+    <!-- Unitless (equivalent to pixels)-->
+    <g transform="translate(5 -15)">
+        <line x1="0" y1="0" x2="50" y2="0" id="unitless-H" />
+        <line x1="0" y1="0" x2="0" y2="50" id="unitless-V" />
+    </g>
+
+    <!-- px -->
+    <g transform="translate(10 -10)">
+        <line x1="0" y1="0" x2="50px" y2="0"  id="px-H"/>
+        <line x1="0" y1="0" x2="0" y2="50px"  id="px-V"/>
+    </g>
+
+    <!-- 1mm = (96dpi / 25.4mm/in ) px -->
+    <g transform="translate(15 -5)">
+        <line x1="0" y1="0" x2="13.3333333mm" y2="0"  id="mm-H"/>
+        <line x1="0" y1="0" x2="0" y2="13.333333mm"  id="mm-V"/>
+    </g>
+
+    <!-- 1cm = (96dpi / 2.54cm/in ) px -->
+    <g transform="translate(20 0)">
+        <line x1="0" y1="0" x2="1.33333333cm" y2="0"  id="cm-H"/>
+        <line x1="0" y1="0" x2="0" y2="1.3333333cm"  id="cm-V"/>
+    </g>
+
+    <!-- 1in = (96dpi) px -->
+    <g transform="translate(25 5)">
+        <line x1="0" y1="0" x2=".52083in" y2="0"  id="in-H"/>
+        <line x1="0" y1="0" x2="0" y2=".52083in"  id="in-V"/>
+    </g>
+
+    <!-- 1em = font dependent.
+        Inkscape 1.3.2 on debian bookworm uses 12px (used for this test)
+        Firefox 115.5 on debian bookworm uses 16px
+    -->
+    <g transform="translate(30 10)">
+        <line x1="0" y1="0" x2="4.166em" y2="0"  class="font-dependent" id="em-H"/>
+        <line x1="0" y1="0" x2="0" y2="4.166em" class="font-dependent"  id="em-V"/>
+    </g>
+
+    <!-- 1ex = font dependent.
+        Inkscape 1.3.2 on debian bookworm uses 6px (used for this test)
+        Firefox 115.5 on debian bookworm uses 8px
+    -->
+    <g transform="translate(35 15)">
+        <line x1="0" y1="0" x2="8.333333333ex" y2="0" class="font-dependent" id="ex-H"/>
+        <line x1="0" y1="0" x2="0" y2="8.333333ex" class="font-dependent"  id="ex-V"/>
+    </g>
+
+    <!-- 1% = document dimension / 100. 
+        This is the only unit that is directional, e.g. height is different from width.
+    -->
+    <g transform="translate(40 20)">
+        <line x1="0" y1="0" x2="50%" y2="0"  id="pct-H"/>
+        <line x1="0" y1="0" x2="0" y2="25%"  id="pct-V"/>
+    </g>
+
+    <!-- 1pt = 96dpi / 72pt/in -->
+    <g transform="translate(45 25)">
+        <line x1="0" y1="0" x2="37.5pt" y2="0"  id="pt-H"/>
+        <line x1="0" y1="0" x2="0" y2="37.5pt"  id="pt-V"/>
+    </g>
+
+    <!-- 1pc = 96dpi / 6pc/in -->-->
+    <g transform="translate(50 30)">
+        <line x1="0" y1="0" x2="3.125pc" y2="0"  id="pc-H"/>
+        <line x1="0" y1="0" x2="0" y2="3.125pc"  id="pc-V"/>
+    </g>
+</svg>
