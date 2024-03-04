@@ -30,7 +30,7 @@ pub struct Settings {
 #[cfg(test)]
 mod test {
     use super::*;
-    use g_code::emit::Token;
+    use g_code::emit::{FormatOptions, Token};
     use pretty_assertions::assert_eq;
     use svgtypes::{Length, LengthUnit};
 
@@ -60,7 +60,9 @@ mod test {
     }
 
     fn assert_close(left: Vec<Token<'_>>, right: Vec<Token<'_>>) {
-        assert_eq!(left.len(), right.len());
+        let mut code = String::new();
+        g_code::emit::format_gcode_fmt(&left, FormatOptions::default(), &mut code).unwrap();
+        assert_eq!(left.len(), right.len(), "{code}");
         for (i, pair) in left.into_iter().zip(right.into_iter()).enumerate() {
             match pair {
                 (Token::Field(l), Token::Field(r)) => {

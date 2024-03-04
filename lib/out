@@ -1,3 +1,12 @@
+
+running 1 test
+test test::svg_with_smooth_curves_produces_expected_gcode ... FAILED
+
+failures:
+
+---- test::svg_with_smooth_curves_produces_expected_gcode stdout ----
+thread 'test::svg_with_smooth_curves_produces_expected_gcode' panicked at lib/src/lib.rs:65:9:
+assertion failed: `(left == right)`: G21
 G90;svg#Drawing > g#Layer_3 > path
 G0 X81.93999999999998 Y121.57000000000005
 G3 X94.30999999999997 Y124.21000000000006 R14.919999999999998 F300
@@ -2888,3 +2897,18 @@ G1 X224.20250766199135 Y38.84576869590461 F300
 G1 X224.07999999999998 Y38.900000000000034 F300
 G1 X224.0799999999999 Y38.9200000000001 F300
 M2
+
+
+[1mDiff[0m [31m< left[0m / [32mright >[0m :
+[31m<1[0m[1;48;5;52;31m2[0m[31m7[0m[1;48;5;52;31m26[0m
+[32m>1[0m[1;48;5;22;32m3[0m[32m7[0m[1;48;5;22;32m58[0m
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    test::svg_with_smooth_curves_produces_expected_gcode
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.12s
+

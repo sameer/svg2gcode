@@ -1,6 +1,6 @@
 [package]
 name = "svg2gcode"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Sameer Puri <crates@purisa.me>"]
 edition = "2021"
 description = "Convert paths in SVG files to GCode for a pen plotter, laser engraver, or other machine."
@@ -9,12 +9,12 @@ license = "MIT"
 
 [dependencies]
 g-code = { version = "0.3.6", features = ["serde"] }
-lyon_geom = "1.0.4"
+lyon_geom = "1.0.5"
 euclid = "0.22"
 log = "0.4"
 uom = "0.35"
 roxmltree = "0.19"
-svgtypes = "0.12"
+svgtypes = "0.13"
 paste = "1.0"
 
 [dependencies.serde]
