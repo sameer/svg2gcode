@@ -1612,7 +1612,7 @@ dependencies = [
  "serde",
  "serde_json",
  "svg2gcode 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "svgtypes 0.12.0",
+ "svgtypes 0.13.0",
  "thiserror",
  "wasm-bindgen",
  "wasm-bindgen-futures",
