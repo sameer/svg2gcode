@@ -1,6 +1,6 @@
 [package]
 name = "svg2gcode-cli"
-version = "0.0.4"
+version = "0.0.5"
 authors = ["Sameer Puri <crates@purisa.me>"]
 edition = "2021"
 description = "Command line interface for svg2gcode"
@@ -14,8 +14,8 @@ log = "0"
 g-code = "0.3"
 codespan-reporting = "0.11"
 structopt = "0.3"
-roxmltree = "0.18"
-svgtypes = "0.11"
+roxmltree = "0.19"
+svgtypes = "0.12"
 serde_json = "1"
 
 [[bin]]
