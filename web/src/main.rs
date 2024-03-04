@@ -23,7 +23,7 @@ use forms::*;
 use state::*;
 use ui::*;
 use util::*;
-use yewdux::prelude::{use_store, Dispatch};
+use yewdux::{prelude::use_store, use_dispatch, YewduxRoot};
 use zip::{write::FileOptions, CompressionMethod, ZipWriter};
 
 #[function_component]
@@ -31,7 +31,7 @@ fn App(_props: &()) -> Html {
     let generating = use_state_eq(|| false);
     let generating_setter = generating.setter();
 
-    let form_dispatch = Dispatch::<FormState>::new();
+    let form_dispatch = use_dispatch::<FormState>();
     let (app_store, app_dispatch) = use_store::<AppState>();
 
     // TODO: come up with a less awkward way to do this.
@@ -54,7 +54,7 @@ fn App(_props: &()) -> Html {
             let opts = FileOptions::default().compression_method(CompressionMethod::Stored);
 
             if app_store.svgs.len() > 1 {
-                zip.add_directory("svg2gcode_output", opts.clone()).unwrap();
+                zip.add_directory("svg2gcode_output", opts).unwrap();
             }
 
             for svg in app_store.svgs.iter() {
@@ -109,36 +109,39 @@ fn App(_props: &()) -> Html {
                     Path::new(svg.filename.as_str()).with_extension("gcode")
                 };
 
-                if app_store.svgs.len() > 1 {
-                    zip.start_file(filepath.to_string_lossy(), opts.clone())
-                        .unwrap();
+                match app_store.svgs.len() {
+                    0 => unreachable!(),
+                    1 => {
+                        let gcode = {
+                            let mut acc = String::new();
+                            format_gcode_fmt(
+                                &program,
+                                FormatOptions {
+                                    checksums: app_store.settings.postprocess.checksums,
+                                    line_numbers: app_store.settings.postprocess.line_numbers,
+                                    ..Default::default()
+                                },
+                                &mut acc,
+                            )
+                            .unwrap();
+                            acc
+                        };
+                        prompt_download(filepath, gcode.as_bytes());
+                    }
+                    _multiple => {
+                        zip.start_file(filepath.to_string_lossy(), opts).unwrap();
 
-                    format_gcode_io(
-                        &program,
-                        FormatOptions {
-                            checksums: app_store.settings.postprocess.checksums,
-                            line_numbers: app_store.settings.postprocess.line_numbers,
-                            ..Default::default()
-                        },
-                        &mut zip,
-                    )
-                    .unwrap();
-                } else if app_store.svgs.len() == 1 {
-                    let gcode = {
-                        let mut acc = String::new();
-                        format_gcode_fmt(
+                        format_gcode_io(
                             &program,
                             FormatOptions {
                                 checksums: app_store.settings.postprocess.checksums,
                                 line_numbers: app_store.settings.postprocess.line_numbers,
                                 ..Default::default()
                             },
-                            &mut acc,
+                            &mut zip,
                         )
                         .unwrap();
-                        acc
-                    };
-                    prompt_download(filepath, gcode.as_bytes());
+                    }
                 }
             }
 
@@ -160,81 +163,83 @@ fn App(_props: &()) -> Html {
     };
 
     html! {
-        <div class="container">
-            <div class={classes!("column")}>
-                <h1>
-                    { "svg2gcode" }
-                </h1>
-                <p>
-                    { env!("CARGO_PKG_DESCRIPTION") }
-                </p>
-                <SvgForm/>
-                <ButtonGroup>
-                    <Button
-                        title="Generate G-Code"
-                        style={ButtonStyle::Primary}
-                        loading={*generating}
-                        icon={
-                            html_nested! (
-                                <Icon name={IconName::Download} />
-                            )
-                        }
-                        disabled={generate_disabled}
-                        onclick={generate_onclick}
-                    />
-                    <HyperlinkButton
-                        title="Settings"
-                        style={ButtonStyle::Default}
-                        icon={IconName::Edit}
-                        href="#settings"
-                    />
-                </ButtonGroup>
-                <div class={classes!("card-container", "columns")}>
-                    {
-                        for app_store.svgs.iter().enumerate().map(|(i, svg)| {
-                            let svg_base64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(svg.content.as_bytes());
-                            let remove_svg_onclick = app_dispatch.reduce_mut_callback(move |app| {
-                                app.svgs.remove(i);
-                            });
-                            let footer = html!{
-                                <Button
-                                    title="Remove"
-                                    style={ButtonStyle::Primary}
-                                    icon={
-                                        html_nested!(
-                                            <Icon name={IconName::Delete} />
-                                        )
-                                    }
-                                    onclick={remove_svg_onclick}
-                                />
-                            };
-                            html!{
-                                <div class={classes!("column", "col-6", "col-xs-12")}>
-                                    <Card
-                                        title={svg.filename.clone()}
-                                        img={html_nested!(
-                                            <img class="img-responsive" src={format!("data:image/svg+xml;base64,{}", svg_base64)} alt={svg.filename.clone()} />
-                                        )}
-                                        footer={footer}
-                                    />
-                                </div>
+        <YewduxRoot>
+            <div class="container">
+                <div class={classes!("column")}>
+                    <h1>
+                        { "svg2gcode" }
+                    </h1>
+                    <p>
+                        { env!("CARGO_PKG_DESCRIPTION") }
+                    </p>
+                    <SvgForm/>
+                    <ButtonGroup>
+                        <Button
+                            title="Generate G-Code"
+                            style={ButtonStyle::Primary}
+                            loading={*generating}
+                            icon={
+                                html_nested! (
+                                    <Icon name={IconName::Download} />
+                                )
                             }
-                        })
-                    }
+                            disabled={generate_disabled}
+                            onclick={generate_onclick}
+                        />
+                        <HyperlinkButton
+                            title="Settings"
+                            style={ButtonStyle::Default}
+                            icon={IconName::Edit}
+                            href="#settings"
+                        />
+                    </ButtonGroup>
+                    <div class={classes!("card-container", "columns")}>
+                        {
+                            for app_store.svgs.iter().enumerate().map(|(i, svg)| {
+                                let svg_base64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(svg.content.as_bytes());
+                                let remove_svg_onclick = app_dispatch.reduce_mut_callback(move |app| {
+                                    app.svgs.remove(i);
+                                });
+                                let footer = html!{
+                                    <Button
+                                        title="Remove"
+                                        style={ButtonStyle::Primary}
+                                        icon={
+                                            html_nested!(
+                                                <Icon name={IconName::Delete} />
+                                            )
+                                        }
+                                        onclick={remove_svg_onclick}
+                                    />
+                                };
+                                html!{
+                                    <div class={classes!("column", "col-6", "col-xs-12")}>
+                                        <Card
+                                            title={svg.filename.clone()}
+                                            img={html_nested!(
+                                                <img class="img-responsive" src={format!("data:image/svg+xml;base64,{}", svg_base64)} alt={svg.filename.clone()} />
+                                            )}
+                                            footer={footer}
+                                        />
+                                    </div>
+                                }
+                            })
+                        }
+                    </div>
+                    <SettingsForm/>
+                    <ImportExportModal/>
                 </div>
-                <SettingsForm/>
-                <ImportExportModal/>
+                <div class={classes!("text-right", "column")}>
+                    <p>
+                        { "See the project " }
+                        <a href={env!("CARGO_PKG_REPOSITORY")}>
+                            { "on GitHub" }
+                        </a>
+                        {" for support" }
+                    </p>
+                </div>
             </div>
-            <div class={classes!("text-right", "column")}>
-                <p>
-                    { "See the project " }
-                    <a href={env!("CARGO_PKG_REPOSITORY")}>
-                        { "on GitHub" }
-                    </a>
-                    {" for support" }
-                </p>
-            </div>
-        </div>
+        </YewduxRoot>
     }
 }
 
