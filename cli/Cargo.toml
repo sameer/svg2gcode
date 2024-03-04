@@ -15,7 +15,7 @@ g-code = "0.3"
 codespan-reporting = "0.11"
 structopt = "0.3"
 roxmltree = "0.19"
-svgtypes = "0.12"
+svgtypes = "0.13"
 serde_json = "1"
 
 [[bin]]

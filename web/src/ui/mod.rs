@@ -361,7 +361,7 @@ where
         props.default.as_ref(),
         node_ref.cast::<HtmlInputElement>(),
     ) {
-        input_element.set_value(&default.to_string());
+        input_element.set_value(default.as_ref());
         applied_default_value.set(true);
     }
 

@@ -10,7 +10,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{window, Event, FileList, HtmlElement, HtmlInputElement, Response};
 use yew::prelude::*;
-use yewdux::{functional::use_store, prelude::Dispatch};
+use yewdux::{functional::use_store, use_dispatch};
 
 use crate::{
     state::{AppState, FormState, Svg},
@@ -28,7 +28,7 @@ use inputs::*;
 
 #[function_component(SettingsForm)]
 pub fn settings_form() -> Html {
-    let app_dispatch = Dispatch::<AppState>::new();
+    let app_dispatch = use_dispatch::<AppState>();
     let (form_state, form_dispatch) = use_store::<FormState>();
 
     let disabled = form_state.tolerance.is_err()
@@ -205,8 +205,8 @@ pub fn settings_form() -> Html {
 
 #[function_component(ImportExportModal)]
 pub fn import_export_modal() -> Html {
-    let app_dispatch = Dispatch::<AppState>::new();
-    let form_dispatch = Dispatch::<FormState>::new();
+    let app_dispatch = use_dispatch::<AppState>();
+    let form_dispatch = use_dispatch::<FormState>();
 
     let import_state = use_state(|| Option::<Result<Settings, String>>::None);
 
@@ -349,12 +349,12 @@ pub fn import_export_modal() -> Html {
 
 #[function_component(SvgForm)]
 pub fn svg_form() -> Html {
-    let app_dispatch = Dispatch::<AppState>::new();
+    let app_dispatch = use_dispatch::<AppState>();
 
     let file_upload_state = use_mut_ref(Vec::default);
     let file_upload_state_cloned = file_upload_state.clone();
     let file_upload_onchange =
-        app_dispatch.reduce_mut_future_callback_with(move |app, file_list: FileList| {
+        app_dispatch.future_callback_with(move |app, file_list: FileList| {
             let file_upload_state_cloned = file_upload_state_cloned.clone();
             Box::pin(async move {
                 let mut results = Vec::with_capacity(file_list.length() as usize);
@@ -384,7 +384,9 @@ pub fn svg_form() -> Html {
                         .borrow_mut()
                         .push(result.clone().map(|_| ()));
                 }
-                app.svgs.extend(results.drain(..).filter_map(Result::ok));
+                app.reduce_mut(|app| {
+                    app.svgs.extend(results.drain(..).filter_map(Result::ok));
+                });
             })
         });
 
@@ -420,7 +422,7 @@ pub fn svg_form() -> Html {
         let url_input_parsed = url_input_parsed.clone();
         let url_add_loading = url_add_loading.clone();
 
-        app_dispatch.reduce_mut_future_callback_with(move |app, _| {
+        app_dispatch.future_callback_with(move |app, _| {
             let url_input_state = url_input_state.clone();
             let url_input_parsed = url_input_parsed.clone();
             let url_add_loading = url_add_loading.clone();
@@ -447,10 +449,12 @@ pub fn svg_form() -> Html {
                                 &response_url, err
                             ))));
                         } else {
-                            app.svgs.push(Svg {
-                                content: text,
-                                filename: response_url,
-                                dimensions: [None; 2],
+                            app.reduce_mut(|app| {
+                                app.svgs.push(Svg {
+                                    content: text,
+                                    filename: response_url,
+                                    dimensions: [None; 2],
+                                });
                             });
                         };
                     }
