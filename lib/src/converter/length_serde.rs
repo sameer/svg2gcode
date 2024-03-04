@@ -10,10 +10,10 @@ where
     S: Serializer,
 {
     let mut seq = serializer.serialize_seq(Some(2))?;
-    for i in 0..2 {
-        let length_def = length[i].map(|length| LengthDef {
-            number: length.number,
-            unit: length.unit,
+    for l in length {
+        let length_def = l.map(|l| LengthDef {
+            number: l.number,
+            unit: l.unit,
         });
         seq.serialize_element(&length_def)?;
     }
