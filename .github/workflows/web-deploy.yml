@@ -1,7 +1,7 @@
 name: Deploy svg2gcode-web
 on:
   workflow_run:
-    branches: [master]
+    branches: [main]
     workflows: [Build svg2gcode-web]
     types: [completed]
 
@@ -30,7 +30,7 @@ jobs:
 
       - name: Publish to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
-        if: github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/main'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./web/dist
