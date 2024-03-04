@@ -173,12 +173,15 @@ mod test {
             .iter_emit_tokens()
             .collect::<Vec<_>>();
 
-        let expected_circular_interpolation = g_code::parse::file_parser(include_str!(
-            "../tests/smooth_curves_circular_interpolation.gcode"
-        ))
-        .unwrap()
-        .iter_emit_tokens()
-        .collect::<Vec<_>>();
+        let file = if cfg!(debug) {
+            include_str!("../tests/smooth_curves_circular_interpolation.gcode")
+        } else {
+            include_str!("../tests/smooth_curves_circular_interpolation_release.gcode")
+        };
+        let expected_circular_interpolation = g_code::parse::file_parser(file)
+            .unwrap()
+            .iter_emit_tokens()
+            .collect::<Vec<_>>();
         assert_close(get_actual(svg, false, [None; 2]), expected);
 
         assert_close(

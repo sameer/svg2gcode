@@ -1,6 +1,6 @@
 [package]
 name = "svg2gcode-web"
-version = "0.0.5"
+version = "0.0.6"
 authors = ["Sameer Puri <crates@purisa.me>"]
 edition = "2021"
 description = "Convert vector graphics to g-code for pen plotters, laser engravers, and other CNC machines"
@@ -10,7 +10,7 @@ license = "MIT"
 
 [dependencies]
 wasm-bindgen = "0.2"
-svg2gcode = { version = "0.1.5", features = ["serde"] }
+svg2gcode = { version = "0.1.6", features = ["serde"] }
 roxmltree = "0.19"
 g-code = "0.3"
 codespan-reporting = "0.11"

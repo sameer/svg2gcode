@@ -3,3 +3,5 @@
 ./*.gcode
 pkg/
 dist
+lib/approx_circle.svg
+**/out
