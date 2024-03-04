@@ -236,10 +236,7 @@ impl<'a, T: Turtle> visit::XmlVisitor for ConversionVisitor<'a, T> {
                     self.terrarium.line(true, x, y);
                 }
             } else {
-                warn!(
-                    "There is a polyline node containing no actual path: {:?}",
-                    node
-                );
+                warn!("There is a polyline node containing no actual path: {:?}", node);
             }
         }
 
