@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::str::FromStr;
 
+use euclid::Vector2D;
 use g_code::emit::Token;
 use log::{debug, warn};
 use lyon_geom::{
@@ -132,81 +133,67 @@ impl<'a, T: Turtle> visit::XmlVisitor for ConversionVisitor<'a, T> {
             warn!("Clip paths are not supported: {:?}", node);
         }
 
-        let mut transforms = vec![];
+        let mut transforms = vec![Transform2D::identity()];
+
         if node.tag_name().name() == "svg" {
+            // First check if we've received overridden dimensions for the canvas. These are not relative to anything yet,
+            // so percentages won't work.
+            let dimensions_override = [
+                self.options.dimensions[0].map(|dim_x| length_to_mm(dim_x, self.config.dpi, None)),
+                self.options.dimensions[1].map(|dim_y| length_to_mm(dim_y, self.config.dpi, None)),
+            ];
+
+            // Find document dimensions, use overridden dimensions to help interpret percentages.
+            // If the document does not specify dimensions, use the overridden dimensions.
+            let dimensions = (
+                node.attribute("width")
+                    .map(parse_length)
+                    .map(|width| length_to_mm(width, self.config.dpi, dimensions_override[0]))
+                    .or(dimensions_override[0])
+                    .unwrap_or_else(|| {
+                        warn!("This SVG does not have width, or is a override specified. Assuming 100mm");
+                        100.
+                    }),
+                node.attribute("height")
+                    .map(parse_length)
+                    .map(|height| length_to_mm(height, self.config.dpi, dimensions_override[1]))
+                    .or(dimensions_override[1])
+                    .unwrap_or_else(|| {
+                        warn!("This SVG does not have height, or is a override specified. Assuming 100mm");
+                        100.
+                    }),
+            );
+
+            // Find the viewbox for the document.
+            // The viewbox determines how many 'pixels' are in the document, and where the origin is.
             let view_box = node
                 .attribute("viewBox")
                 .map(ViewBox::from_str)
                 .transpose()
-                .expect("could not parse viewBox");
-            let scale_w = view_box.map(|view_box| view_box.w);
-            let scale_h = view_box.map(|view_box| view_box.h);
-            let dimensions = (
-                node.attribute("width")
-                    .map(LengthListParser::from)
-                    .and_then(|mut parser| parser.next())
-                    .transpose()
-                    .expect("could not parse width")
-                    .map(|width| length_to_mm(width, self.config.dpi, scale_w)),
-                node.attribute("height")
-                    .map(LengthListParser::from)
-                    .and_then(|mut parser| parser.next())
-                    .transpose()
-                    .expect("could not parse height")
-                    .map(|height| length_to_mm(height, self.config.dpi, scale_h)),
-            );
-            let aspect_ratio = match (view_box, dimensions) {
-                (_, (Some(ref width), Some(ref height))) => *width / *height,
-                (Some(ref view_box), _) => view_box.w / view_box.h,
-                (None, (None, _)) | (None, (_, None)) => 1.,
-            };
+                .expect("could not parse viewBox")
+                .unwrap_or_else(|| {
+                    // SVG does not have a viewbox. Determine the viewbox from the dimensions.
+                    let mm_to_px = |mm: f64| mm * self.config.dpi / 25.4;
 
-            if let Some(ref view_box) = view_box {
-                let view_box_transform = Transform2D::translation(-view_box.x, -view_box.y)
-                    .then_scale(1. / view_box.w, 1. / view_box.h);
-                if node.has_tag_name("svg") {
-                    // Part 2 of converting from SVG to g-code coordinates
-                    transforms.push(view_box_transform.then_translate(vector(0., -1.)));
-                } else {
-                    transforms.push(view_box_transform);
-                }
-            }
-
-            let dimensions_override = [
-                self.options.dimensions[0]
-                    .map(|dim_x| length_to_mm(dim_x, self.config.dpi, scale_w)),
-                self.options.dimensions[1]
-                    .map(|dim_y| length_to_mm(dim_y, self.config.dpi, scale_h)),
-            ];
-
-            match (dimensions_override, dimensions) {
-                ([Some(dim_x), Some(dim_y)], _) if node.has_tag_name("svg") => {
-                    transforms.push(Transform2D::scale(dim_x, dim_y));
-                }
-                ([Some(dim_x), None], _) if node.has_tag_name("svg") => {
-                    transforms.push(Transform2D::scale(dim_x, dim_x / aspect_ratio));
-                }
-                ([None, Some(dim_y)], _) if node.has_tag_name("svg") => {
-                    transforms.push(Transform2D::scale(aspect_ratio * dim_y, dim_y));
-                }
-                (_, (Some(width), Some(height))) => {
-                    transforms.push(Transform2D::scale(width, height));
-                }
-                (_, (Some(width), None)) => {
-                    transforms.push(Transform2D::scale(width, width / aspect_ratio));
-                }
-                (_, (None, Some(height))) => {
-                    transforms.push(Transform2D::scale(aspect_ratio * height, height));
-                }
-                (_, (None, None)) => {
-                    if let (Some(ViewBox { w, h, .. }), true) =
-                        (view_box, node.has_tag_name("svg"))
-                    {
-                        transforms.push(Transform2D::scale(w, h));
-                        warn!("This SVG does not have width and/or height attributes! Assuming viewBox units are in millimeters");
+                    ViewBox {
+                        x: 0.,
+                        y: 0.,
+                        w: mm_to_px(dimensions.0),
+                        h: mm_to_px(dimensions.1),
                     }
-                }
-            }
+                });
+
+            // Adjust the origin to the top left corner of the viewbox
+            transforms.push(
+                Transform2D::identity()
+                // Scale pixels to millimeters.
+                .then_translate(Vector2D::new(-view_box.x, -view_box.y))
+                .then_translate(Vector2D::new(0.0, -view_box.h))
+                .then_scale(
+                    dimensions.0 / view_box.w,
+                    dimensions.1 / view_box.h,
+                )
+            );
         }
 
         if let Some(transform) = node.attribute("transform") {
@@ -248,7 +235,7 @@ impl<'a, T: Turtle> visit::XmlVisitor for ConversionVisitor<'a, T> {
                     if let Some((x, y)) = pp.next() {
                         self.terrarium.move_to(true, x, y);
                     }
-                    while let Some((x, y)) = pp.next() {
+                    for (x, y) in pp {
                         self.terrarium.line(true, x, y);
                     }
                 } else {
@@ -388,7 +375,7 @@ impl<'a, T: Turtle> visit::XmlVisitor for ConversionVisitor<'a, T> {
                     self.terrarium.line(true, end.0.unwrap(), end.1.unwrap());
                 }
             }
-            "style" | "svg" | "desc" | "metadata" => {}
+            "g" | "style" | "svg" | "desc" | "metadata" => {}
             _ => {
                 warn!("Node not implemented: {:?}", node);
             }
@@ -446,6 +433,7 @@ pub fn svg2program<'a, 'input: 'a>(
         options,
         name_stack: vec![],
     };
+
     conversion_visitor
         .terrarium
         .push_transform(origin_transform);
@@ -621,6 +609,16 @@ fn svg_transform_into_euclid_transform(svg_transform: TransformListToken) -> Tra
     }
 }
 
+/// Convenience function to parse a length
+/// Maps empty string to a unit-less length of 0. The SVG spec doesn't actually
+/// allow empty strings, but this behavior is consistent with Chrome, Firefox and Inkscape.
+fn parse_length(s: &str) -> svgtypes::Length {
+    LengthListParser::from(s)
+        .next()
+        .unwrap_or(Ok(svgtypes::Length::new(0.0, svgtypes::LengthUnit::None)))
+        .expect("Could not parse length")
+}
+
 /// Convenience function for converting absolute lengths to millimeters
 ///
 /// Absolute lengths are listed in [CSS 4 §6.2](https://www.w3.org/TR/css-values/#absolute-lengths).
@@ -651,7 +649,7 @@ fn length_to_mm(l: svgtypes::Length, dpi: f64, scale: Option<f64>) -> f64 {
                 warn!("Converting from percent to millimeters assumes the viewBox is specified in millimeters");
                 Length::new::<millimeter>(l.number / 100. * scale)
             } else {
-                warn!("Converting from percent to millimeters without a viewBox is not possible, treating as millimeters");
+                warn!("Converting from percent to millimeters without a viewBox is not possible, treating percentage as millimeters");
                 Length::new::<millimeter>(l.number)
             }
         }
