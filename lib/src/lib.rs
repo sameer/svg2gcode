@@ -191,6 +191,21 @@ mod test {
     }
 
     #[test]
+    fn svg_dimensions_produces_expected_gcode() {
+        let svg = include_str!("../tests/dimensions.svg");
+
+        let expected = g_code::parse::file_parser(include_str!("../tests/dimensions.gcode"))
+            .unwrap()
+            .iter_emit_tokens()
+            .collect::<Vec<_>>();
+
+        assert_close(
+            get_actual(svg, true, [None; 2]),
+            expected,
+        );
+    }
+
+    #[test]
     #[cfg(feature = "serde")]
     fn deserialize_v1_config_succeeds() {
         let json = r#"
