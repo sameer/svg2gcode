@@ -2,6 +2,7 @@ use lyon_geom::{Box2D, CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc
 
 use super::Turtle;
 
+/// Generates a bounding box for all draw operations, used to properly apply [crate::ConversionConfig::origin]
 #[derive(Debug, Default)]
 pub struct PreprocessTurtle {
     pub bounding_box: Box2D<f64>,

@@ -3,11 +3,11 @@ use serde::{Deserialize, Serialize};
 
 /// Approximate [Bézier curves](https://en.wikipedia.org/wiki/B%C3%A9zier_curve) with [Circular arcs](https://en.wikipedia.org/wiki/Circular_arc)
 mod arc;
-/// Converts an SVG to G-Code in an internal representation
+/// Converts an SVG to an internal representation
 mod converter;
 /// Emulates the state of an arbitrary machine that can run G-Code
 mod machine;
-/// Operations that are easier to implement after G-Code is generated, or would
+/// Operations that are easier to implement while/after G-Code is generated, or would
 /// otherwise over-complicate SVG conversion
 mod postprocess;
 /// Provides an interface for drawing lines in G-Code
@@ -131,6 +131,19 @@ mod test {
         let square_transformed = include_str!("../tests/square_transformed.svg");
         let expected =
             g_code::parse::file_parser(include_str!("../tests/square_transformed.gcode"))
+                .unwrap()
+                .iter_emit_tokens()
+                .collect::<Vec<_>>();
+        let actual = get_actual(square_transformed, false, [None; 2]);
+
+        assert_close(actual, expected)
+    }
+
+    #[test]
+    fn square_transformed_nested_produces_expected_gcode() {
+        let square_transformed = include_str!("../tests/square_transformed_nested.svg");
+        let expected =
+            g_code::parse::file_parser(include_str!("../tests/square_transformed_nested.gcode"))
                 .unwrap()
                 .iter_emit_tokens()
                 .collect::<Vec<_>>();

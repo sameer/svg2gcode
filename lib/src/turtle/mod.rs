@@ -7,11 +7,14 @@ use lyon_geom::{
 
 use crate::arc::Transformed;
 
+mod dpi;
 mod g_code;
 mod preprocess;
+pub use self::dpi::DpiConvertingTurtle;
 pub use self::g_code::GCodeTurtle;
-pub use preprocess::PreprocessTurtle;
+pub use self::preprocess::PreprocessTurtle;
 
+/// Abstraction based on [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics)
 pub trait Turtle: Debug {
     fn begin(&mut self);
     fn end(&mut self);
@@ -155,9 +158,9 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         if !abs {
             let inverse_transform = self.current_transform.inverse().unwrap();
             let original_current_position = inverse_transform.transform_point(from);
-            ctrl1 += original_current_position.to_vector();
-            ctrl2 += original_current_position.to_vector();
-            to += original_current_position.to_vector();
+            ctrl1 = original_current_position + ctrl1.to_vector();
+            ctrl2 = original_current_position + ctrl2.to_vector();
+            to = original_current_position + to.to_vector();
         }
         ctrl1 = self.current_transform.transform_point(ctrl1);
         ctrl2 = self.current_transform.transform_point(ctrl2);
@@ -190,8 +193,8 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         if !abs {
             let inverse_transform = self.current_transform.inverse().unwrap();
             let original_current_position = inverse_transform.transform_point(from);
-            ctrl2 += original_current_position.to_vector();
-            to += original_current_position.to_vector();
+            ctrl2 = original_current_position + ctrl2.to_vector();
+            to = original_current_position + to.to_vector();
         }
         ctrl2 = self.current_transform.transform_point(ctrl2);
         to = self.current_transform.transform_point(to);
@@ -225,7 +228,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         if !abs {
             let inverse_transform = self.current_transform.inverse().unwrap();
             let original_current_position = inverse_transform.transform_point(from);
-            to += original_current_position.to_vector();
+            to = original_current_position + to.to_vector();
         }
         to = self.current_transform.transform_point(to);
 
@@ -250,8 +253,8 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         if !abs {
             let inverse_transform = self.current_transform.inverse().unwrap();
             let original_current_position = inverse_transform.transform_point(from);
-            to += original_current_position.to_vector();
-            ctrl += original_current_position.to_vector();
+            to = original_current_position + to.to_vector();
+            ctrl = original_current_position + ctrl.to_vector();
         }
         ctrl = self.current_transform.transform_point(ctrl);
         to = self.current_transform.transform_point(to);
@@ -287,7 +290,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             .transform_point(self.current_position);
 
         if !abs {
-            to += from.to_vector()
+            to = from + to.to_vector()
         }
         let svg_arc = SvgArc {
             from,
@@ -310,6 +313,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     /// https://www.w3.org/TR/SVG/coords.html#InterfaceSVGTransform
     pub fn push_transform(&mut self, trans: Transform2D<f64>) {
         self.transform_stack.push(self.current_transform);
+        // https://stackoverflow.com/questions/18582935/the-applying-order-of-svg-transforms
         self.current_transform = trans.then(&self.current_transform);
     }
 
@@ -322,21 +326,12 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             .expect("popped when no transforms left");
     }
 
-    /// Remove all transforms, returning to true absolute coordinates
-    pub fn pop_all_transforms(&mut self) {
-        self.transform_stack.clear();
-        self.current_transform = Transform2D::identity();
-    }
-
     /// Reset the position of the turtle to the origin in the current transform stack
     /// Used for starting a new path
     pub fn reset(&mut self) {
-        self.current_position = Point::zero();
-        self.current_position = self
-            .current_transform
-            .transform_point(self.current_position);
+        self.current_position = self.current_transform.transform_point(Point::zero());
+        self.initial_position = self.current_position;
         self.previous_quadratic_control = None;
         self.previous_cubic_control = None;
-        self.initial_position = self.current_position;
     }
 }

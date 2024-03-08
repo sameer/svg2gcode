@@ -284,6 +284,7 @@ mod tests {
     use crate::arc::{ArcOrLineSegment, FlattenWithArcs};
 
     #[test]
+    #[ignore = "Creates an image file, will revise later"]
     fn flatten_returns_expected_arcs() {
         const PATH: &'static str = "M  8.0549,11.9023
         c

@@ -1,3 +1,6 @@
+//! Makes it possible to serialize an array of two optional [`svgtypes::Length`]s,
+//! used for [super::ConversionOptions::dimensions]
+
 use serde::{
     de::{SeqAccess, Visitor},
     ser::SerializeSeq,

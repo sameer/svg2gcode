@@ -8,7 +8,7 @@ use super::Turtle;
 use crate::arc::{ArcOrLineSegment, FlattenWithArcs};
 use crate::machine::Machine;
 
-/// Turtle graphics simulator for mapping path segments into g-code
+/// Maps path segments into g-code operations
 #[derive(Debug)]
 pub struct GCodeTurtle<'input> {
     pub machine: Machine<'input>,
@@ -48,7 +48,7 @@ impl<'input> GCodeTurtle<'input> {
         self.program.extend(
             self.machine
                 .tool_on()
-                .drain(..)
+                .into_iter()
                 .chain(self.machine.absolute()),
         );
     }
@@ -57,7 +57,7 @@ impl<'input> GCodeTurtle<'input> {
         self.program.extend(
             self.machine
                 .tool_off()
-                .drain(..)
+                .into_iter()
                 .chain(self.machine.absolute()),
         );
     }
@@ -119,7 +119,7 @@ impl<'input> Turtle for GCodeTurtle<'input> {
             .circular_interpolation
         {
             FlattenWithArcs::flattened(&svg_arc, self.tolerance)
-                .drain(..)
+                .into_iter()
                 .for_each(|segment| match segment {
                     ArcOrLineSegment::Arc(arc) => {
                         self.program.append(&mut self.circular_interpolation(arc))
@@ -145,7 +145,7 @@ impl<'input> Turtle for GCodeTurtle<'input> {
             .circular_interpolation
         {
             FlattenWithArcs::<f64>::flattened(&cbs, self.tolerance)
-                .drain(..)
+                .into_iter()
                 .for_each(|segment| match segment {
                     ArcOrLineSegment::Arc(arc) => {
                         self.program.append(&mut self.circular_interpolation(arc))
