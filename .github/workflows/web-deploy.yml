@@ -2,7 +2,7 @@ name: Deploy svg2gcode-web
 on:
   workflow_run:
     branches: [main]
-    workflows: [Build svg2gcode-web]
+    workflows: [Check svg2gcode-web]
     types: [completed]
 
 env:
