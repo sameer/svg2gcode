@@ -15,43 +15,30 @@ jobs:
         run: cargo build -p svg2gcode
   coverage:
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: nightly
           components: llvm-tools-preview
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          override: true
-          profile: minimal
-          components: llvm-tools-preview
-      - uses: actions-rs/install@v0.1
-        with:
-          crate: grcov
-          version: latest
-          use-tool-cache: true
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: -p svg2gcode
-        env:
-          RUSTFLAGS: '-Cinstrument-coverage'
-          RUSTDOCFLAGS: '-Cinstrument-coverage'
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features --no-fail-fast -p svg2gcode
+      - run: cargo install grcov
+      - run: cargo build -p svg2gcode
         env:
           RUSTFLAGS: '-Cinstrument-coverage'
           RUSTDOCFLAGS: '-Cinstrument-coverage'
           LLVM_PROFILE_FILE: 'codecov-instrumentation-%p-%m.profraw'
-      - name: grcov
-        run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch -o lcov.info
+      - run: RUSTFLAGS='-Cinstrument-coverage' cargo test --all-features --no-fail-fast -p svg2gcode
+        env:
+          RUSTFLAGS: '-Cinstrument-coverage'
+          RUSTDOCFLAGS: '-Cinstrument-coverage'
+          LLVM_PROFILE_FILE: 'codecov-instrumentation-%p-%m.profraw'
+      - run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch -o lcov.info
       - uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
