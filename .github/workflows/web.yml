@@ -1,4 +1,4 @@
-name: Build svg2gcode-web
+name: Check svg2gcode-web
 on: [push, pull_request]
 env:
   CARGO_TERM_COLOR: always
@@ -11,4 +11,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: dtolnay/rust-toolchain@stable
       - name: Build
-        run: cargo build -p svg2gcode-web
+        run: cargo check -p svg2gcode-web
