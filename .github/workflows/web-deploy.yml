@@ -21,8 +21,6 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - uses: jetli/trunk-action@v0.4.0
-      - uses: jetli/wasm-bindgen-action@v0.2.0
-
       - name: Trunk build
         run: |
           cd web
@@ -33,4 +31,4 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./web/dist
+          publish_dir: ${{ github.workspace }}/web/dist
