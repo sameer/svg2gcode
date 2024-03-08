@@ -21,6 +21,8 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - uses: jetli/trunk-action@v0.4.0
+        with:
+          version: v0.18.8
       - name: Trunk build
         run: |
           cd web
