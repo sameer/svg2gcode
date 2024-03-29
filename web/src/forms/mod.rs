@@ -3,7 +3,7 @@ use gloo_file::{
     futures::read_as_text,
 };
 use js_sys::TypeError;
-use roxmltree::Document;
+use roxmltree::{Document, ParsingOptions};
 use std::{convert::TryInto, path::Path};
 use svg2gcode::Settings;
 use wasm_bindgen::JsCast;
@@ -365,7 +365,15 @@ pub fn svg_form() -> Html {
                             .await
                             .map_err(|err| err.to_string())
                             .and_then(|text| {
-                                if let Some(err) = Document::parse(&text).err() {
+                                if let Some(err) = Document::parse_with_options(
+                                    &text,
+                                    ParsingOptions {
+                                        allow_dtd: true,
+                                        ..Default::default()
+                                    },
+                                )
+                                .err()
+                                {
                                     Err(format!("Error parsing {}: {}", &filename, err))
                                 } else {
                                     Ok(Svg {
@@ -443,7 +451,15 @@ pub fn svg_form() -> Html {
                             .unwrap()
                             .as_string()
                             .unwrap();
-                        if let Some(err) = Document::parse(&text).err() {
+                        if let Some(err) = Document::parse_with_options(
+                            &text,
+                            ParsingOptions {
+                                allow_dtd: true,
+                                ..Default::default()
+                            },
+                        )
+                        .err()
+                        {
                             url_input_parsed.set(Some(Err(format!(
                                 "Error parsing {}: {}",
                                 &response_url, err

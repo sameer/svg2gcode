@@ -3,6 +3,7 @@ use g_code::{
     parse::snippet_parser,
 };
 use log::info;
+use roxmltree::ParsingOptions;
 use std::{
     env,
     fs::File,
@@ -268,7 +269,14 @@ fn main() -> io::Result<()> {
         std::process::exit(1)
     };
 
-    let document = roxmltree::Document::parse(&input).unwrap();
+    let document = roxmltree::Document::parse_with_options(
+        &input,
+        ParsingOptions {
+            allow_dtd: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
     let program = svg2program(&document, &settings.conversion, options, machine);
 

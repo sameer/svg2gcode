@@ -10,7 +10,7 @@ use g_code::{
 };
 use js_sys::Date;
 use log::Level;
-use roxmltree::Document;
+use roxmltree::{Document, ParsingOptions};
 use svg2gcode::{svg2program, ConversionOptions, Machine};
 use yew::prelude::*;
 
@@ -97,7 +97,14 @@ fn app() -> Html {
                         .transpose()
                         .unwrap(),
                 );
-                let document = Document::parse(svg.content.as_str()).unwrap();
+                let document = Document::parse_with_options(
+                    svg.content.as_str(),
+                    ParsingOptions {
+                        allow_dtd: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
 
                 let program =
                     svg2program(&document, &app_store.settings.conversion, options, machine);

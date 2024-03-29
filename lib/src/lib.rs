@@ -32,6 +32,7 @@ mod test {
     use super::*;
     use g_code::emit::{FormatOptions, Token};
     use pretty_assertions::assert_eq;
+    use roxmltree::ParsingOptions;
     use svgtypes::{Length, LengthUnit};
 
     /// The values change between debug and release builds for circular interpolation,
@@ -45,7 +46,14 @@ mod test {
     ) -> Vec<Token<'_>> {
         let config = ConversionConfig::default();
         let options = ConversionOptions { dimensions };
-        let document = roxmltree::Document::parse(input).unwrap();
+        let document = roxmltree::Document::parse_with_options(
+            input,
+            ParsingOptions {
+                allow_dtd: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let machine = Machine::new(
             SupportedFunctionality {
