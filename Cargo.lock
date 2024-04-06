@@ -477,23 +477,9 @@ dependencies = [
 
 [[package]]
 name = "g-code"
-version = "0.3.6"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6261d157241cc6ec7e015a19f2b8ea37e2018a32980a60d65bda6c7b336349fc"
-dependencies = [
- "codespan",
- "codespan-reporting",
- "paste",
- "peg",
- "rust_decimal",
- "serde",
-]
-
-[[package]]
-name = "g-code"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48850f937f119c74c7be30902755b0e11566f5e38d9798638457a1a8a02cd2b6"
+checksum = "5b5380a002fd8012a9bf00965ce0ddc03f3a6375098eeeddbc19136b9b1afbc7"
 dependencies = [
  "codespan",
  "codespan-reporting",
@@ -1548,28 +1534,11 @@ dependencies = [
 
 [[package]]
 name = "svg2gcode"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e681aad5c66cb6d10003af2de52aa69ef21c56b60af24076f70562628a36d24"
-dependencies = [
- "euclid",
- "g-code 0.3.6",
- "log",
- "lyon_geom",
- "paste",
- "roxmltree",
- "serde",
- "svgtypes",
- "uom",
-]
-
-[[package]]
-name = "svg2gcode"
 version = "0.2.1"
 dependencies = [
  "cairo-rs",
  "euclid",
- "g-code 0.4.1",
+ "g-code",
  "log",
  "lyon_geom",
  "paste",
@@ -1582,28 +1551,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "svg2gcode"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d67d8338b768e752994fb7908968c9f1b5e5fb7049f60148a5a0f028c89d6f5d"
+dependencies = [
+ "euclid",
+ "g-code",
+ "log",
+ "lyon_geom",
+ "paste",
+ "roxmltree",
+ "serde",
+ "svgtypes",
+ "uom",
+]
+
+[[package]]
 name = "svg2gcode-cli"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "codespan-reporting",
  "env_logger",
- "g-code 0.3.6",
+ "g-code",
  "log",
  "roxmltree",
  "serde_json",
  "structopt",
- "svg2gcode 0.2.0",
+ "svg2gcode 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "svgtypes",
 ]
 
 [[package]]
 name = "svg2gcode-web"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "base64",
  "codespan",
  "codespan-reporting",
- "g-code 0.3.6",
+ "g-code",
  "gloo-file 0.3.0",
  "gloo-timers 0.3.0",
  "js-sys",
@@ -1612,7 +1598,7 @@ dependencies = [
  "roxmltree",
  "serde",
  "serde_json",
- "svg2gcode 0.2.0",
+ "svg2gcode 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "svgtypes",
  "thiserror",
  "wasm-bindgen",
