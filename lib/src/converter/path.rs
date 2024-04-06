@@ -12,12 +12,12 @@ use super::Terrarium;
 /// Performs a [`Terrarium::reset`] on each call
 pub fn apply_path<T: Turtle>(
     terrarium: &mut Terrarium<T>,
-    path: impl Iterator<Item = PathSegment>,
+    path: impl IntoIterator<Item = PathSegment>,
 ) {
     use PathSegment::*;
 
     terrarium.reset();
-    path.for_each(|segment| {
+    path.into_iter().for_each(|segment| {
         debug!("Drawing {:?}", &segment);
         match segment {
             MoveTo { abs, x, y } => terrarium.move_to(abs, x, y),

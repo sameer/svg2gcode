@@ -490,6 +490,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "g-code"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48850f937f119c74c7be30902755b0e11566f5e38d9798638457a1a8a02cd2b6"
+dependencies = [
+ "codespan",
+ "codespan-reporting",
+ "paste",
+ "peg",
+ "rust_decimal",
+ "serde",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1535,10 +1549,27 @@ dependencies = [
 [[package]]
 name = "svg2gcode"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e681aad5c66cb6d10003af2de52aa69ef21c56b60af24076f70562628a36d24"
+dependencies = [
+ "euclid",
+ "g-code 0.3.6",
+ "log",
+ "lyon_geom",
+ "paste",
+ "roxmltree",
+ "serde",
+ "svgtypes",
+ "uom",
+]
+
+[[package]]
+name = "svg2gcode"
+version = "0.2.1"
 dependencies = [
  "cairo-rs",
  "euclid",
- "g-code",
+ "g-code 0.4.1",
  "log",
  "lyon_geom",
  "paste",
@@ -1551,34 +1582,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "svg2gcode"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e681aad5c66cb6d10003af2de52aa69ef21c56b60af24076f70562628a36d24"
-dependencies = [
- "euclid",
- "g-code",
- "log",
- "lyon_geom",
- "paste",
- "roxmltree",
- "serde",
- "svgtypes",
- "uom",
-]
-
-[[package]]
 name = "svg2gcode-cli"
 version = "0.0.9"
 dependencies = [
  "codespan-reporting",
  "env_logger",
- "g-code",
+ "g-code 0.3.6",
  "log",
  "roxmltree",
  "serde_json",
  "structopt",
- "svg2gcode 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "svg2gcode 0.2.0",
  "svgtypes",
 ]
 
@@ -1589,7 +1603,7 @@ dependencies = [
  "base64",
  "codespan",
  "codespan-reporting",
- "g-code",
+ "g-code 0.3.6",
  "gloo-file 0.3.0",
  "gloo-timers 0.3.0",
  "js-sys",
@@ -1598,7 +1612,7 @@ dependencies = [
  "roxmltree",
  "serde",
  "serde_json",
- "svg2gcode 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "svg2gcode 0.2.0",
  "svgtypes",
  "thiserror",
  "wasm-bindgen",

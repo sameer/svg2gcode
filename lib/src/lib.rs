@@ -69,7 +69,7 @@ mod test {
 
     fn assert_close(left: Vec<Token<'_>>, right: Vec<Token<'_>>) {
         let mut code = String::new();
-        g_code::emit::format_gcode_fmt(&left, FormatOptions::default(), &mut code).unwrap();
+        g_code::emit::format_gcode_fmt(left.iter(), FormatOptions::default(), &mut code).unwrap();
         assert_eq!(left.len(), right.len(), "{code}");
         for (i, pair) in left.into_iter().zip(right.into_iter()).enumerate() {
             match pair {
@@ -209,6 +209,18 @@ mod test {
             get_actual(svg, true, [None; 2]),
             expected_circular_interpolation,
         );
+    }
+
+    #[test]
+    fn shapes_produces_expected_gcode() {
+        let shapes = include_str!("../tests/shapes.svg");
+        let expected = g_code::parse::file_parser(include_str!("../tests/shapes.gcode"))
+            .unwrap()
+            .iter_emit_tokens()
+            .collect::<Vec<_>>();
+        let actual = get_actual(shapes, false, [None; 2]);
+
+        assert_close(actual, expected)
     }
 
     #[test]
