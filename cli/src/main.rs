@@ -79,6 +79,11 @@ struct Opt {
     ///
     /// Useful for streaming g-code
     checksums: Option<bool>,
+    #[structopt(long)]
+    /// Add a newline character before each comment
+    ///
+    /// Workaround for parsers that don't accept comments on the same line
+    newline_before_comment: Option<bool>,
 }
 
 fn main() -> io::Result<()> {
@@ -147,6 +152,10 @@ fn main() -> io::Result<()> {
 
         if let Some(checksums) = opt.checksums {
             settings.postprocess.checksums = checksums;
+        }
+
+        if let Some(newline_before_comment) = opt.newline_before_comment {
+            settings.postprocess.newline_before_comment = newline_before_comment;
         }
 
         settings
@@ -296,6 +305,7 @@ fn main() -> io::Result<()> {
             FormatOptions {
                 line_numbers: settings.postprocess.line_numbers,
                 checksums: settings.postprocess.checksums,
+                newline_before_comment: settings.postprocess.newline_before_comment,
                 ..Default::default()
             },
             std::io::stdout(),

@@ -21,6 +21,7 @@ pub struct FormState {
     pub end_sequence: Option<Result<String, String>>,
     pub checksums: bool,
     pub line_numbers: bool,
+    pub newline_before_comment: bool,
 }
 
 impl Default for FormState {
@@ -80,6 +81,7 @@ impl<'a> TryInto<Settings> for &'a FormState {
             postprocess: PostprocessConfig {
                 checksums: self.checksums,
                 line_numbers: self.line_numbers,
+                newline_before_comment: self.newline_before_comment,
             },
         })
     }
@@ -105,6 +107,7 @@ impl From<&Settings> for FormState {
             end_sequence: settings.machine.end_sequence.clone().map(Ok),
             checksums: settings.postprocess.checksums,
             line_numbers: settings.postprocess.line_numbers,
+            newline_before_comment: settings.postprocess.newline_before_comment,
         }
     }
 }

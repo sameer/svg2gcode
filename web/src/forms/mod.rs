@@ -77,6 +77,12 @@ pub fn settings_form() -> Html {
         form.line_numbers = event.target_unchecked_into::<HtmlInputElement>().checked();
     });
 
+    let on_newline_before_comment_change =
+        form_dispatch.reduce_mut_callback_with(|form, event: Event| {
+            form.newline_before_comment =
+                event.target_unchecked_into::<HtmlInputElement>().checked();
+        });
+
     let save_onclick = {
         let close_ref = close_ref.clone();
         let form_state = form_state.clone();
@@ -167,6 +173,16 @@ pub fn settings_form() -> Html {
                                 desc="Useful when streaming g-code or debugging"
                                 checked={form_state.line_numbers}
                                 onchange={on_line_numbers_change}
+                            />
+                        </FormGroup>
+                    </div>
+                    <div class="column col-6 col-sm-12">
+                        <FormGroup>
+                            <Checkbox
+                                label="Newline before comments"
+                                desc="Workaround for parsers that don't accept comments on the same line"
+                                checked={form_state.newline_before_comment}
+                                onchange={on_newline_before_comment_change}
                             />
                         </FormGroup>
                     </div>
