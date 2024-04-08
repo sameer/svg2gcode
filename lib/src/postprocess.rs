@@ -10,4 +10,7 @@ pub struct PostprocessConfig {
     /// Convenience field for [g_code::emit::FormatOptions] field
     #[cfg_attr(feature = "serde", serde(default))]
     pub line_numbers: bool,
+    /// Convenience field for [g_code::emit::FormatOptions] field
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub newline_before_comment: bool,
 }
