@@ -23,6 +23,8 @@ const CIRCLE_TAG_NAME: &str = "circle";
 const ELLIPSE_TAG_NAME: &str = "ellipse";
 const LINE_TAG_NAME: &str = "line";
 const GROUP_TAG_NAME: &str = "g";
+const DEFS_TAG_NAME: &str = "defs";
+const USE_TAG_NAME: &str = "use";
 
 pub trait XmlVisitor {
     fn visit_enter(&mut self, node: Node);
@@ -30,16 +32,18 @@ pub trait XmlVisitor {
 }
 
 /// Used to skip over SVG elements that are explicitly marked as do not render
-fn is_valid_node(node: Node) -> bool {
-    return node.is_element()
+fn should_render_node(node: Node) -> bool {
+    node.is_element()
         && !node
             .attribute("style")
-            .map_or(false, |style| style.contains("display:none"));
+            .map_or(false, |style| style.contains("display:none"))
+        // Defs are not rendered
+        && node.tag_name().name() != DEFS_TAG_NAME
 }
 
 pub fn depth_first_visit(doc: &Document, visitor: &mut impl XmlVisitor) {
     fn visit_node(node: Node, visitor: &mut impl XmlVisitor) {
-        if !is_valid_node(node) {
+        if !should_render_node(node) {
             return;
         }
         visitor.visit_enter(node);
@@ -351,6 +355,9 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
                         warn!("Invalid line node: {node:?}");
                     }
                 }
+            }
+            USE_TAG_NAME => {
+                warn!("Unsupported node: {node:?}");
             }
             // No-op tags
             SVG_TAG_NAME | GROUP_TAG_NAME => {}
