@@ -90,7 +90,7 @@ impl<'input> Turtle for GCodeTurtle<'input> {
     fn move_to(&mut self, to: Point<f64>) {
         self.tool_off();
         self.program
-            .append(&mut command!(RapidPositioning { X: to.x, Y: to.y, }).into_token_vec());
+            .append(&mut command!(RapidPositioning { X: to.x, Y: to.y }).into_token_vec());
     }
 
     fn line_to(&mut self, to: Point<f64>) {

@@ -20,25 +20,23 @@ macro_rules! css_class_enum {
             ),*
         }
 
-        impl ToString for $name {
-            fn to_string(&self) -> String {
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
                 let suffix = match self {
                     $(
                         Self::$variant => $class
                     ),*
                 };
-                if suffix.is_empty() {
-                    String::default()
-                } else {
-                    let mut acc = String::default();
+                if !suffix.is_empty() {
                     $(
-                        acc += $prefix;
-                        acc.push('-');
+                        write!(f, "{}-", $prefix)?;
                     )?
-                    acc += suffix;
-                    acc
+                    write!(f, "{suffix}")
+                } else {
+                    Ok(())
                 }
             }
+
         }
     };
 }

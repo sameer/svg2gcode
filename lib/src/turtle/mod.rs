@@ -97,7 +97,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         // which could result in a G91 G1 X0 Y0
         if !(self.current_position - self.initial_position)
             .abs()
-            .lower_than(vector(std::f64::EPSILON, std::f64::EPSILON))
+            .lower_than(vector(f64::EPSILON, f64::EPSILON))
             .all()
         {
             self.turtle.line_to(self.initial_position);
