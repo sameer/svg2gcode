@@ -14,7 +14,7 @@ pub use self::dpi::DpiConvertingTurtle;
 pub use self::g_code::GCodeTurtle;
 pub use self::preprocess::PreprocessTurtle;
 
-/// Abstraction based on [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics)
+/// Abstraction for drawing paths based on [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics)
 pub trait Turtle: Debug {
     fn begin(&mut self);
     fn end(&mut self);
@@ -59,7 +59,10 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         X: Into<Option<f64>>,
         Y: Into<Option<f64>>,
     {
-        let inverse_transform = self.current_transform.inverse().unwrap();
+        let inverse_transform = self
+            .current_transform
+            .inverse()
+            .expect("transform is invertible");
         let original_current_position = inverse_transform.transform_point(self.current_position);
         let x = x
             .into()
@@ -114,7 +117,10 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         X: Into<Option<f64>>,
         Y: Into<Option<f64>>,
     {
-        let inverse_transform = self.current_transform.inverse().unwrap();
+        let inverse_transform = self
+            .current_transform
+            .inverse()
+            .expect("transform is invertible");
         let original_current_position = inverse_transform.transform_point(self.current_position);
         let x = x
             .into()
@@ -191,7 +197,10 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         let from = self.current_position;
         let ctrl1 = self.previous_cubic_control.unwrap_or(self.current_position);
         if !abs {
-            let inverse_transform = self.current_transform.inverse().unwrap();
+            let inverse_transform = self
+                .current_transform
+                .inverse()
+                .expect("transform is invertible");
             let original_current_position = inverse_transform.transform_point(from);
             ctrl2 = original_current_position + ctrl2.to_vector();
             to = original_current_position + to.to_vector();
@@ -226,7 +235,10 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             .previous_quadratic_control
             .unwrap_or(self.current_position);
         if !abs {
-            let inverse_transform = self.current_transform.inverse().unwrap();
+            let inverse_transform = self
+                .current_transform
+                .inverse()
+                .expect("transform is invertible");
             let original_current_position = inverse_transform.transform_point(from);
             to = original_current_position + to.to_vector();
         }
@@ -251,7 +263,10 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     pub fn quadratic_bezier(&mut self, abs: bool, mut ctrl: Point<f64>, mut to: Point<f64>) {
         let from = self.current_position;
         if !abs {
-            let inverse_transform = self.current_transform.inverse().unwrap();
+            let inverse_transform = self
+                .current_transform
+                .inverse()
+                .expect("transform is invertible");
             let original_current_position = inverse_transform.transform_point(from);
             to = original_current_position + to.to_vector();
             ctrl = original_current_position + ctrl.to_vector();
@@ -286,7 +301,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         let from = self
             .current_transform
             .inverse()
-            .unwrap()
+            .expect("transform is invertible")
             .transform_point(self.current_position);
 
         if !abs {
@@ -323,7 +338,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         self.current_transform = self
             .transform_stack
             .pop()
-            .expect("popped when no transforms left");
+            .expect("pop only called when transforms remain");
     }
 
     /// Reset the position of the turtle to the origin in the current transform stack

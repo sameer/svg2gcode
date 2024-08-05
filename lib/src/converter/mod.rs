@@ -171,17 +171,15 @@ fn node_name(node: &Node) -> String {
     name
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "serde"))]
 mod test {
     use super::*;
-    #[cfg(feature = "serde")]
     use svgtypes::LengthUnit;
 
     #[test]
-    #[cfg(feature = "serde")]
     fn serde_conversion_options_is_correct() {
         let default_struct = ConversionOptions::default();
-        let default_json = "{\"dimensions\":[null,null]}";
+        let default_json = r#"{"dimensions":[null,null]}"#;
 
         assert_eq!(
             serde_json::to_string(&default_struct).unwrap(),
@@ -194,14 +192,13 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "serde")]
     fn serde_conversion_options_with_single_dimension_is_correct() {
         let mut r#struct = ConversionOptions::default();
         r#struct.dimensions[0] = Some(Length {
             number: 4.,
             unit: LengthUnit::Mm,
         });
-        let json = "{\"dimensions\":[{\"number\":4.0,\"unit\":\"Mm\"},null]}";
+        let json = r#"{"dimensions":[{"number":4.0,"unit":"Mm"},null]}"#;
 
         assert_eq!(serde_json::to_string(&r#struct).unwrap(), json);
         assert_eq!(
@@ -211,7 +208,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "serde")]
     fn serde_conversion_options_with_both_dimensions_is_correct() {
         let mut r#struct = ConversionOptions::default();
         r#struct.dimensions = [
@@ -224,8 +220,7 @@ mod test {
                 unit: LengthUnit::In,
             }),
         ];
-        let json =
-            "{\"dimensions\":[{\"number\":4.0,\"unit\":\"Mm\"},{\"number\":10.5,\"unit\":\"In\"}]}";
+        let json = r#"{"dimensions":[{"number":4.0,"unit":"Mm"},{"number":10.5,"unit":"In"}]}"#;
 
         assert_eq!(serde_json::to_string(&r#struct).unwrap(), json);
         assert_eq!(

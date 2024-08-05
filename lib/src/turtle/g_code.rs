@@ -45,21 +45,13 @@ impl<'input> GCodeTurtle<'input> {
     }
 
     fn tool_on(&mut self) {
-        self.program.extend(
-            self.machine
-                .tool_on()
-                .into_iter()
-                .chain(self.machine.absolute()),
-        );
+        self.program.extend(self.machine.tool_on());
+        self.program.extend(self.machine.absolute());
     }
 
     fn tool_off(&mut self) {
-        self.program.extend(
-            self.machine
-                .tool_off()
-                .into_iter()
-                .chain(self.machine.absolute()),
-        );
+        self.program.extend(self.machine.tool_off());
+        self.program.extend(self.machine.absolute());
     }
 }
 
@@ -76,8 +68,6 @@ impl<'input> Turtle for GCodeTurtle<'input> {
         self.program.extend(self.machine.tool_off());
         self.program.extend(self.machine.absolute());
         self.program.extend(self.machine.program_end());
-        self.program
-            .append(&mut command!(ProgramEnd {}).into_token_vec());
     }
 
     fn comment(&mut self, comment: String) {

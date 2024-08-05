@@ -286,7 +286,7 @@ mod tests {
     #[test]
     #[ignore = "Creates an image file, will revise later"]
     fn flatten_returns_expected_arcs() {
-        const PATH: &'static str = "M  8.0549,11.9023
+        const PATH: &str = "M  8.0549,11.9023
         c
         0.13447,1.69916 8.85753,-5.917903 7.35159,-6.170957
         z";

@@ -1,6 +1,3 @@
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
-
 /// Approximate [Bézier curves](https://en.wikipedia.org/wiki/B%C3%A9zier_curve) with [Circular arcs](https://en.wikipedia.org/wiki/Circular_arc)
 mod arc;
 /// Converts an SVG to an internal representation
@@ -19,12 +16,82 @@ pub use machine::{Machine, MachineConfig, SupportedFunctionality};
 pub use postprocess::PostprocessConfig;
 pub use turtle::Turtle;
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+/// A cross-platform type used to store all configuration types.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Settings {
     pub conversion: ConversionConfig,
     pub machine: MachineConfig,
     pub postprocess: PostprocessConfig,
+    #[cfg_attr(feature = "serde", serde(default = "Version::unknown"))]
+    pub version: Version,
+}
+
+impl Settings {
+    /// Try to automatically upgrade the supported version.
+    ///
+    /// This will return an error if:
+    ///
+    /// - Settings version is [`Version::Unknown`].
+    /// - There are breaking changes requiring manual intervention. In which case this does a partial update to that point.
+    pub fn try_upgrade(&mut self) -> Result<(), ()> {
+        loop {
+            match self.version {
+                // Compatibility for M2 by default
+                Version::V0 => {
+                    self.machine.end_sequence = Some(format!(
+                        "{} M2",
+                        self.machine.end_sequence.take().unwrap_or_default()
+                    ));
+                    self.version = Version::V5;
+                }
+                Version::V5 => break Ok(()),
+                Version::Unknown(_) => break Err(()),
+            }
+        }
+    }
+}
+
+/// Used to control breaking change behavior for [`Settings`].
+///
+/// There were already 3 non-breaking version bumps (V1 -> V4) so versioning starts off with [`Version::V5`].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Version {
+    /// Implicitly versioned settings from before this type was introduced.
+    V0,
+    /// M2 is no longer appended to the program by default
+    V5,
+    #[cfg_attr(feature = "serde", serde(untagged))]
+    Unknown(String),
+}
+
+impl Version {
+    /// Returns the most recent [`Version`]. This is useful for asking users to upgrade externally-stored settings.
+    pub const fn latest() -> Self {
+        Self::V5
+    }
+
+    /// Default version for old settings.
+    pub const fn unknown() -> Self {
+        Self::V0
+    }
+}
+
+impl std::fmt::Display for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Version::V0 => f.write_str("V0"),
+            Version::V5 => f.write_str("V5"),
+            Version::Unknown(unknown) => f.write_str(unknown),
+        }
+    }
+}
+
+impl Default for Version {
+    fn default() -> Self {
+        Self::latest()
+    }
 }
 
 #[cfg(test)]
@@ -330,6 +397,36 @@ mod test {
                 "line_numbers": false,
                 "newline_before_comment": false
             }
+          }
+        "#;
+        serde_json::from_str::<Settings>(json).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn deserialize_v5_config_succeeds() {
+        let json = r#"
+        {
+            "conversion": {
+              "tolerance": 0.002,
+              "feedrate": 300.0,
+              "dpi": 96.0
+            },
+            "machine": {
+              "supported_functionality": {
+                "circular_interpolation": true
+              },
+              "tool_on_sequence": null,
+              "tool_off_sequence": null,
+              "begin_sequence": null,
+              "end_sequence": null
+            },
+            "postprocess": {
+                "checksums": false,
+                "line_numbers": false,
+                "newline_before_comment": false
+            },
+            "version": "V5"
           }
         "#;
         serde_json::from_str::<Settings>(json).unwrap();

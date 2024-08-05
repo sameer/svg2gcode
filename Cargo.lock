@@ -1449,6 +1449,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_repr"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c64451ba24fc7a6a2d60fc75dd9c83c90903b19028d4eff35e88fc1e86564e9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.48",
+]
+
+[[package]]
 name = "serde_spanned"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1535,24 +1546,6 @@ dependencies = [
 [[package]]
 name = "svg2gcode"
 version = "0.2.3"
-dependencies = [
- "cairo-rs",
- "euclid",
- "g-code",
- "log",
- "lyon_geom",
- "paste",
- "pretty_assertions",
- "roxmltree",
- "serde",
- "serde_json",
- "svgtypes",
- "uom",
-]
-
-[[package]]
-name = "svg2gcode"
-version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "908027aaae786a28b56c78ce9d6369cee4a6589d27320c5ef9a9485b8ac7c6d6"
 dependencies = [
@@ -1568,6 +1561,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "svg2gcode"
+version = "0.3.0"
+dependencies = [
+ "cairo-rs",
+ "euclid",
+ "g-code",
+ "log",
+ "lyon_geom",
+ "paste",
+ "pretty_assertions",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "svgtypes",
+ "uom",
+]
+
+[[package]]
 name = "svg2gcode-cli"
 version = "0.0.12"
 dependencies = [
@@ -1578,7 +1590,7 @@ dependencies = [
  "roxmltree",
  "serde_json",
  "structopt",
- "svg2gcode 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "svg2gcode 0.2.3",
  "svgtypes",
 ]
 
@@ -1598,7 +1610,7 @@ dependencies = [
  "roxmltree",
  "serde",
  "serde_json",
- "svg2gcode 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "svg2gcode 0.2.3",
  "svgtypes",
  "thiserror",
  "wasm-bindgen",
