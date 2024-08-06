@@ -74,7 +74,7 @@ css_class_enum! {
 #[function_component(Input)]
 pub fn input<T, E>(props: &InputProps<T, E>) -> Html
 where
-    T: Display + Clone + PartialEq,
+    T: Display + Clone + PartialEq + 'static,
     E: Display + Clone + PartialEq,
 {
     let success = props.parsed.as_ref().map(|x| x.is_ok()).unwrap_or(false);
@@ -85,7 +85,6 @@ where
     // so the noderef becomes valid.
     let first_render = use_state(|| true);
     let trigger = use_force_update();
-    let applied_default_value = use_state(|| false);
     let node_ref = use_node_ref();
 
     if *first_render {
@@ -93,17 +92,33 @@ where
         trigger.force_update();
     }
 
-    if let (false, Some(input_element)) =
-        (*applied_default_value, node_ref.cast::<HtmlInputElement>())
-    {
-        if let Some(d) = props.default.as_ref() {
-            input_element.set_value(&d.to_string());
+    let user_edited = use_state(|| false);
+    let last_default_value = use_state(|| None);
+    if let Some(input_element) = node_ref.cast::<HtmlInputElement>() {
+        // Re-apply default if it changes
+        if !*user_edited && props.default != *last_default_value {
+            if let Some(d) = props.default.as_ref() {
+                input_element.set_value(&d.to_string());
+            } else {
+                input_element.set_value("");
+            }
+            let mut init = InputEventInit::new();
+            init.data(Some("ignore"));
             input_element
-                .dispatch_event(&InputEvent::new("input").unwrap())
+                .dispatch_event(&InputEvent::new_with_event_init_dict("input", &init).unwrap())
                 .unwrap();
+            last_default_value.set(props.default.clone());
         }
-        applied_default_value.set(true);
     }
+
+    let prop_oninput = props.oninput.clone();
+    // Wrap callback to determine when user performed an edit
+    let oninput = Callback::from(move |event: InputEvent| {
+        if !event.data().map_or(false, |d| d == "ignore") {
+            user_edited.set(true);
+        }
+        prop_oninput.emit(event);
+    });
 
     html! {
         <>
@@ -113,7 +128,7 @@ where
             <div class={classes!(if props.button.is_some() { Some("input-group") } else { None })}>
                 <div class={classes!(if props.button.is_some() { Some("input-group") } else { None }, if success || error { Some("has-icon-right") } else { None })}>
                     <input id={id} class="form-input" type={props.r#type.to_string()} ref={node_ref.clone()}
-                        oninput={props.oninput.clone()} placeholder={ props.placeholder.as_ref().map(ToString::to_string) }
+                        oninput={oninput} placeholder={ props.placeholder.as_ref().map(ToString::to_string) }
                     />
                     {
                         if let Some(parsed) = props.parsed.as_ref() {
@@ -359,6 +374,7 @@ where
     let user_edited = use_state(|| false);
     let last_default_value = use_state(|| None);
     if let Some(input_element) = node_ref.cast::<HtmlInputElement>() {
+        // Re-apply default if it changes
         if !*user_edited && props.default != *last_default_value {
             if let Some(d) = props.default.as_ref() {
                 input_element.set_value(d);
@@ -375,11 +391,12 @@ where
     }
 
     let prop_oninput = props.oninput.clone();
+    // Wrap callback to determine when user performed an edit
     let oninput = Callback::from(move |event: InputEvent| {
         if !event.data().map_or(false, |d| d == "ignore") {
-            prop_oninput.emit(event);
             user_edited.set(true);
         }
+        prop_oninput.emit(event);
     });
 
     html! {

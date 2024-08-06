@@ -1597,7 +1597,7 @@ dependencies = [
 
 [[package]]
 name = "svg2gcode-web"
-version = "0.0.13"
+version = "0.0.14"
 dependencies = [
  "base64",
  "codespan",
