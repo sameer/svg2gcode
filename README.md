@@ -56,7 +56,8 @@ These go into greater detail on the tool's origins, implementation details, and 
 
 - Convert a PDF to GCode: follow [this guide using Inkscape to convert a PDF to an SVG](https://en.wikipedia.org/wiki/Wikipedia:Graphics_Lab/Resources/PDF_conversion_to_SVG#Conversion_with_Inkscape), then use it with svg2gcode
 
-- Are shapes, fill patterns supported? No, objects must be converted to paths in Inkscape with `Object to Path` for use with this program. See [#15](https://github.com/sameer/svg2gcode/issues/15) for more discussion.
+- Are shapes, fill patterns supported? No, but you can convert them to paths in Inkscape with `Object to Path`. See [#15](https://github.com/sameer/svg2gcode/issues/15) for more discussion.
+- Are stroke patterns supported? No, but you can convert them into paths in Inkscape with `Stroke to Path`.
 
 ## Reference Documents
 
