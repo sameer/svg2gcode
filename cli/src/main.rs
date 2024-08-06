@@ -2,7 +2,7 @@ use g_code::{
     emit::{format_gcode_io, FormatOptions},
     parse::snippet_parser,
 };
-use log::info;
+use log::{error, info};
 use roxmltree::ParsingOptions;
 use std::{
     env,
@@ -13,7 +13,9 @@ use std::{
 use structopt::StructOpt;
 use svgtypes::LengthListParser;
 
-use svg2gcode::{svg2program, ConversionOptions, Machine, Settings, SupportedFunctionality};
+use svg2gcode::{
+    svg2program, ConversionOptions, Machine, Settings, SupportedFunctionality, Version,
+};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "svg2gcode", author, about)]
@@ -156,6 +158,25 @@ fn main() -> io::Result<()> {
 
         if let Some(newline_before_comment) = opt.newline_before_comment {
             settings.postprocess.newline_before_comment = newline_before_comment;
+        }
+
+        if let Version::Unknown(ref unknown) = settings.version {
+            error!(
+                "Your settings use an unknown version. Your version: {unknown}, latest: {}. See {} to download the latest CLI version.",
+                Version::latest(),
+                env!("CARGO_PKG_REPOSITORY"),
+            );
+            std::process::exit(1);
+        }
+
+        let old_version = settings.version.clone();
+        if let Err(()) = settings.try_upgrade() {
+            error!(
+                "Your settings are out of date and require manual intervention. Your version: {old_version}, latest: {}. See {} for instructions.",
+                Version::latest(),
+                env!("CARGO_PKG_REPOSITORY"),
+            );
+            std::process::exit(1);
         }
 
         settings

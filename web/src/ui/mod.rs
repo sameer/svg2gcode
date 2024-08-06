@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use web_sys::{Event, FileList, HtmlInputElement, InputEvent, MouseEvent};
+use web_sys::{Event, FileList, HtmlInputElement, InputEvent, InputEventInit, MouseEvent};
 use yew::{
     classes, function_component, html, use_force_update, use_node_ref, use_state,
     virtual_dom::{VChild, VNode},
@@ -93,12 +93,15 @@ where
         trigger.force_update();
     }
 
-    if let (false, Some(default), Some(input_element)) = (
-        *applied_default_value,
-        props.default.as_ref(),
-        node_ref.cast::<HtmlInputElement>(),
-    ) {
-        input_element.set_value(&default.to_string());
+    if let (false, Some(input_element)) =
+        (*applied_default_value, node_ref.cast::<HtmlInputElement>())
+    {
+        if let Some(d) = props.default.as_ref() {
+            input_element.set_value(&d.to_string());
+            input_element
+                .dispatch_event(&InputEvent::new("input").unwrap())
+                .unwrap();
+        }
         applied_default_value.set(true);
     }
 
@@ -346,7 +349,6 @@ where
     // so the noderef becomes valid.
     let first_render = use_state(|| true);
     let trigger = use_force_update();
-    let applied_default_value = use_state(|| false);
     let node_ref = use_node_ref();
 
     if *first_render {
@@ -354,14 +356,31 @@ where
         trigger.force_update();
     }
 
-    if let (false, Some(default), Some(input_element)) = (
-        *applied_default_value,
-        props.default.as_ref(),
-        node_ref.cast::<HtmlInputElement>(),
-    ) {
-        input_element.set_value(default.as_ref());
-        applied_default_value.set(true);
+    let user_edited = use_state(|| false);
+    let last_default_value = use_state(|| None);
+    if let Some(input_element) = node_ref.cast::<HtmlInputElement>() {
+        if !*user_edited && props.default != *last_default_value {
+            if let Some(d) = props.default.as_ref() {
+                input_element.set_value(d);
+            } else {
+                input_element.set_value("");
+            }
+            let mut init = InputEventInit::new();
+            init.data(Some("ignore"));
+            input_element
+                .dispatch_event(&InputEvent::new_with_event_init_dict("input", &init).unwrap())
+                .unwrap();
+            last_default_value.set(props.default.clone());
+        }
     }
+
+    let prop_oninput = props.oninput.clone();
+    let oninput = Callback::from(move |event: InputEvent| {
+        if !event.data().map_or(false, |d| d == "ignore") {
+            prop_oninput.emit(event);
+            user_edited.set(true);
+        }
+    });
 
     html! {
         <>
@@ -369,7 +388,7 @@ where
                 { props.label }
             </label>
             <div class={classes!(if success || error { Some("has-icon-right") } else { None })}>
-                <textarea class="form-input" id={id} oninput={props.oninput.clone()}
+                <textarea class="form-input" id={id} oninput={oninput}
                     ref={node_ref}
                     placeholder={props.placeholder.as_ref().cloned()}
                     rows={props.rows.as_ref().map(ToString::to_string)}

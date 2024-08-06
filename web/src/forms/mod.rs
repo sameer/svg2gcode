@@ -5,7 +5,7 @@ use gloo_file::{
 use js_sys::TypeError;
 use roxmltree::{Document, ParsingOptions};
 use std::{convert::TryInto, path::Path};
-use svg2gcode::Settings;
+use svg2gcode::{Settings, Version};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{window, Event, FileList, HtmlElement, HtmlInputElement, Response};
@@ -267,8 +267,31 @@ pub fn import_export_modal() -> Html {
                         });
 
                     match res {
-                        Ok(settings) => {
-                            import_state.set(Some(Ok(settings)));
+                        Ok(Settings { version: Version::Unknown(unknown), .. }) => {
+                            import_state.set(Some(Err(
+                                format!(
+                                    "Your settings use an unknown version. \
+                                    Your version: {unknown}, latest: {}. \
+                                    Try refreshing this page to get the latest version of the tool.",
+                                    Version::latest(),
+                                )
+                            )));
+                        }
+                        Ok(mut settings) => {
+                            let old_version = settings.version.clone();
+                            import_state.set(Some(
+                                if let Err(()) = settings.try_upgrade() {
+                                    Err(format!(
+                                        "Your imported settings are out of date and require manual intervention. \
+                                        Your version: {old_version}, latest: {}. \
+                                        See {} for instructions.",
+                                            Version::latest(),
+                                            env!("CARGO_PKG_REPOSITORY")
+                                    ))
+                                } else {
+                                    Ok(settings)
+                                })
+                            );
                         }
                         Err(err) => {
                             import_state.set(Some(Err(err)));
@@ -284,7 +307,7 @@ pub fn import_export_modal() -> Html {
         let import_state = import_state.clone();
         let close_ref = close_ref.clone();
         app_dispatch.reduce_mut_callback(move |app| {
-            if let Some(Ok(ref settings)) = *import_state {
+            if let Some(Ok(settings)) = import_state.as_ref() {
                 app.settings = settings.clone();
                 // App only hydrates the form on start now, so need to do it again here
                 form_dispatch.reduce_mut(|form| *form = (&app.settings).into());

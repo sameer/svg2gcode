@@ -38,11 +38,16 @@ fn app() -> Html {
     // Having separate stores is somewhat of an anti-pattern in Redux,
     // but there's no easy way to do hydration after the app state is
     // restored from local storage.
-    let hydrated_form = use_state(|| false);
-    if !*hydrated_form {
-        let hydrated_form_state = FormState::from(&app_store.settings);
-        form_dispatch.reduce_mut(|state| *state = hydrated_form_state);
-        hydrated_form.set(true);
+    let upgraded_settings_and_hydrated_form = use_state(|| false);
+    if !*upgraded_settings_and_hydrated_form {
+        app_dispatch.reduce_mut(|app| {
+            if let Err(_) = app.settings.try_upgrade() {
+                unreachable!("No breaking upgrades yet!")
+            }
+            let hydrated_form_state = FormState::from(&app_store.settings);
+            form_dispatch.reduce_mut(|state| *state = hydrated_form_state);
+        });
+        upgraded_settings_and_hydrated_form.set(true);
     }
 
     let generate_disabled = *generating || app_store.svgs.is_empty();

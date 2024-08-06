@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{convert::TryInto, num::ParseFloatError};
 use svg2gcode::{
-    ConversionConfig, MachineConfig, PostprocessConfig, Settings, SupportedFunctionality,
+    ConversionConfig, MachineConfig, PostprocessConfig, Settings, SupportedFunctionality, Version,
 };
 use svgtypes::Length;
 use thiserror::Error;
@@ -83,6 +83,7 @@ impl<'a> TryInto<Settings> for &'a FormState {
                 line_numbers: self.line_numbers,
                 newline_before_comment: self.newline_before_comment,
             },
+            version: Version::latest(),
         })
     }
 }
