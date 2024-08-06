@@ -280,9 +280,9 @@ pub fn import_export_modal() -> Html {
                         Ok(mut settings) => {
                             let old_version = settings.version.clone();
                             import_state.set(Some(
-                                if let Err(()) = settings.try_upgrade() {
+                                if let Err(msg) = settings.try_upgrade() {
                                     Err(format!(
-                                        "Your imported settings are out of date and require manual intervention. \
+                                        "Your imported settings are out of date and require manual intervention: {msg}. \
                                         Your version: {old_version}, latest: {}. \
                                         See {} for instructions.",
                                             Version::latest(),

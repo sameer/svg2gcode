@@ -170,9 +170,9 @@ fn main() -> io::Result<()> {
         }
 
         let old_version = settings.version.clone();
-        if let Err(()) = settings.try_upgrade() {
+        if let Err(msg) = settings.try_upgrade() {
             error!(
-                "Your settings are out of date and require manual intervention. Your version: {old_version}, latest: {}. See {} for instructions.",
+                "Your settings are out of date and require manual intervention: {msg}. Your version: {old_version}, latest: {}. See {} for instructions.",
                 Version::latest(),
                 env!("CARGO_PKG_REPOSITORY"),
             );
