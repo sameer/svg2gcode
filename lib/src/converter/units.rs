@@ -6,6 +6,11 @@ use crate::Turtle;
 
 use super::ConversionVisitor;
 
+/// The DPI assumed by CSS is 96.
+///
+/// <https://www.w3.org/TR/css3-values/#absolute-lengths>
+pub const CSS_DEFAULT_DPI: f64 = 96.;
+
 /// Used to compute percentages correctly
 ///
 /// <https://www.w3.org/TR/SVG/coords.html#Units>
@@ -46,8 +51,6 @@ impl<'a, T: Turtle> ConversionVisitor<'a, T> {
         use svgtypes::LengthUnit::*;
         use uom::si::f64::Length;
         use uom::si::length::*;
-
-        const CSS_DEFAULT_DPI: f64 = 96.;
 
         match l.unit {
             Cm => Length::new::<centimeter>(l.number).get::<inch>() * CSS_DEFAULT_DPI,

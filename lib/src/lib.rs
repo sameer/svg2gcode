@@ -34,7 +34,7 @@ impl Settings {
     ///
     /// - Settings version is [`Version::Unknown`].
     /// - There are breaking changes requiring manual intervention. In which case this does a partial update to that point.
-    pub fn try_upgrade(&mut self) -> Result<(), ()> {
+    pub fn try_upgrade(&mut self) -> Result<(), &'static str> {
         loop {
             match self.version {
                 // Compatibility for M2 by default
@@ -46,7 +46,7 @@ impl Settings {
                     self.version = Version::V5;
                 }
                 Version::V5 => break Ok(()),
-                Version::Unknown(_) => break Err(()),
+                Version::Unknown(_) => break Err("cannot upgrade unknown version"),
             }
         }
     }

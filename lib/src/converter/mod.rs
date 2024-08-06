@@ -6,8 +6,11 @@ use roxmltree::{Document, Node};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use svgtypes::Length;
+use uom::si::f64::Length as UomLength;
+use uom::si::length::{inch, millimeter};
 
 use crate::{turtle::*, Machine};
+use self::units::CSS_DEFAULT_DPI;
 
 #[cfg(feature = "serde")]
 mod length_serde;
@@ -26,7 +29,7 @@ pub struct ConversionConfig {
     pub feedrate: f64,
     /// Dots per inch for pixels, picas, points, etc.
     pub dpi: f64,
-    /// Set the origin point for this conversion
+    /// Set the origin point in millimeters for this conversion
     #[cfg_attr(feature = "serde", serde(default = "zero_origin"))]
     pub origin: [Option<f64>; 2],
 }
@@ -119,7 +122,13 @@ pub fn svg2program<'a, 'input: 'a>(
 
         visitor.terrarium.turtle.inner.bounding_box
     };
-    let origin_transform = match config.origin {
+
+    // Convert from millimeters to user units
+    let origin = config
+        .origin
+        .map(|dim| dim.map(|d| UomLength::new::<millimeter>(d).get::<inch>() * CSS_DEFAULT_DPI));
+
+    let origin_transform = match origin {
         [None, Some(origin_y)] => {
             let bb = bounding_box_generator();
             Transform2D::translation(0., origin_y - bb.min.y)
