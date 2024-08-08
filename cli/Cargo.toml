@@ -1,6 +1,6 @@
 [package]
 name = "svg2gcode-cli"
-version = "0.0.14"
+version = "0.0.15"
 authors = ["Sameer Puri <crates@purisa.me>"]
 edition = "2021"
 description = "Command line interface for svg2gcode"
@@ -8,7 +8,7 @@ repository = "https://github.com/sameer/svg2gcode"
 license = "MIT"
 
 [dependencies]
-svg2gcode = { version = "0.3.1", features = ["serde"] }
+svg2gcode = { version = "0.3.2", features = ["serde"] }
 env_logger = { version = "0", default-features = false, features = [
     "atty",
     "termcolor",
