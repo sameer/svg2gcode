@@ -9,8 +9,8 @@ use svgtypes::Length;
 use uom::si::f64::Length as UomLength;
 use uom::si::length::{inch, millimeter};
 
-use crate::{turtle::*, Machine};
 use self::units::CSS_DEFAULT_DPI;
+use crate::{turtle::*, Machine};
 
 #[cfg(feature = "serde")]
 mod length_serde;

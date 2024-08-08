@@ -25,6 +25,8 @@ const LINE_TAG_NAME: &str = "line";
 const GROUP_TAG_NAME: &str = "g";
 const DEFS_TAG_NAME: &str = "defs";
 const USE_TAG_NAME: &str = "use";
+const MARKER_TAG_NAME: &str = "marker";
+const SYMBOL_TAG_NAME: &str = "symbol";
 
 pub trait XmlVisitor {
     fn visit_enter(&mut self, node: Node);
@@ -37,8 +39,10 @@ fn should_render_node(node: Node) -> bool {
         && !node
             .attribute("style")
             .map_or(false, |style| style.contains("display:none"))
-        // Defs are not rendered
-        && node.tag_name().name() != DEFS_TAG_NAME
+        // - Defs are not rendered
+        // - Markers are not directly rendered
+        // - Symbols are not directly rendered
+        && !matches!(node.tag_name().name(), DEFS_TAG_NAME | MARKER_TAG_NAME | SYMBOL_TAG_NAME)
 }
 
 pub fn depth_first_visit(doc: &Document, visitor: &mut impl XmlVisitor) {
