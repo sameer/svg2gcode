@@ -131,6 +131,10 @@ fn app() -> Html {
                                 FormatOptions {
                                     checksums: app_store.settings.postprocess.checksums,
                                     line_numbers: app_store.settings.postprocess.line_numbers,
+                                    newline_before_comment: app_store
+                                        .settings
+                                        .postprocess
+                                        .newline_before_comment,
                                     ..Default::default()
                                 },
                                 &mut acc,
@@ -148,6 +152,10 @@ fn app() -> Html {
                             FormatOptions {
                                 checksums: app_store.settings.postprocess.checksums,
                                 line_numbers: app_store.settings.postprocess.line_numbers,
+                                newline_before_comment: app_store
+                                    .settings
+                                    .postprocess
+                                    .newline_before_comment,
                                 ..Default::default()
                             },
                             &mut zip,
