@@ -1,29 +1,29 @@
 [package]
 name = "svg2gcode-web"
-version = "0.0.16"
-authors = ["Sameer Puri <crates@purisa.me>"]
-edition = "2021"
+version = "0.0.17"
 description = "Convert vector graphics to g-code for pen plotters, laser engravers, and other CNC machines"
-repository = "https://github.com/sameer/svg2gcode"
 homepage = "https://sameer.github.io/svg2gcode/"
-license = "MIT"
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
 wasm-bindgen = "0.2"
-svg2gcode = { version = "0.3.2", features = ["serde"] }
-roxmltree = "0.19"
-g-code = "0.4.2"
+svg2gcode = { path = "../lib", version = "0.3.2", features = ["serde"] }
+roxmltree.workspace = true
+g-code.workspace = true
 codespan-reporting = "0.11"
 codespan = "0.11"
 serde = "1"
 paste = "1"
-log = "0.4"
-svgtypes = "0.13"
-serde_json = "1"
+log.workspace = true
+svgtypes.workspace = true
+serde_json.workspace = true
 thiserror = "1.0"
 zip = { version = "0.6", default-features = false }
 
-yew = { version ="0.21", features = ["csr"] }
+yew = { version = "0.21", features = ["csr"] }
 yewdux = "0.10"
 web-sys = { version = "0.3", features = [] }
 wasm-logger = "0.2"

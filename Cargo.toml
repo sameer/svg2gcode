@@ -1,10 +1,17 @@
 [workspace]
-members = [
-    "lib",
-    "cli",
-    "web"
-]
-default-members = [
-    "cli"
-]
+members = ["lib", "cli", "web"]
+default-members = ["cli"]
 resolver = "2"
+
+[workspace.package]
+authors = ["Sameer Puri <crates@purisa.me>"]
+edition = "2021"
+repository = "https://github.com/sameer/svg2gcode"
+license = "MIT"
+
+[workspace.dependencies]
+g-code = "0.5.0"
+log = "0"
+roxmltree = "0.19"
+serde_json = "1"
+svgtypes = "0.13"

@@ -41,7 +41,7 @@ fn app() -> Html {
     let upgraded_settings_and_hydrated_form = use_state(|| false);
     if !*upgraded_settings_and_hydrated_form {
         app_dispatch.reduce_mut(|app| {
-            if let Err(_) = app.settings.try_upgrade() {
+            if app.settings.try_upgrade().is_err() {
                 unreachable!("No breaking upgrades yet!")
             }
             let hydrated_form_state = FormState::from(&app_store.settings);
