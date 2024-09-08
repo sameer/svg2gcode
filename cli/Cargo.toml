@@ -1,6 +1,6 @@
 [package]
 name = "svg2gcode-cli"
-version = "0.0.16"
+version = "0.0.17"
 description = "Command line interface for svg2gcode"
 authors.workspace = true
 edition.workspace = true
@@ -16,8 +16,8 @@ env_logger = { version = "0", default-features = false, features = [
 ] }
 log.workspace = true
 g-code.workspace = true
+clap = { version = "4", features = ["cargo", "derive"] }
 codespan-reporting = "0.11"
-structopt = "0.3"
 roxmltree.workspace = true
 serde_json.workspace = true
 svgtypes.workspace = true

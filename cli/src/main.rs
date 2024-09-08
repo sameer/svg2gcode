@@ -1,3 +1,4 @@
+use clap::Parser;
 use g_code::{
     emit::{format_gcode_io, FormatOptions},
     parse::snippet_parser,
@@ -10,78 +11,77 @@ use std::{
     io::{self, Read, Write},
     path::PathBuf,
 };
-use structopt::StructOpt;
 use svgtypes::LengthListParser;
 
 use svg2gcode::{
     svg2program, ConversionOptions, Machine, Settings, SupportedFunctionality, Version,
 };
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "svg2gcode", author, about)]
+#[derive(Debug, Parser)]
+#[command(name = "svg2gcode", version, author, about)]
 struct Opt {
     /// Curve interpolation tolerance (mm)
-    #[structopt(long)]
+    #[arg(long)]
     tolerance: Option<f64>,
     /// Machine feed rate (mm/min)
-    #[structopt(long)]
+    #[arg(long)]
     feedrate: Option<f64>,
     /// Dots per Inch (DPI)
     /// Used for scaling visual units (pixels, points, picas, etc.)
-    #[structopt(long)]
+    #[arg(long)]
     dpi: Option<f64>,
-    #[structopt(alias = "tool_on_sequence", long = "on")]
+    #[arg(alias = "tool_on_sequence", long = "on")]
     /// G-Code for turning on the tool
     tool_on_sequence: Option<String>,
-    #[structopt(alias = "tool_off_sequence", long = "off")]
+    #[arg(alias = "tool_off_sequence", long = "off")]
     /// G-Code for turning off the tool
     tool_off_sequence: Option<String>,
     /// G-Code for initializing the machine at the beginning of the program
-    #[structopt(alias = "begin_sequence", long = "begin")]
+    #[arg(alias = "begin_sequence", long = "begin")]
     begin_sequence: Option<String>,
     /// G-Code for stopping/idling the machine at the end of the program
-    #[structopt(alias = "end_sequence", long = "end")]
+    #[arg(alias = "end_sequence", long = "end")]
     end_sequence: Option<String>,
     /// A file path to an SVG, else reads from stdin
     file: Option<PathBuf>,
     /// Output file path (overwrites old files), else writes to stdout
-    #[structopt(short, long)]
+    #[arg(short, long)]
     out: Option<PathBuf>,
     /// Provide settings from a JSON file. Overrides command-line arguments.
-    #[structopt(long)]
+    #[arg(long)]
     settings: Option<PathBuf>,
     /// Export current settings to a JSON file instead of converting.
     ///
     /// Use `-` to export to standard out.
-    #[structopt(long)]
+    #[arg(long)]
     export: Option<PathBuf>,
     /// Coordinates for the bottom left corner of the machine
-    #[structopt(long)]
+    #[arg(long, allow_hyphen_values = true)]
     origin: Option<String>,
     /// Override the width and height of the SVG (i.e. 210mm,297mm)
     ///
     /// Useful when the SVG does not specify these (see https://github.com/sameer/svg2gcode/pull/16)
     ///
     /// Passing "210mm," or ",297mm" calculates the missing dimension to conform to the viewBox aspect ratio.
-    #[structopt(long)]
+    #[arg(long)]
     dimensions: Option<String>,
     /// Whether to use circular arcs when generating g-code
     ///
     /// Please check if your machine supports G2/G3 commands before enabling this.
-    #[structopt(long)]
+    #[arg(long)]
     circular_interpolation: Option<bool>,
 
-    #[structopt(long)]
+    #[arg(long)]
     /// Include line numbers at the beginning of each line
     ///
     /// Useful for debugging/streaming g-code
     line_numbers: Option<bool>,
-    #[structopt(long)]
+    #[arg(long)]
     /// Include checksums at the end of each line
     ///
     /// Useful for streaming g-code
     checksums: Option<bool>,
-    #[structopt(long)]
+    #[arg(long)]
     /// Add a newline character before each comment
     ///
     /// Workaround for parsers that don't accept comments on the same line
@@ -94,7 +94,7 @@ fn main() -> io::Result<()> {
     }
     env_logger::init();
 
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     let settings = {
         let mut settings = if let Some(path) = opt.settings {
