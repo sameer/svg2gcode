@@ -102,8 +102,8 @@ where
             } else {
                 input_element.set_value("");
             }
-            let mut init = InputEventInit::new();
-            init.data(Some("ignore"));
+            let init = InputEventInit::new();
+            init.set_data(Some("ignore"));
             input_element
                 .dispatch_event(&InputEvent::new_with_event_init_dict("input", &init).unwrap())
                 .unwrap();
@@ -381,8 +381,8 @@ where
             } else {
                 input_element.set_value("");
             }
-            let mut init = InputEventInit::new();
-            init.data(Some("ignore"));
+            let init = InputEventInit::new();
+            init.set_data(Some("ignore"));
             input_element
                 .dispatch_event(&InputEvent::new_with_event_init_dict("input", &init).unwrap())
                 .unwrap();

@@ -9,11 +9,7 @@ license.workspace = true
 
 [dependencies]
 svg2gcode = { path = "../lib", version = "0.3.2", features = ["serde"] }
-env_logger = { version = "0", default-features = false, features = [
-    "atty",
-    "termcolor",
-    "humantime",
-] }
+env_logger = "0.11"
 log.workspace = true
 g-code.workspace = true
 # Latest version of clap supporting Rust 1.73, needed for the macOS release in CI
