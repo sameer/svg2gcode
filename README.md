@@ -21,17 +21,108 @@ Check it out at https://sameer.github.io/svg2gcode. Just select an SVG and click
 
 ### Command line interface (CLI)
 
-#### Input
+#### Install
 
 ```sh
-cargo run --release -- examples/Vanderbilt_Commodores_logo.svg --off 'M4' --on 'M5' -o out.gcode
+cargo install svg2gcode-cli
 ```
+
+#### Usage
+```
+Arguments:
+  [FILE]
+          A file path to an SVG, else reads from stdin
+
+Options:
+      --tolerance <TOLERANCE>
+          Curve interpolation tolerance (mm)
+
+      --feedrate <FEEDRATE>
+          Machine feed rate (mm/min)
+
+      --dpi <DPI>
+          Dots per Inch (DPI) Used for scaling visual units (pixels, points, picas, etc.)
+
+      --on <TOOL_ON_SEQUENCE>
+          G-Code for turning on the tool
+
+      --off <TOOL_OFF_SEQUENCE>
+          G-Code for turning off the tool
+
+      --begin <BEGIN_SEQUENCE>
+          G-Code for initializing the machine at the beginning of the program
+
+      --end <END_SEQUENCE>
+          G-Code for stopping/idling the machine at the end of the program
+
+  -o, --out <OUT>
+          Output file path (overwrites old files), else writes to stdout
+
+      --settings <SETTINGS>
+          Provide settings from a JSON file. Overrides command-line arguments
+
+      --export <EXPORT>
+          Export current settings to a JSON file instead of converting.
+          
+          Use `-` to export to standard out.
+
+      --origin <ORIGIN>
+          Coordinates for the bottom left corner of the machine
+
+      --dimensions <DIMENSIONS>
+          Override the width and height of the SVG (i.e. 210mm,297mm)
+          
+          Useful when the SVG does not specify these (see https://github.com/sameer/svg2gcode/pull/16)
+          
+          Passing "210mm," or ",297mm" calculates the missing dimension to conform to the viewBox aspect ratio.
+
+      --circular-interpolation <CIRCULAR_INTERPOLATION>
+          Whether to use circular arcs when generating g-code
+          
+          Please check if your machine supports G2/G3 commands before enabling this.
+          
+          [possible values: true, false]
+
+      --line-numbers <LINE_NUMBERS>
+          Include line numbers at the beginning of each line
+          
+          Useful for debugging/streaming g-code
+          
+          [possible values: true, false]
+
+      --checksums <CHECKSUMS>
+          Include checksums at the end of each line
+          
+          Useful for streaming g-code
+          
+          [possible values: true, false]
+
+      --newline-before-comment <NEWLINE_BEFORE_COMMENT>
+          Add a newline character before each comment
+          
+          Workaround for parsers that don't accept comments on the same line
+          
+          [possible values: true, false]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+```
+
+#### Example
+
+```sh
+svg2gcode-cli examples/Vanderbilt_Commodores_logo.svg --off 'M4' --on 'M5' -o out.gcode
+```
+
 
 To convert curves to G02/G03 Gcode commands, use flag `--circular-interpolation true`.
 
 ![Vanderbilt Commodores Logo](examples/Vanderbilt_Commodores_logo.svg)
 
-#### Output, rendered at [https://ncviewer.com]()
+#### Output, rendered at [https://ncviewer.com](https://ncviewer.com)
 
 ```sh
 cat out.gcode
