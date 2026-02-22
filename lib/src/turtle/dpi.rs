@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use lyon_geom::{point, vector, CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc, Vector};
+use lyon_geom::{CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc, Vector, point, vector};
 use uom::si::{
     f64::Length,
     length::{inch, millimeter},

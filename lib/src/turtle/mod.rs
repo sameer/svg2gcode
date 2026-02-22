@@ -1,8 +1,9 @@
 use std::fmt::Debug;
 
 use lyon_geom::{
-    euclid::{default::Transform2D, Angle},
-    point, vector, ArcFlags, CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc, Vector,
+    ArcFlags, CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc, Vector,
+    euclid::{Angle, default::Transform2D},
+    point, vector,
 };
 
 use crate::arc::Transformed;

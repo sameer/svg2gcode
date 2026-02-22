@@ -1,4 +1,4 @@
-use codespan_reporting::term::{emit, termcolor::NoColor, Config};
+use codespan_reporting::term::{Config, emit, termcolor::NoColor};
 use g_code::parse::{into_diagnostic, snippet_parser};
 use gloo_timers::callback::Timeout;
 use paste::paste;

@@ -1,9 +1,9 @@
 use std::fmt::Display;
 use web_sys::{Event, FileList, HtmlInputElement, InputEvent, InputEventInit, MouseEvent};
 use yew::{
-    classes, function_component, html, use_force_update, use_node_ref, use_state,
+    AttrValue, Callback, Children, Html, NodeRef, Properties, TargetCast, ToHtml, classes,
+    function_component, html, use_force_update, use_node_ref, use_state,
     virtual_dom::{VChild, VNode},
-    AttrValue, Callback, Children, Html, NodeRef, Properties, TargetCast, ToHtml,
 };
 
 macro_rules! css_class_enum {
@@ -151,7 +151,7 @@ where
                 { props.button.clone().map(Html::from).unwrap_or_default() }
             </div>
             {
-                if let Some(Err(ref err)) = props.parsed.as_ref() {
+                if let Some(Err(err)) = props.parsed.as_ref() {
                     html!{ <pre class="form-input-hint">{ err.to_string() }</pre> }
                 } else if let Some(desc) = props.desc {
                     html! { <p class="form-input-hint">{ desc }</p> }
@@ -249,7 +249,7 @@ where
                 { props.button.clone().map(Html::from).unwrap_or_default() }
             </div>
             {
-                if let Some(Err(ref err)) = props.parsed.as_ref() {
+                if let Some(Err(err)) = props.parsed.as_ref() {
                     html!{ <pre class="form-input-hint">{ err }</pre> }
                 } else if let Some(desc) = props.desc {
                     html! { <p class="form-input-hint">{ desc }</p> }
@@ -433,7 +433,7 @@ where
                 }
             </div>
             {
-                if let Some(Err(ref err)) = props.parsed.as_ref() {
+                if let Some(Err(err)) = props.parsed.as_ref() {
                     html!{ <pre class="form-input-hint">{ err }</pre> }
                 } else if let Some(desc) = props.desc {
                     html! { <p class="form-input-hint">{ desc }</p> }

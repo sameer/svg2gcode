@@ -10,7 +10,7 @@ use uom::si::f64::Length as UomLength;
 use uom::si::length::{inch, millimeter};
 
 use self::units::CSS_DEFAULT_DPI;
-use crate::{turtle::*, Machine};
+use crate::{Machine, turtle::*};
 
 #[cfg(feature = "serde")]
 mod length_serde;

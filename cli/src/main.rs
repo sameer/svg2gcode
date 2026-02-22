@@ -1,6 +1,6 @@
 use clap::Parser;
 use g_code::{
-    emit::{format_gcode_io, FormatOptions},
+    emit::{FormatOptions, format_gcode_io},
     parse::snippet_parser,
 };
 use log::{error, info};
@@ -14,7 +14,7 @@ use std::{
 use svgtypes::LengthListParser;
 
 use svg2gcode::{
-    svg2program, ConversionOptions, Machine, Settings, SupportedFunctionality, Version,
+    ConversionOptions, Machine, Settings, SupportedFunctionality, Version, svg2program,
 };
 
 #[derive(Debug, Parser)]
@@ -95,7 +95,8 @@ struct Opt {
 
 fn main() -> io::Result<()> {
     if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG", "svg2gcode=info")
+        // SAFETY: calling in a single-threaded context
+        unsafe { env::set_var("RUST_LOG", "svg2gcode=info") }
     }
     env_logger::init();
 
@@ -266,8 +267,12 @@ fn main() -> io::Result<()> {
             .transpose(),
     ];
 
-    let machine = if let [Ok(tool_on_action), Ok(tool_off_action), Ok(program_begin_sequence), Ok(program_end_sequence)] =
-        snippets
+    let machine = if let [
+        Ok(tool_on_action),
+        Ok(tool_off_action),
+        Ok(program_begin_sequence),
+        Ok(program_end_sequence),
+    ] = snippets
     {
         Machine::new(
             settings.machine.supported_functionality,

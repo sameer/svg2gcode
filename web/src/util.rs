@@ -1,7 +1,7 @@
 use base64::Engine;
 use std::path::Path;
 use wasm_bindgen::JsCast;
-use web_sys::{window, HtmlElement};
+use web_sys::{HtmlElement, window};
 
 pub fn prompt_download(path: impl AsRef<Path>, content: impl AsRef<[u8]>) {
     let window = window().unwrap();

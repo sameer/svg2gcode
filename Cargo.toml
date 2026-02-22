@@ -5,7 +5,7 @@ resolver = "2"
 
 [workspace.package]
 authors = ["Sameer Puri <crates@purisa.me>"]
-edition = "2021"
+edition = "2024"
 repository = "https://github.com/sameer/svg2gcode"
 license = "MIT"
 

@@ -2,9 +2,9 @@
 //! used for [super::ConversionOptions::dimensions]
 
 use serde::{
+    Deserialize, Deserializer, Serialize, Serializer,
     de::{SeqAccess, Visitor},
     ser::SerializeSeq,
-    Deserialize, Deserializer, Serialize, Serializer,
 };
 use svgtypes::{Length, LengthUnit};
 

@@ -6,12 +6,12 @@ use roxmltree::{Document, Node};
 use svgtypes::{AspectRatio, PathParser, PathSegment, PointsParser, TransformListParser, ViewBox};
 
 use super::{
+    ConversionVisitor,
     path::apply_path,
     transform::{get_viewport_transform, svg_transform_into_euclid_transform},
     units::DimensionHint,
-    ConversionVisitor,
 };
-use crate::{converter::node_name, Turtle};
+use crate::{Turtle, converter::node_name};
 
 const SVG_TAG_NAME: &str = "svg";
 const CLIP_PATH_TAG_NAME: &str = "clipPath";
