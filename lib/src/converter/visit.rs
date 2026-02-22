@@ -45,19 +45,59 @@ fn should_render_node(node: Node) -> bool {
         && !matches!(node.tag_name().name(), DEFS_TAG_NAME | MARKER_TAG_NAME | SYMBOL_TAG_NAME)
 }
 
+/// Resolve `href` or `xlink:href` on a `<use>` element to a document node.
+/// Only fragment references (`#id`) within the same document are supported.
+fn resolve_use_href<'a, 'input: 'a>(
+    doc: &'a Document<'input>,
+    node: Node<'a, 'input>,
+) -> Option<Node<'a, 'input>> {
+    let href = node
+        .attribute("href")
+        .or_else(|| node.attribute(("http://www.w3.org/1999/xlink", "href")))?;
+    let id = href.strip_prefix('#')?;
+    doc.root()
+        .descendants()
+        .find(|n| n.attribute("id") == Some(id))
+}
+
 pub fn depth_first_visit(doc: &Document, visitor: &mut impl XmlVisitor) {
-    fn visit_node(node: Node, visitor: &mut impl XmlVisitor) {
+    fn visit_node<V: XmlVisitor>(doc: &Document, node: Node, visitor: &mut V) {
         if !should_render_node(node) {
             return;
         }
         visitor.visit_enter(node);
-        node.children().for_each(|child| visit_node(child, visitor));
+        if node.tag_name().name() == USE_TAG_NAME
+            && let Some(referenced) = resolve_use_href(doc, node)
+        {
+            visit_use_referenced_node(doc, referenced, visitor);
+        } else {
+            node.children()
+                .for_each(|child| visit_node(doc, child, visitor));
+        }
+        visitor.visit_exit(node);
+    }
+
+    /// Special-cased [visit_node] for a node referenced by a `<use>` element to get
+    /// around the [`should_render_node`] filter that usually prevents symbols from being rendered.
+    fn visit_use_referenced_node<V: XmlVisitor>(doc: &Document, node: Node, visitor: &mut V) {
+        if !node.is_element() {
+            return;
+        }
+        if node
+            .attribute("style")
+            .is_some_and(|s| s.contains("display:none"))
+        {
+            return;
+        }
+        visitor.visit_enter(node);
+        node.children()
+            .for_each(|child| visit_node(doc, child, visitor));
         visitor.visit_exit(node);
     }
 
     doc.root()
         .children()
-        .for_each(|child| visit_node(child, visitor));
+        .for_each(|child| visit_node(doc, child, visitor));
 }
 
 impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
@@ -165,6 +205,50 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
                 0.,
                 -(viewport_size[1] + viewport_pos[1].unwrap_or(0.)),
             ));
+        } else if node.has_tag_name(USE_TAG_NAME) {
+            // Per SVG spec, <use> x/y translate is appended to the element's transform
+            // https://www.w3.org/TR/SVG2/struct.html#UseLayout
+            let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
+            let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
+            flattened_transform = flattened_transform.then(&Transform2D::translation(x, y));
+        } else if node.has_tag_name(SYMBOL_TAG_NAME) {
+            let view_box = node
+                .attribute("viewBox")
+                .map(ViewBox::from_str)
+                .transpose()
+                .expect("could not parse viewBox on symbol")
+                .filter(|view_box| {
+                    if view_box.w <= 0. || view_box.h <= 0. {
+                        warn!("Invalid viewBox: {view_box:?}");
+                        false
+                    } else {
+                        true
+                    }
+                });
+            let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map(|attr| {
+                AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
+            });
+            // Viewport size: symbol's own width/height, or fallback to viewBox dims, or parent viewport
+            let viewport_size = match (
+                self.length_attr_to_user_units(&node, "width"),
+                self.length_attr_to_user_units(&node, "height"),
+                &view_box,
+            ) {
+                (Some(w), Some(h), _) => [w, h],
+                (_, _, Some(vb)) => [vb.w, vb.h],
+                _ => *self.viewport_dim_stack.last().unwrap_or(&[1., 1.]),
+            };
+            self.viewport_dim_stack.push(viewport_size);
+            if let Some(view_box) = view_box {
+                let viewport_transform = get_viewport_transform(
+                    view_box,
+                    preserve_aspect_ratio,
+                    viewport_size,
+                    [None, None],
+                );
+                flattened_transform = flattened_transform.then(&viewport_transform);
+                // Does not need Y-axis translation unlike <svg>, already in g-code coords space.
+            }
         } else if node.has_attribute("viewBox") {
             warn!("View box is not supported on a {}", node.tag_name().name());
         }
@@ -360,11 +444,8 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
                     }
                 }
             }
-            USE_TAG_NAME => {
-                warn!("Unsupported node: {node:?}");
-            }
             // No-op tags
-            SVG_TAG_NAME | GROUP_TAG_NAME => {}
+            SVG_TAG_NAME | GROUP_TAG_NAME | USE_TAG_NAME | SYMBOL_TAG_NAME => {}
             _ => {
                 debug!("Unknown node: {}", node.tag_name().name());
             }
@@ -377,7 +458,7 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
     fn visit_exit(&mut self, node: Node) {
         self.terrarium.pop_transform();
         self.name_stack.pop();
-        if node.tag_name().name() == SVG_TAG_NAME {
+        if matches!(node.tag_name().name(), SVG_TAG_NAME | SYMBOL_TAG_NAME) {
             self.viewport_dim_stack.pop();
         }
     }

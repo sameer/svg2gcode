@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="10mm" height="10mm" viewBox="0 0 10 10">
+  <defs>
+    <path id="square" d="M 1,1 H 9 V 9 H 1 Z"/>
+  </defs>
+  <use xlink:href="#square"/>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" viewBox="0 0 10 10">
+  <defs>
+    <symbol id="sym">
+      <path d="M 0,0 H 2"/>
+    </symbol>
+  </defs>
+  <use href="#sym" x="1" y="1"/>
+</svg>

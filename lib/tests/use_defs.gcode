@@ -1,0 +1,7 @@
+G21
+G90;svg > use > path#square
+G0 X1 Y9
+G1 X9 Y9 F300
+G1 X9 Y1 F300
+G1 X1 Y1 F300
+G1 X1 Y9 F300
