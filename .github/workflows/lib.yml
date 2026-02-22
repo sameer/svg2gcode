@@ -1,6 +1,9 @@
 name: Build, test, and publish coverage for svg2gcode
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 env:
   CARGO_TERM_COLOR: always

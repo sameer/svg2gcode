@@ -1,5 +1,8 @@
 name: Check svg2gcode-web
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 env:
   CARGO_TERM_COLOR: always
 
