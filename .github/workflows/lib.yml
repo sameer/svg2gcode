@@ -12,8 +12,12 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libcairo2-dev
       - name: Build
         run: cargo build -p svg2gcode
+      - name: Test
+        run: cargo test -p svg2gcode
   coverage:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
@@ -28,6 +32,8 @@ jobs:
         with:
           toolchain: nightly
           components: llvm-tools-preview
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libcairo2-dev
       - run: cargo install grcov
       - run: cargo build -p svg2gcode
         env:
