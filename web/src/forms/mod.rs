@@ -37,7 +37,7 @@ pub fn settings_form() -> Html {
         || form_state
             .origin
             .iter()
-            .all(|opt| opt.as_ref().map_or(false, |r| r.is_err()))
+            .all(|opt| opt.as_ref().is_some_and(|r| r.is_err()))
         || form_state
             .tool_on_sequence
             .as_ref()
@@ -343,7 +343,7 @@ pub fn import_export_modal() -> Html {
                                 button={html_nested!(
                                     <Button
                                         style={ButtonStyle::Primary}
-                                        disabled={import_state.as_ref().map_or(true, |r| r.is_err()) || import_reading.is_some()}
+                                        disabled={import_state.as_ref().is_none_or(|r| r.is_err()) || import_reading.is_some()}
                                         title="Save"
                                         onclick={import_save_onclick}
                                         input_group=true

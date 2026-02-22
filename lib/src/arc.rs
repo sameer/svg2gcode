@@ -195,6 +195,7 @@ impl<S: Scalar> Transformed<S> for SvgArc<S> {
     ///
     /// The code is Rust-ified with only one or two changes, but I plan to understand the math here and
     /// merge changes upstream to lyon-geom.
+    #[allow(non_snake_case)]
     fn transformed(&self, transform: &Transform<S>) -> Self {
         let from = transform.transform_point(self.from);
         let to = transform.transform_point(self.to);

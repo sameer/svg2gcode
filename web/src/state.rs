@@ -39,7 +39,7 @@ pub enum FormStateConversionError {
     GCode(String),
 }
 
-impl<'a> TryInto<Settings> for &'a FormState {
+impl TryInto<Settings> for &FormState {
     type Error = FormStateConversionError;
 
     fn try_into(self) -> Result<Settings, Self::Error> {
@@ -52,7 +52,7 @@ impl<'a> TryInto<Settings> for &'a FormState {
                     self.origin[0].clone().transpose()?,
                     self.origin[1].clone().transpose()?,
                 ],
-		extra_attribute_name: None,
+                extra_attribute_name: None,
             },
             machine: MachineConfig {
                 supported_functionality: SupportedFunctionality {
