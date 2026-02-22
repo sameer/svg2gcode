@@ -1,10 +1,11 @@
+use std::{convert::TryInto, path::Path};
+
 use gloo_file::{
     callbacks::{FileReader, read_as_bytes},
     futures::read_as_text,
 };
 use js_sys::TypeError;
 use roxmltree::{Document, ParsingOptions};
-use std::{convert::TryInto, path::Path};
 use svg2gcode::{Settings, Version};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;

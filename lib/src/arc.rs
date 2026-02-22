@@ -90,7 +90,6 @@ where
     /// There are some slight deviations like using monotonic ranges instead of bounding by inflection points.
     ///
     /// Kaewsaiha, P., & Dejdumrong, N. (2012). Modeling of Bézier Curves Using a Combination of Linear and Circular Arc Approximations. 2012 Ninth International Conference on Computer Graphics, Imaging and Visualization. doi:10.1109/cgiv.2012.20
-    ///
     fn flattened(&self, tolerance: S) -> Vec<ArcOrLineSegment<S>> {
         if (self.to - self.from).square_length() < S::EPSILON {
             return vec![];
@@ -277,9 +276,10 @@ impl<S: Scalar> Transformed<S> for SvgArc<S> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use cairo::{Context, SvgSurface};
     use lyon_geom::{CubicBezierSegment, Point, Vector, point, vector};
-    use std::path::PathBuf;
     use svgtypes::PathParser;
 
     use crate::arc::{ArcOrLineSegment, FlattenWithArcs};

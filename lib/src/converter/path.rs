@@ -3,9 +3,8 @@ use log::debug;
 use lyon_geom::{ArcFlags, point, vector};
 use svgtypes::PathSegment;
 
-use crate::Turtle;
-
 use super::Terrarium;
+use crate::Turtle;
 
 /// Maps [`PathSegment`]s into concrete operations on the [`Terrarium`]
 ///

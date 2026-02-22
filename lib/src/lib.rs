@@ -96,11 +96,12 @@ impl Default for Version {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use g_code::emit::{FormatOptions, Token};
     use pretty_assertions::assert_eq;
     use roxmltree::ParsingOptions;
     use svgtypes::{Length, LengthUnit};
+
+    use super::*;
 
     /// The values change between debug and release builds for circular interpolation,
     /// so only check within a rough tolerance
