@@ -18,7 +18,7 @@ jobs:
             { name: macOS, triple: x86_64-apple-darwin, version: '1.73.0' }
           ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Compile and release
         uses: rust-build/rust-build.action@v1.4.5
         env:
