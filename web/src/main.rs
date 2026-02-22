@@ -5,13 +5,13 @@ use std::{
 
 use base64::Engine;
 use g_code::{
-    emit::{format_gcode_fmt, format_gcode_io, FormatOptions},
+    emit::{FormatOptions, format_gcode_fmt, format_gcode_io},
     parse::snippet_parser,
 };
 use js_sys::Date;
 use log::Level;
 use roxmltree::{Document, ParsingOptions};
-use svg2gcode::{svg2program, ConversionOptions, Machine};
+use svg2gcode::{ConversionOptions, Machine, svg2program};
 use yew::prelude::*;
 
 mod forms;
@@ -23,8 +23,8 @@ use forms::*;
 use state::*;
 use ui::*;
 use util::*;
-use yewdux::{prelude::use_store, use_dispatch, YewduxRoot};
-use zip::{write::FileOptions, CompressionMethod, ZipWriter};
+use yewdux::{YewduxRoot, prelude::use_store, use_dispatch};
+use zip::{CompressionMethod, ZipWriter, write::FileOptions};
 
 #[function_component(App)]
 fn app() -> Html {

@@ -1,5 +1,5 @@
 use gloo_file::{
-    callbacks::{read_as_bytes, FileReader},
+    callbacks::{FileReader, read_as_bytes},
     futures::read_as_text,
 };
 use js_sys::TypeError;
@@ -8,7 +8,7 @@ use std::{convert::TryInto, path::Path};
 use svg2gcode::{Settings, Version};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{window, Event, FileList, HtmlElement, HtmlInputElement, Response};
+use web_sys::{Event, FileList, HtmlElement, HtmlInputElement, Response, window};
 use yew::prelude::*;
 use yewdux::{functional::use_store, use_dispatch};
 

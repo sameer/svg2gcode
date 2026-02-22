@@ -278,7 +278,7 @@ impl<S: Scalar> Transformed<S> for SvgArc<S> {
 #[cfg(test)]
 mod tests {
     use cairo::{Context, SvgSurface};
-    use lyon_geom::{point, vector, CubicBezierSegment, Point, Vector};
+    use lyon_geom::{CubicBezierSegment, Point, Vector, point, vector};
     use std::path::PathBuf;
     use svgtypes::PathParser;
 

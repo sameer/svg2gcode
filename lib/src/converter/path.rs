@@ -1,6 +1,6 @@
 use euclid::Angle;
 use log::debug;
-use lyon_geom::{point, vector, ArcFlags};
+use lyon_geom::{ArcFlags, point, vector};
 use svgtypes::PathSegment;
 
 use crate::Turtle;

@@ -1,6 +1,6 @@
 use euclid::{
-    default::{Transform2D, Transform3D},
     Angle,
+    default::{Transform2D, Transform3D},
 };
 use lyon_geom::vector;
 use svgtypes::{Align, AspectRatio, TransformListToken, ViewBox};
