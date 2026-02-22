@@ -1,5 +1,6 @@
-use base64::Engine;
 use std::path::Path;
+
+use base64::Engine;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlElement, window};
 

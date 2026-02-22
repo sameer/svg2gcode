@@ -6,8 +6,10 @@ use roxmltree::{Document, Node};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use svgtypes::Length;
-use uom::si::f64::Length as UomLength;
-use uom::si::length::{inch, millimeter};
+use uom::si::{
+    f64::Length as UomLength,
+    length::{inch, millimeter},
+};
 
 use self::units::CSS_DEFAULT_DPI;
 use crate::{Machine, turtle::*};
@@ -194,8 +196,9 @@ fn node_name(node: &Node, attr_to_print: &Option<String>) -> String {
 
 #[cfg(all(test, feature = "serde"))]
 mod test {
-    use super::*;
     use svgtypes::LengthUnit;
+
+    use super::*;
 
     #[test]
     fn serde_conversion_options_is_correct() {

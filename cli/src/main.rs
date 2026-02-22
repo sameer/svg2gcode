@@ -1,3 +1,10 @@
+use std::{
+    env,
+    fs::File,
+    io::{self, Read, Write},
+    path::PathBuf,
+};
+
 use clap::Parser;
 use g_code::{
     emit::{FormatOptions, format_gcode_io},
@@ -5,17 +12,10 @@ use g_code::{
 };
 use log::{error, info};
 use roxmltree::ParsingOptions;
-use std::{
-    env,
-    fs::File,
-    io::{self, Read, Write},
-    path::PathBuf,
-};
-use svgtypes::LengthListParser;
-
 use svg2gcode::{
     ConversionOptions, Machine, Settings, SupportedFunctionality, Version, svg2program,
 };
+use svgtypes::LengthListParser;
 
 #[derive(Debug, Parser)]
 #[command(name = "svg2gcode", version, author, about)]

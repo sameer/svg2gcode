@@ -13,14 +13,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Get stable release date
+        id: stable-date
+        run: echo "date=$(curl -s https://static.rust-lang.org/dist/channel-rust-stable.toml | grep '^date' -m1 | cut -d'"' -f2)" >> $GITHUB_OUTPUT
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          toolchain: nightly-${{ steps.stable-date.outputs.date }}
+          components: rustfmt
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libcairo2-dev
       - name: Fmt
-        run: cargo fmt --check -p svg2gcode
+        run: cargo +nightly-${{ steps.stable-date.outputs.date }} fmt --check -p svg2gcode
       - name: Clippy
         run: cargo clippy -p svg2gcode -- -D warnings
       - name: Build

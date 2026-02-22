@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
 use std::{convert::TryInto, num::ParseFloatError};
+
+use serde::{Deserialize, Serialize};
 use svg2gcode::{
     ConversionConfig, MachineConfig, PostprocessConfig, Settings, SupportedFunctionality, Version,
 };

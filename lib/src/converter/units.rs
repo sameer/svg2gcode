@@ -2,9 +2,8 @@ use log::warn;
 use roxmltree::Node;
 use svgtypes::{Length, LengthListParser};
 
-use crate::Turtle;
-
 use super::ConversionVisitor;
+use crate::Turtle;
 
 /// The DPI assumed by CSS is 96.
 ///
@@ -49,8 +48,7 @@ impl<'a, T: Turtle> ConversionVisitor<'a, T> {
     /// A default DPI of 96 is used as per [CSS 4 §7.4](https://www.w3.org/TR/css-values/#resolution)
     pub fn length_to_user_units(&self, l: Length, hint: DimensionHint) -> f64 {
         use svgtypes::LengthUnit::*;
-        use uom::si::f64::Length;
-        use uom::si::length::*;
+        use uom::si::{f64::Length, length::*};
 
         match l.unit {
             Cm => Length::new::<centimeter>(l.number).get::<inch>() * CSS_DEFAULT_DPI,

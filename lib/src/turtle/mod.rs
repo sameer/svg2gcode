@@ -11,9 +11,7 @@ use crate::arc::Transformed;
 mod dpi;
 mod g_code;
 mod preprocess;
-pub use self::dpi::DpiConvertingTurtle;
-pub use self::g_code::GCodeTurtle;
-pub use self::preprocess::PreprocessTurtle;
+pub use self::{dpi::DpiConvertingTurtle, g_code::GCodeTurtle, preprocess::PreprocessTurtle};
 
 /// Abstraction for drawing paths based on [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics)
 pub trait Turtle: Debug {
