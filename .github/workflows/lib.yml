@@ -11,9 +11,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libcairo2-dev
+      - name: Fmt
+        run: cargo fmt --check -p svg2gcode
+      - name: Clippy
+        run: cargo clippy -p svg2gcode -- -D warnings
       - name: Build
         run: cargo build -p svg2gcode
       - name: Test

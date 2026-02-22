@@ -47,7 +47,7 @@ impl Default for ConversionConfig {
             feedrate: 300.0,
             dpi: 96.0,
             origin: zero_origin(),
-	    extra_attribute_name : None,
+            extra_attribute_name: None,
         }
     }
 }
@@ -83,7 +83,7 @@ impl<'a, T: Turtle> ConversionVisitor<'a, T> {
             comment += name;
             comment += " > ";
         });
-        comment += &node_name(node,&self._config.extra_attribute_name);
+        comment += &node_name(node, &self._config.extra_attribute_name);
 
         self.terrarium.turtle.comment(comment);
     }
@@ -174,20 +174,20 @@ pub fn svg2program<'a, 'input: 'a>(
     conversion_visitor.terrarium.turtle.inner.program
 }
 
-fn node_name(node: &Node , attr_to_print :  &Option<String> ) -> String {
+fn node_name(node: &Node, attr_to_print: &Option<String>) -> String {
     let mut name = node.tag_name().name().to_string();
     if let Some(id) = node.attribute("id") {
         name += "#";
         name += id;
-	if let Some(extra_attr_to_print) = attr_to_print {
-	    for a_attr in node.attributes() {
-		if a_attr.name() == extra_attr_to_print {
-		   name += " ( ";
-		   name += a_attr.value() ;
-		   name += " ) ";
-		}
-	    }
-	}
+        if let Some(extra_attr_to_print) = attr_to_print {
+            for a_attr in node.attributes() {
+                if a_attr.name() == extra_attr_to_print {
+                    name += " ( ";
+                    name += a_attr.value();
+                    name += " ) ";
+                }
+            }
+        }
     }
     name
 }

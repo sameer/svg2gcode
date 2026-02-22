@@ -11,7 +11,7 @@ macro_rules! css_class_enum {
         $(
             $variant: ident => $class: literal
         ),*
-    }) => {
+    } $(default { $default: ident })?) => {
         #[derive(PartialEq, Eq, Clone, Copy)]
         pub enum $name {
             $(
@@ -36,8 +36,15 @@ macro_rules! css_class_enum {
                     Ok(())
                 }
             }
-
         }
+
+        $(
+            impl Default for $name {
+                fn default() -> Self {
+                    Self::$default
+                }
+            }
+        )?
     };
 }
 
@@ -114,7 +121,7 @@ where
     let prop_oninput = props.oninput.clone();
     // Wrap callback to determine when user performed an edit
     let oninput = Callback::from(move |event: InputEvent| {
-        if !event.data().map_or(false, |d| d == "ignore") {
+        if event.data().is_none_or(|d| d != "ignore") {
             user_edited.set(true);
         }
         prop_oninput.emit(event);
@@ -255,6 +262,7 @@ where
 }
 
 #[derive(Properties, PartialEq, Clone)]
+#[allow(dead_code)]
 pub struct SelectProps {
     #[prop_or_default]
     pub children: Children,
@@ -272,6 +280,7 @@ pub fn select(props: &SelectProps) -> Html {
 }
 
 #[derive(Properties, PartialEq, Clone)]
+#[allow(dead_code)]
 pub struct OptionProps {
     #[prop_or_default]
     pub children: Children,
@@ -290,6 +299,7 @@ pub fn option(props: &OptionProps) -> Html {
 }
 
 #[derive(Properties, PartialEq, Clone)]
+#[allow(dead_code)]
 pub struct InputGroupProps {
     #[prop_or_default]
     pub children: Children,
@@ -393,7 +403,7 @@ where
     let prop_oninput = props.oninput.clone();
     // Wrap callback to determine when user performed an edit
     let oninput = Callback::from(move |event: InputEvent| {
-        if !event.data().map_or(false, |d| d == "ignore") {
+        if event.data().is_none_or(|d| d != "ignore") {
             user_edited.set(true);
         }
         prop_oninput.emit(event);
@@ -442,13 +452,7 @@ css_class_enum! {
         Link => "link",
         Success => "success",
         Error => "error"
-    }
-}
-
-impl Default for ButtonStyle {
-    fn default() -> Self {
-        Self::Default
-    }
+    } default { Default }
 }
 
 #[derive(Properties, PartialEq, Clone)]
@@ -607,13 +611,7 @@ css_class_enum! {
         Small => "sm",
         Large => "lg",
         Default => ""
-    }
-}
-
-impl Default for ModalSize {
-    fn default() -> Self {
-        Self::Default
-    }
+    } default { Default }
 }
 
 #[function_component(Modal)]

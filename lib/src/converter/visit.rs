@@ -38,7 +38,7 @@ fn should_render_node(node: Node) -> bool {
     node.is_element()
         && !node
             .attribute("style")
-            .map_or(false, |style| style.contains("display:none"))
+            .is_some_and( |style| style.contains("display:none"))
         // - Defs are not rendered
         // - Markers are not directly rendered
         // - Symbols are not directly rendered
@@ -370,7 +370,8 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
             }
         }
 
-        self.name_stack.push(node_name(&node,&self._config.extra_attribute_name));
+        self.name_stack
+            .push(node_name(&node, &self._config.extra_attribute_name));
     }
 
     fn visit_exit(&mut self, node: Node) {

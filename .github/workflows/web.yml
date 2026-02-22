@@ -10,5 +10,12 @@ jobs:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build
-        run: cargo check -p svg2gcode-web
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - name: Fmt
+        run: cargo fmt --check -p svg2gcode-web
+      - name: Clippy
+        run: cargo clippy -p svg2gcode-web --target wasm32-unknown-unknown -- -D warnings
+      - name: Check
+        run: cargo check -p svg2gcode-web --target wasm32-unknown-unknown
