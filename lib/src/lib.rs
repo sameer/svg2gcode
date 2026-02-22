@@ -292,6 +292,42 @@ mod test {
     }
 
     #[test]
+    fn use_defs_produces_expected_gcode() {
+        let svg = include_str!("../tests/use_defs.svg");
+        let expected = g_code::parse::file_parser(include_str!("../tests/use_defs.gcode"))
+            .unwrap()
+            .iter_emit_tokens()
+            .collect::<Vec<_>>();
+        let actual = get_actual(svg, false, [None; 2]);
+
+        assert_close(actual, expected)
+    }
+
+    #[test]
+    fn use_xlink_href_produces_expected_gcode() {
+        let svg = include_str!("../tests/use_xlink_href.svg");
+        let expected = g_code::parse::file_parser(include_str!("../tests/use_xlink_href.gcode"))
+            .unwrap()
+            .iter_emit_tokens()
+            .collect::<Vec<_>>();
+        let actual = get_actual(svg, false, [None; 2]);
+
+        assert_close(actual, expected)
+    }
+
+    #[test]
+    fn use_symbol_produces_expected_gcode() {
+        let svg = include_str!("../tests/use_symbol.svg");
+        let expected = g_code::parse::file_parser(include_str!("../tests/use_symbol.gcode"))
+            .unwrap()
+            .iter_emit_tokens()
+            .collect::<Vec<_>>();
+        let actual = get_actual(svg, false, [None; 2]);
+
+        assert_close(actual, expected)
+    }
+
+    #[test]
     #[cfg(feature = "serde")]
     fn deserialize_v1_config_succeeds() {
         let json = r#"
