@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" viewBox="0 0 10 10">
+  <g transform="rotate(90)" transform-origin="5 5">
+    <path d="M 5,1 V 5"/>
+  </g>
+</svg>

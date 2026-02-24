@@ -324,7 +324,35 @@ mod test {
             .collect::<Vec<_>>();
         let actual = get_actual(svg, false, [None; 2]);
 
+        assert_close(actual, expected);
+    }
+
+    #[test]
+    fn transform_origin_produces_expected_gcode() {
+        let svg = include_str!("../tests/transform_origin.svg");
+        let expected = g_code::parse::file_parser(include_str!("../tests/transform_origin.gcode"))
+            .unwrap()
+            .iter_emit_tokens()
+            .collect::<Vec<_>>();
+        let actual = get_actual(svg, false, [None; 2]);
         assert_close(actual, expected)
+    }
+
+    /// `transform-origin="5 5"` with `rotate(90)` should be identical to the
+    /// manual SVG equivalent `translate(5,5) rotate(90) translate(-5,-5)`
+    #[test]
+    fn transform_origin_matches_manual_equivalent() {
+        let with_origin = get_actual(
+            include_str!("../tests/transform_origin.svg"),
+            false,
+            [None; 2],
+        );
+        let manual = get_actual(
+            include_str!("../tests/transform_origin_equivalent.svg"),
+            false,
+            [None; 2],
+        );
+        assert_close(with_origin, manual)
     }
 
     #[test]
