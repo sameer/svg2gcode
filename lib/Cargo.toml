@@ -12,28 +12,28 @@ serde = ["dep:serde", "dep:serde_repr", "g-code/serde"]
 
 [dependencies]
 g-code.workspace = true
-lyon_geom = "1.0.5"
+lyon_geom = "=1.0.6"
 euclid = "0.22"
 log.workspace = true
-uom = "0.36"
+uom = "0.38"
 roxmltree.workspace = true
 svgtypes.workspace = true
-paste = "1.0"
+paste = "1"
 
 [dependencies.serde]
 default-features = false
 optional = true
 version = "1"
-features = ["derive"]
+features = ["derive", "std"]
 
 [dependencies.serde_repr]
 optional = true
 version = "0.1"
 
 [dev-dependencies]
-cairo-rs = { version = "0.18", default-features = false, features = [
+cairo-rs = { version = "0.22", default-features = false, features = [
     "svg",
     "v1_16",
 ] }
 serde_json.workspace = true
-pretty_assertions = "1.4.0"
+pretty_assertions = "1.4.1"

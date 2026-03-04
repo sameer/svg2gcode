@@ -10,11 +10,11 @@ license.workspace = true
 
 [dependencies]
 wasm-bindgen = "0.2"
-svg2gcode = { path = "../lib", version = "0.3.2", features = ["serde"] }
+svg2gcode = { path = "../lib", version = "0.3.3", features = ["serde"] }
 roxmltree.workspace = true
 g-code.workspace = true
-codespan-reporting = "0.11"
-codespan = "0.11"
+codespan-reporting = "0.13"
+codespan = "0.13"
 serde = "1"
 paste = "1"
 log.workspace = true
