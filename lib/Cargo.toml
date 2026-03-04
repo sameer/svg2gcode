@@ -1,6 +1,6 @@
 [package]
 name = "svg2gcode"
-version = "0.3.3"
+version = "0.3.4"
 description = "Convert paths in SVG files to GCode for a pen plotter, laser engraver, or other machine."
 authors.workspace = true
 edition.workspace = true

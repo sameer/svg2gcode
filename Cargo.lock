@@ -1377,7 +1377,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "svg2gcode"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "cairo-rs",
  "euclid",
@@ -1396,7 +1396,7 @@ dependencies = [
 
 [[package]]
 name = "svg2gcode-cli"
-version = "0.0.17"
+version = "0.0.18"
 dependencies = [
  "clap",
  "codespan-reporting",
@@ -1411,7 +1411,7 @@ dependencies = [
 
 [[package]]
 name = "svg2gcode-web"
-version = "0.0.17"
+version = "0.0.18"
 dependencies = [
  "base64",
  "codespan",
