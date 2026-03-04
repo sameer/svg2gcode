@@ -6,6 +6,7 @@ use std::{
 };
 
 use clap::Parser;
+use codespan_reporting::term::emit_to_io_write;
 use g_code::{
     emit::{FormatOptions, format_gcode_io},
     parse::snippet_parser,
@@ -282,10 +283,7 @@ fn main() -> io::Result<()> {
             program_end_sequence,
         )
     } else {
-        use codespan_reporting::term::{
-            emit,
-            termcolor::{ColorChoice, StandardStream},
-        };
+        use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
         let mut writer = StandardStream::stderr(ColorChoice::Auto);
         let config = codespan_reporting::term::Config::default();
 
@@ -299,7 +297,7 @@ fn main() -> io::Result<()> {
         .enumerate()
         {
             if let Err(err) = &snippets[i] {
-                emit(
+                emit_to_io_write(
                     &mut writer,
                     &config,
                     &codespan_reporting::files::SimpleFile::new(filename, gcode.as_ref().unwrap()),

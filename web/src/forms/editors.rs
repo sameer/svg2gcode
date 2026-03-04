@@ -1,4 +1,4 @@
-use codespan_reporting::term::{Config, emit, termcolor::NoColor};
+use codespan_reporting::term::{Config, emit_to_io_write, termcolor::NoColor};
 use g_code::parse::{into_diagnostic, snippet_parser};
 use gloo_timers::callback::Timeout;
 use paste::paste;
@@ -36,7 +36,7 @@ macro_rules! gcode_input {
                                 Err(err) => {
                                     let mut buf = NoColor::new(vec![]);
                                     let config = Config::default();
-                                    emit(
+                                    emit_to_io_write(
                                         &mut buf,
                                         &config,
                                         &codespan_reporting::files::SimpleFile::new("<input>", value),
