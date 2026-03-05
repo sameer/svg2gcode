@@ -530,7 +530,7 @@ pub fn svg_form() -> Html {
         <FormGroup success={file_upload_res.as_ref().map(Result::is_ok).or_else(|| url_input_parsed.as_ref().map(Result::is_ok))}>
             <FileUpload<(), String>
                 label="Select SVG files"
-                accept=".svg"
+                accept=".svg,image/svg+xml"
                 multiple={true}
                 onchange={file_upload_onchange}
             />
