@@ -1387,6 +1387,7 @@ dependencies = [
  "paste",
  "pretty_assertions",
  "roxmltree",
+ "rust_decimal",
  "serde",
  "serde_json",
  "serde_repr",
