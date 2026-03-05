@@ -12,6 +12,7 @@ serde = ["dep:serde", "dep:serde_repr", "g-code/serde"]
 
 [dependencies]
 g-code.workspace = true
+rust_decimal = { version = "1", default-features = false }
 lyon_geom = "=1.0.6"
 euclid = "0.22"
 log.workspace = true
