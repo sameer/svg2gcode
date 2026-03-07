@@ -8,6 +8,41 @@ pub enum ArcOrLineSegment<S> {
     Line(LineSegment<S>),
 }
 
+/// Golden-section search for the maximum of a unimodal function f on [0, 1].
+/// Returns (t_max, f(t_max)).
+///
+/// https://en.wikipedia.org/wiki/Golden-section_search
+fn golden_section_max<S: Scalar, F: Fn(S) -> S>(f: F) -> (S, S) {
+    let tolerance = S::from(1E-5_f64).unwrap();
+
+    let inv_phi = (S::from(5.0_f64).unwrap().sqrt() - S::ONE) / S::TWO;
+    let mut x_1 = S::ZERO;
+    let mut x_4 = S::ONE;
+    let mut x_2 = x_4 - inv_phi * (x_4 - x_1);
+    let mut x_3 = x_1 + inv_phi * (x_4 - x_1);
+    let mut f_x_2 = f(x_2);
+    let mut f_x_3 = f(x_3);
+
+    while x_4 - x_1 > tolerance {
+        if f_x_2 < f_x_3 {
+            x_1 = x_2;
+            x_2 = x_3;
+            f_x_2 = f_x_3;
+            x_3 = x_1 + inv_phi * (x_4 - x_1);
+            f_x_3 = f(x_3);
+        } else {
+            x_4 = x_3;
+            x_3 = x_2;
+            f_x_3 = f_x_2;
+            x_2 = x_4 - inv_phi * (x_4 - x_1);
+            f_x_2 = f(x_2);
+        }
+    }
+
+    let t_max = (x_1 + x_4) / S::TWO;
+    (t_max, f(t_max))
+}
+
 fn arc_from_endpoints_and_tangents<S: Scalar>(
     from: Point<S>,
     from_tangent: Vector<S>,
@@ -116,14 +151,8 @@ where
             )
             .filter(|svg_arc| {
                 let arc = svg_arc.to_arc();
-                let mut max_deviation = S::ZERO;
-                // TODO: find a better way to check tolerance
-                // Ideally: derivative of |f(x) - g(x)| and look at 0 crossings
-                for i in 1..20 {
-                    let t = S::from(i).unwrap() / S::from(20).unwrap();
-                    max_deviation =
-                        max_deviation.max((arc.sample(t) - inner_bezier.sample(t)).length());
-                }
+                let (_, max_deviation) =
+                    golden_section_max(|t| (arc.sample(t) - inner_bezier.sample(t)).length());
                 max_deviation < tolerance
             }) {
                 acc.push(ArcOrLineSegment::Arc(svg_arc));
@@ -162,14 +191,8 @@ where
         )
         .filter(|approx_svg_arc| {
             let approx_arc = approx_svg_arc.to_arc();
-            let mut max_deviation = S::ZERO;
-            // TODO: find a better way to check tolerance
-            // Ideally: derivative of |f(x) - g(x)| and look at 0 crossings
-            for i in 1..20 {
-                let t = S::from(i).unwrap() / S::from(20).unwrap();
-                max_deviation =
-                    max_deviation.max((approx_arc.sample(t) - self_arc.sample(t)).length());
-            }
+            let (_, max_deviation) =
+                golden_section_max(|t| (approx_arc.sample(t) - self_arc.sample(t)).length());
             max_deviation < tolerance
         }) {
             vec![ArcOrLineSegment::Arc(svg_arc)]
