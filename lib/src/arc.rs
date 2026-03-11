@@ -1,11 +1,23 @@
 use euclid::Angle;
 use lyon_geom::{
-    ArcFlags, CubicBezierSegment, Line, LineSegment, Point, Scalar, SvgArc, Transform, Vector,
+    Arc, ArcFlags, CubicBezierSegment, Line, LineSegment, Point, Scalar, SvgArc, Transform, Vector,
 };
 
 pub enum ArcOrLineSegment<S> {
     Arc(SvgArc<S>),
     Line(LineSegment<S>),
+}
+
+/// Calcuates the distance from `p` to the nearest point on `arc`.
+fn point_to_arc_dist<S: Scalar>(p: Point<S>, arc: &Arc<S>) -> S {
+    let t_raw = (p - arc.center).angle_from_x_axis().radians / arc.sweep_angle.radians
+        - arc.start_angle.radians / arc.sweep_angle.radians;
+    let full_rev = S::TWO * S::PI() / arc.sweep_angle.radians.abs();
+    let calc_dist = |t: S| (arc.sample(t.clamp(S::ZERO, S::ONE)) - p).length();
+
+    calc_dist(t_raw)
+        .min(calc_dist(t_raw + full_rev))
+        .min(calc_dist(t_raw - full_rev))
 }
 
 fn arc_from_endpoints_and_tangents<S: Scalar>(
@@ -104,12 +116,10 @@ where
             .filter(|svg_arc| {
                 let arc = svg_arc.to_arc();
                 let mut max_deviation = S::ZERO;
-                // TODO: find a better way to check tolerance
-                // Ideally: derivative of |f(x) - g(x)| and look at 0 crossings
                 for i in 1..20 {
                     let t = S::from(i).unwrap() / S::from(20).unwrap();
                     max_deviation =
-                        max_deviation.max((arc.sample(t) - inner_bezier.sample(t)).length());
+                        max_deviation.max(point_to_arc_dist(inner_bezier.sample(t), &arc));
                 }
                 max_deviation < tolerance
             }) {
@@ -150,12 +160,10 @@ where
         .filter(|approx_svg_arc| {
             let approx_arc = approx_svg_arc.to_arc();
             let mut max_deviation = S::ZERO;
-            // TODO: find a better way to check tolerance
-            // Ideally: derivative of |f(x) - g(x)| and look at 0 crossings
             for i in 1..20 {
                 let t = S::from(i).unwrap() / S::from(20).unwrap();
                 max_deviation =
-                    max_deviation.max((approx_arc.sample(t) - self_arc.sample(t)).length());
+                    max_deviation.max(point_to_arc_dist(self_arc.sample(t), &approx_arc));
             }
             max_deviation < tolerance
         }) {
