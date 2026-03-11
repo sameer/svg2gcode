@@ -14,42 +14,22 @@ fn arc_from_endpoints_and_tangents<S: Scalar>(
     to: Point<S>,
     to_tangent: Vector<S>,
 ) -> Option<SvgArc<S>> {
-    let from_to = (from - to).length();
-    let incenter = {
-        let from_tangent = Line {
-            point: from,
-            vector: from_tangent,
-        };
-        let to_tangent = Line {
-            point: to,
-            vector: to_tangent,
-        };
-
-        let intersection = from_tangent.intersection(&to_tangent)?;
-        let from_intersection = (from - intersection).length();
-        let to_intersection = (to - intersection).length();
-
-        (((from * to_intersection).to_vector()
-            + (to * from_intersection).to_vector()
-            + (intersection * from_to).to_vector())
-            / (from_intersection + to_intersection + from_to))
-            .to_point()
-    };
-
-    let get_perpendicular_bisector = |a, b| {
-        let vector: Vector<S> = a - b;
-        let perpendicular_vector = Vector::from([-vector.y, vector.x]).normalize();
-        Line {
-            point: LineSegment { from: a, to: b }.sample(S::HALF),
-            vector: perpendicular_vector,
-        }
-    };
-
-    let from_incenter_bisector = get_perpendicular_bisector(from, incenter);
-    let to_incenter_bisector = get_perpendicular_bisector(to, incenter);
-    let center = from_incenter_bisector.intersection(&to_incenter_bisector)?;
+    // The arc center must be perpendicular to the tangent at each endpoint.
+    // Intersect the two normal lines to find it.
+    let perp = |v: Vector<S>| Vector::from([-v.y, v.x]);
+    let center = Line {
+        point: from,
+        vector: perp(from_tangent),
+    }
+    .intersection(&Line {
+        point: to,
+        vector: perp(to_tangent),
+    })?;
 
     let radius = (from - center).length();
+    if radius < S::EPSILON {
+        return None;
+    }
 
     // Use the 2D determinant + dot product to identify winding direction
     // See https://www.w3.org/TR/SVG/paths.html#PathDataEllipticalArcCommands for
