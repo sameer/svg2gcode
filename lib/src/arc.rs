@@ -87,8 +87,6 @@ where
 {
     /// Implementation of [Modeling of Bézier Curves Using a Combination of Linear and Circular Arc Approximations](https://sci-hub.st/https://doi.org/10.1109/CGIV.2012.20)
     ///
-    /// There are some slight deviations like using monotonic ranges instead of bounding by inflection points.
-    ///
     /// Kaewsaiha, P., & Dejdumrong, N. (2012). Modeling of Bézier Curves Using a Combination of Linear and Circular Arc Approximations. 2012 Ninth International Conference on Computer Graphics, Imaging and Visualization. doi:10.1109/cgiv.2012.20
     fn flattened(&self, tolerance: S) -> Vec<ArcOrLineSegment<S>> {
         if (self.to - self.from).square_length() < S::EPSILON {
@@ -98,14 +96,23 @@ where
         }
         let mut acc = vec![];
 
-        self.for_each_monotonic_range(&mut |range| {
-            let inner_bezier = self.split_range(range);
+        let mut splits = Vec::with_capacity(4);
+        splits.push(S::ZERO);
+        self.for_each_inflection_t(&mut |t| {
+            if t > S::ZERO {
+                splits.push(t);
+            }
+        });
+        splits.push(S::ONE);
+
+        for window in splits.windows(2) {
+            let inner_bezier = self.split_range(window[0]..window[1]);
 
             if (inner_bezier.to - inner_bezier.from).square_length() < S::EPSILON {
-                return;
+                continue;
             } else if inner_bezier.is_linear(tolerance) {
                 acc.push(ArcOrLineSegment::Line(inner_bezier.baseline()));
-                return;
+                continue;
             }
 
             if let Some(svg_arc) = arc_from_endpoints_and_tangents(
@@ -132,7 +139,7 @@ where
                 acc.append(&mut FlattenWithArcs::flattened(&left, tolerance));
                 acc.append(&mut FlattenWithArcs::flattened(&right, tolerance));
             }
-        });
+        }
         acc
     }
 }
