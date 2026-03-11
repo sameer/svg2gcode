@@ -276,138 +276,88 @@ impl<S: Scalar> Transformed<S> for SvgArc<S> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
-    use cairo::{Context, SvgSurface};
-    use lyon_geom::{CubicBezierSegment, Point, Vector, point, vector};
-    use svgtypes::PathParser;
+    use lyon_geom::{CubicBezierSegment, point};
 
     use crate::arc::{ArcOrLineSegment, FlattenWithArcs};
 
-    #[test]
-    #[ignore = "Creates an image file, will revise later"]
-    fn flatten_returns_expected_arcs() {
-        const PATH: &str = "M  8.0549,11.9023
-        c
-        0.13447,1.69916 8.85753,-5.917903 7.35159,-6.170957
-        z";
-        let mut surf =
-            SvgSurface::new(128., 128., Some(PathBuf::from("approx_circle.svg"))).unwrap();
-        surf.set_document_unit(cairo::SvgUnit::Mm);
-        let ctx = Context::new(&surf).unwrap();
-        ctx.set_line_width(0.2);
+    /// Magic constant for cubic Bézier approximation of a quarter circle: 4(√2-1)/3
+    const KAPPA: f64 = 4.0 * (std::f64::consts::SQRT_2 - 1.0) / 3.0;
 
-        let mut current_position = Point::zero();
-
-        let mut acc = 0;
-
-        for path in PathParser::from(PATH) {
-            use svgtypes::PathSegment::*;
-            match path.unwrap() {
-                MoveTo { x, y, abs } => {
-                    if abs {
-                        ctx.move_to(x, y);
-                        current_position = point(x, y);
-                    } else {
-                        ctx.rel_move_to(x, y);
-                        current_position += vector(x, y);
-                    }
-                }
-                LineTo { x, y, abs } => {
-                    if abs {
-                        ctx.line_to(x, y);
-                        current_position = point(x, y);
-                    } else {
-                        ctx.rel_line_to(x, y);
-                        current_position += vector(x, y);
-                    }
-                }
-                ClosePath { .. } => ctx.close_path(),
-                CurveTo {
-                    x1,
-                    y1,
-                    x2,
-                    y2,
-                    x,
-                    y,
-                    abs,
-                } => {
-                    ctx.set_dash(&[], 0.);
-                    match acc {
-                        0 => ctx.set_source_rgb(1., 0., 0.),
-                        1 => ctx.set_source_rgb(0., 1., 0.),
-                        2 => ctx.set_source_rgb(0., 0., 1.),
-                        3 => ctx.set_source_rgb(0., 0., 0.),
-                        _ => unreachable!(),
-                    }
-                    let curve = CubicBezierSegment {
-                        from: current_position,
-                        ctrl1: (vector(x1, y1)
-                            + if !abs {
-                                current_position.to_vector()
-                            } else {
-                                Vector::zero()
-                            })
-                        .to_point(),
-                        ctrl2: (vector(x2, y2)
-                            + if !abs {
-                                current_position.to_vector()
-                            } else {
-                                Vector::zero()
-                            })
-                        .to_point(),
-                        to: (vector(x, y)
-                            + if !abs {
-                                current_position.to_vector()
-                            } else {
-                                Vector::zero()
-                            })
-                        .to_point(),
-                    };
-                    for segment in FlattenWithArcs::flattened(&curve, 0.02) {
-                        match segment {
-                            ArcOrLineSegment::Arc(svg_arc) => {
-                                let arc = svg_arc.to_arc();
-                                if svg_arc.flags.sweep {
-                                    ctx.arc(
-                                        arc.center.x,
-                                        arc.center.y,
-                                        arc.radii.x,
-                                        arc.start_angle.radians,
-                                        (arc.start_angle + arc.sweep_angle).radians,
-                                    )
-                                } else {
-                                    ctx.arc_negative(
-                                        arc.center.x,
-                                        arc.center.y,
-                                        arc.radii.x,
-                                        arc.start_angle.radians,
-                                        (arc.start_angle + arc.sweep_angle).radians,
-                                    )
-                                }
-                            }
-                            ArcOrLineSegment::Line(line) => ctx.line_to(line.to.x, line.to.y),
+    /// Approximate one-sided Hausdorff distance: for each of `samples` on the Bézier,
+    /// find the closest point on any flattened segment and return the maximum deviation.
+    fn approx_max_bezier_deviation(
+        curve: &CubicBezierSegment<f64>,
+        segments: &[ArcOrLineSegment<f64>],
+        samples: usize,
+    ) -> f64 {
+        (0..=samples)
+            .map(|i| {
+                let t = i as f64 / samples as f64;
+                let p = curve.sample(t);
+                segments
+                    .iter()
+                    .map(|seg| match seg {
+                        ArcOrLineSegment::Arc(svg_arc) => {
+                            let arc = svg_arc.to_arc();
+                            let q_angle = (p - arc.center).angle_from_x_axis().radians;
+                            let start = arc.start_angle.radians;
+                            let sweep = arc.sweep_angle.radians;
+                            let t_raw = (q_angle - start) / sweep;
+                            let full_rev = std::f64::consts::TAU / sweep.abs();
+                            // Try t_raw and ±one full revolution to handle angle wrapping
+                            [t_raw, t_raw + full_rev, t_raw - full_rev]
+                                .iter()
+                                .map(|&t| arc.sample(t.clamp(0.0, 1.0)))
+                                .map(|pt| (p - pt).length())
+                                .fold(f64::INFINITY, f64::min)
                         }
-                    }
+                        ArcOrLineSegment::Line(line) => (line.closest_point(p) - p).length(),
+                    })
+                    .fold(f64::INFINITY, f64::min)
+            })
+            .fold(0.0_f64, f64::max)
+    }
 
-                    ctx.stroke().unwrap();
-
-                    current_position = curve.to;
-                    ctx.set_dash(&[0.1], 0.);
-                    ctx.move_to(curve.from.x, curve.from.y);
-                    ctx.curve_to(
-                        curve.ctrl1.x,
-                        curve.ctrl1.y,
-                        curve.ctrl2.x,
-                        curve.ctrl2.y,
-                        curve.to.x,
-                        curve.to.y,
-                    );
-                    ctx.stroke().unwrap();
-                    acc += 1;
-                }
-                other => unimplemented!("{:?}", other),
-            }
+    #[test]
+    fn flattened_arcs_within_hausdorff_tolerance() {
+        let curves: &[CubicBezierSegment<f64>] = &[
+            // Quarter circle approximation
+            CubicBezierSegment {
+                from: point(1.0, 0.0),
+                ctrl1: point(1.0, KAPPA),
+                ctrl2: point(KAPPA, 1.0),
+                to: point(0.0, 1.0),
+            },
+            // S-curve with inflection
+            CubicBezierSegment {
+                from: point(0.0, 0.0),
+                ctrl1: point(1.0, 0.0),
+                ctrl2: point(0.0, 1.0),
+                to: point(1.0, 1.0),
+            },
+            // Highly asymmetric curve
+            CubicBezierSegment {
+                from: point(0.0, 0.0),
+                ctrl1: point(0.1, 1.0),
+                ctrl2: point(0.9, 1.0),
+                to: point(1.0, 0.0),
+            },
+            // Near-straight curve
+            CubicBezierSegment {
+                from: point(0.0, 0.0),
+                ctrl1: point(0.33, 0.01),
+                ctrl2: point(0.66, 0.01),
+                to: point(1.0, 0.0),
+            },
+        ];
+        let tolerance = 0.002;
+        for (i, curve) in curves.iter().enumerate() {
+            let segments = FlattenWithArcs::flattened(curve, tolerance);
+            let dist = approx_max_bezier_deviation(curve, &segments, 1_000);
+            assert!(
+                dist < tolerance,
+                "curve {i}: Hausdorff distance {dist} exceeds tolerance {tolerance}"
+            );
         }
     }
 }
