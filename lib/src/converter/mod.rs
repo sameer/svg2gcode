@@ -12,7 +12,10 @@ use uom::si::{
 };
 
 use self::units::CSS_DEFAULT_DPI;
-use crate::{Machine, turtle::*};
+use crate::{
+    Machine, tsp,
+    turtle::{collect::DrawingCommand, *},
+};
 
 #[cfg(feature = "serde")]
 mod length_serde;
@@ -36,6 +39,9 @@ pub struct ConversionConfig {
     pub origin: [Option<f64>; 2],
     /// Set extra attribute to add when printing node name
     pub extra_attribute_name: Option<String>,
+    /// Reorder paths to minimise pen-up travel using a TSP heuristic
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub optimize_path_order: bool,
 }
 
 const fn zero_origin() -> [Option<f64>; 2] {
@@ -50,6 +56,7 @@ impl Default for ConversionConfig {
             dpi: 96.0,
             origin: zero_origin(),
             extra_attribute_name: None,
+            optimize_path_order: false,
         }
     }
 }
@@ -160,7 +167,7 @@ pub fn svg2program<'a, 'input: 'a>(
             dpi: config.dpi,
         }),
         _config: config,
-        options,
+        options: options.clone(),
         name_stack: vec![],
         viewport_dim_stack: vec![],
     };
@@ -169,7 +176,47 @@ pub fn svg2program<'a, 'input: 'a>(
         .terrarium
         .push_transform(origin_transform);
     conversion_visitor.begin();
-    visit::depth_first_visit(doc, &mut conversion_visitor);
+
+    if config.optimize_path_order {
+        // Collect all transformed strokes for TSP optimization
+        let mut collect_visitor = ConversionVisitor {
+            terrarium: Terrarium::new(DpiConvertingTurtle {
+                inner: StrokeCollectingTurtle::default(),
+                dpi: config.dpi,
+            }),
+            _config: config,
+            options,
+            name_stack: vec![],
+            viewport_dim_stack: vec![],
+        };
+        collect_visitor.terrarium.push_transform(origin_transform);
+        collect_visitor.begin();
+        visit::depth_first_visit(doc, &mut collect_visitor);
+        collect_visitor.end();
+        collect_visitor.terrarium.pop_transform();
+        let strokes = collect_visitor.terrarium.turtle.inner.strokes;
+
+        // Optimize ordering
+        let strokes = tsp::optimize_path_order(strokes);
+
+        // Replay optimized strokes into the GCode turtle
+        let turtle = &mut conversion_visitor.terrarium.turtle;
+        for stroke in strokes {
+            turtle.move_to(stroke.start_point);
+            for cmd in stroke.commands {
+                match cmd {
+                    DrawingCommand::LineTo(to) => turtle.line_to(to),
+                    DrawingCommand::Arc(arc) => turtle.arc(arc),
+                    DrawingCommand::CubicBezier(cbs) => turtle.cubic_bezier(cbs),
+                    DrawingCommand::QuadraticBezier(qbs) => turtle.quadratic_bezier(qbs),
+                    DrawingCommand::Comment(s) => turtle.comment(s),
+                }
+            }
+        }
+    } else {
+        visit::depth_first_visit(doc, &mut conversion_visitor);
+    }
+
     conversion_visitor.end();
     conversion_visitor.terrarium.pop_transform();
 

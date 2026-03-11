@@ -7,6 +7,8 @@ mod machine;
 /// Operations that are easier to implement while/after G-Code is generated, or would
 /// otherwise over-complicate SVG conversion
 mod postprocess;
+/// Reorders strokes to minimize pen-up travel using TSP heuristics
+mod tsp;
 /// Provides an interface for drawing lines in G-Code
 /// This concept is referred to as [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics).
 mod turtle;
