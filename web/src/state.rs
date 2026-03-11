@@ -15,6 +15,7 @@ pub struct FormState {
     pub feedrate: Result<f64, ParseFloatError>,
     pub origin: [Option<Result<f64, ParseFloatError>>; 2],
     pub circular_interpolation: bool,
+    pub optimize_path_order: bool,
     pub dpi: Result<f64, ParseFloatError>,
     pub tool_on_sequence: Option<Result<String, String>>,
     pub tool_off_sequence: Option<Result<String, String>>,
@@ -54,6 +55,7 @@ impl TryInto<Settings> for &FormState {
                     self.origin[1].clone().transpose()?,
                 ],
                 extra_attribute_name: None,
+                optimize_path_order: self.optimize_path_order,
             },
             machine: MachineConfig {
                 supported_functionality: SupportedFunctionality {
@@ -99,6 +101,7 @@ impl From<&Settings> for FormState {
                 .machine
                 .supported_functionality
                 .circular_interpolation,
+            optimize_path_order: settings.conversion.optimize_path_order,
             origin: [
                 settings.conversion.origin[0].map(Ok),
                 settings.conversion.origin[1].map(Ok),
