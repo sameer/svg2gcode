@@ -168,7 +168,6 @@ fn local_improvement_with_tabu_search(path: &[Stroke]) -> Vec<Stroke> {
             // O(n^2): move stroke i to between j and j+1, trying both orientations.
             Operator::Relocate => {
                 let best_move = (1..current.len().saturating_sub(1))
-                    .into_iter()
                     .filter(|&i| !tabu_set.contains(&i))
                     .flat_map(|i| {
                         // Improvement from removing stroke i from between i-1 and i+1.
@@ -176,10 +175,7 @@ fn local_improvement_with_tabu_search(path: &[Stroke]) -> Vec<Stroke> {
                             - dist(current[i - 1].end_point(), current[i + 1].start_point);
 
                         (0..i.saturating_sub(1))
-                            .into_iter()
-                            .chain(
-                                (i.saturating_add(1)..current.len().saturating_sub(1)).into_iter(),
-                            )
+                            .chain(i.saturating_add(1)..current.len().saturating_sub(1))
                             .map(move |j| (i, j, unlink_improvement))
                     })
                     .map(|(i, j, unlink_improvement)| {
@@ -226,11 +222,9 @@ fn local_improvement_with_tabu_search(path: &[Stroke]) -> Vec<Stroke> {
             // Each stroke in the reversed range is also flipped so connections stay valid.
             Operator::TwoOpt => {
                 let best_move = (0..current.len().saturating_sub(1))
-                    .into_iter()
                     .map(|i| (i, i + 1))
                     .flat_map(|(i, j)| {
                         (j.saturating_add(2)..current.len())
-                            .into_iter()
                             .map(move |other_j| ((i, j), (other_j - 1, other_j)))
                     })
                     .filter(|(this, other)| {
@@ -269,7 +263,6 @@ fn local_improvement_with_tabu_search(path: &[Stroke]) -> Vec<Stroke> {
                 let last_end = current.last().unwrap().end_point();
 
                 let best_move = (2..current.len().saturating_sub(1))
-                    .into_iter()
                     .map(|j| (j - 1, j))
                     .filter(|(i, j)| !tabu_set.contains(i) && !tabu_set.contains(j))
                     .map(|(i, j)| {
