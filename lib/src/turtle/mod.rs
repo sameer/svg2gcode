@@ -8,13 +8,14 @@ use lyon_geom::{
 
 use crate::arc::Transformed;
 
-pub mod collect;
+mod collect;
 mod dpi;
+mod elements;
 mod g_code;
 mod preprocess;
 pub use self::{
-    collect::StrokeCollectingTurtle, dpi::DpiConvertingTurtle, g_code::GCodeTurtle,
-    preprocess::PreprocessTurtle,
+    collect::StrokeCollectingTurtle, dpi::DpiConvertingTurtle, elements::Stroke,
+    g_code::GCodeTurtle, preprocess::PreprocessTurtle,
 };
 
 /// Abstraction for drawing paths based on [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics)

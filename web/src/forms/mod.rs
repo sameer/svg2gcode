@@ -151,7 +151,7 @@ pub fn settings_form() -> Html {
                         <FormGroup>
                             <Checkbox
                                 label="Optimize path order (experimental)"
-                                desc="Reorder paths to minimize pen-up travel using a TSP heuristic. May be slow for SVGs with many paths."
+                                desc="Reorder paths to minimize travel time. May be slow for SVGs with many elements."
                                 checked={form_state.optimize_path_order}
                                 onchange={on_optimize_path_order_change}
                             />
