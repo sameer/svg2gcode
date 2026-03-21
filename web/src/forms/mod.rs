@@ -70,6 +70,11 @@ pub fn settings_form() -> Html {
                 event.target_unchecked_into::<HtmlInputElement>().checked();
         });
 
+    let on_optimize_path_order_change =
+        form_dispatch.reduce_mut_callback_with(|form, event: Event| {
+            form.optimize_path_order = event.target_unchecked_into::<HtmlInputElement>().checked();
+        });
+
     let on_checksums_change = form_dispatch.reduce_mut_callback_with(|form, event: Event| {
         form.checksums = event.target_unchecked_into::<HtmlInputElement>().checked();
     });
@@ -139,6 +144,16 @@ pub fn settings_form() -> Html {
                                 desc="Please check if your machine supports G2/G3 commands before enabling this"
                                 checked={form_state.circular_interpolation}
                                 onchange={on_circular_interpolation_change}
+                            />
+                        </FormGroup>
+                    </div>
+                    <div class="column col-12">
+                        <FormGroup>
+                            <Checkbox
+                                label="Optimize path order (experimental)"
+                                desc="Reorder paths to minimize travel time. May be slow for SVGs with many elements."
+                                checked={form_state.optimize_path_order}
+                                onchange={on_optimize_path_order_change}
                             />
                         </FormGroup>
                     </div>
