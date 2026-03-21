@@ -94,7 +94,7 @@ struct Opt {
     extra_attribute_name: Option<String>,
     #[arg(long)]
     /// Reorder paths to minimize travel time
-    optimize_path_order: bool,
+    optimize_path_order: Option<bool>,
 }
 
 fn main() -> io::Result<()> {
@@ -171,7 +171,9 @@ fn main() -> io::Result<()> {
         }
 
         settings.conversion.extra_attribute_name = opt.extra_attribute_name;
-        settings.conversion.optimize_path_order = opt.optimize_path_order;
+        if let Some(optimize_path_order) = opt.optimize_path_order {
+            settings.conversion.optimize_path_order = optimize_path_order;
+        }
 
         if let Version::Unknown(ref unknown) = settings.version {
             error!(
