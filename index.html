@@ -12,6 +12,25 @@
 div.card div.card-image img {
   max-height: 30em;
 }
+div.card div.card-image .preview-columns {
+  align-items: center;
+}
+div.card div.card-image .preview-columns img {
+  display: block;
+  height: 20em;
+  object-fit: contain;
+  max-height: unset;
+  width: 100%;
+}
+div.card div.card-image .preview-columns .divider-vert {
+  flex: none;
+  align-self: stretch;
+}
+div.card div.card-image .preview-columns .divider-vert::before {
+  top: 0;
+  bottom: 0;
+  height: auto;
+}
 
 div.card-container {
   margin-top: 1em;
@@ -31,8 +50,8 @@ div.has-icon-right {
     <link rel="stylesheet" href="https://sameer.github.io/svg2gcode/spectre-icons-50b0c3320204c396.css" integrity="sha384-fJg/jdojMgjbbpH8Pb8Y8A8Xl0C9HUSlzHhKvMv8ikmWuv+/0y7MeFjFnaEwLnQV"/>
     
 <script type="module">
-import init, * as bindings from 'https://sameer.github.io/svg2gcode/svg2gcode-web-8dbc2afd6a658223.js';
-const wasm = await init({ module_or_path: 'https://sameer.github.io/svg2gcode/svg2gcode-web-8dbc2afd6a658223_bg.wasm' });
+import init, * as bindings from 'https://sameer.github.io/svg2gcode/svg2gcode-web-ce803712af7d9e56.js';
+const wasm = await init({ module_or_path: 'https://sameer.github.io/svg2gcode/svg2gcode-web-ce803712af7d9e56_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -41,5 +60,5 @@ window.wasmBindings = bindings;
 dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
 </script>
-  <link rel="modulepreload" href="https://sameer.github.io/svg2gcode/svg2gcode-web-8dbc2afd6a658223.js" crossorigin="anonymous" integrity="sha384-c2lZzxKrKeDY1XKH5tPen4NVci8kZpmpeHw8qmD+Rgz46U0g3kjSVUl8XHU1u4T2"><link rel="preload" href="https://sameer.github.io/svg2gcode/svg2gcode-web-8dbc2afd6a658223_bg.wasm" crossorigin="anonymous" integrity="sha384-Izl+w5fEue33HC4cNvH4qG1l44crF96bO1jNQF92ggRAqdjOJLGMEuk52EJGcrdk" as="fetch" type="application/wasm"></head>
+  <link rel="modulepreload" href="https://sameer.github.io/svg2gcode/svg2gcode-web-ce803712af7d9e56.js" crossorigin="anonymous" integrity="sha384-IwfclKHpCTx8lobBZE60nxQ++M+CSXn77Wej15Vfqur63xfMXX21eVOJ1UWsut2a"><link rel="preload" href="https://sameer.github.io/svg2gcode/svg2gcode-web-ce803712af7d9e56_bg.wasm" crossorigin="anonymous" integrity="sha384-ixblg79qKWINgNywcy/ZC9g4oZvwNic0ubvvW55z8/id5vH0w1kCQjL0A5WgGv0m" as="fetch" type="application/wasm"></head>
 </html>
