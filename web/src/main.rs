@@ -11,7 +11,7 @@ use g_code::{
 use js_sys::Date;
 use log::Level;
 use roxmltree::{Document, ParsingOptions};
-use svg2gcode::{ConversionOptions, Machine, svg2program};
+use svg2gcode::{ConversionOptions, Machine, svg2preview, svg2program};
 use yew::prelude::*;
 
 mod forms;
@@ -216,6 +216,21 @@ fn app() -> Html {
                     {
                         for app_store.svgs.iter().enumerate().map(|(i, svg)| {
                             let svg_base64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(svg.content.as_bytes());
+                            let preview_svg = Document::parse_with_options(
+                                svg.content.as_str(),
+                                ParsingOptions { allow_dtd: true, ..Default::default() },
+                            )
+                            .ok()
+                            .map(|doc| {
+                                let options = ConversionOptions { dimensions: svg.dimensions };
+                                svg2preview(&doc, &app_store.settings.conversion, options)
+                            })
+                            .unwrap_or_default();
+                            let preview_svg_base64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(preview_svg.as_bytes());
+                            let open_preview = {
+                                let bytes = preview_svg.into_bytes();
+                                Callback::from(move |_: MouseEvent| open_svg_in_new_tab(&bytes))
+                            };
                             let remove_svg_onclick = app_dispatch.reduce_mut_callback(move |app| {
                                 app.svgs.remove(i);
                             });
@@ -236,7 +251,17 @@ fn app() -> Html {
                                     <Card
                                         title={svg.filename.clone()}
                                         img={html_nested!(
-                                            <img class="img-responsive" src={format!("data:image/svg+xml;base64,{}", svg_base64)} alt={svg.filename.clone()} />
+                                            <div class={classes!("columns", "preview-columns")}>
+                                                <div class="column col-5">
+                                                    <p class="text-center"><small>{"Original"}</small></p>
+                                                    <img class="img-responsive" src={format!("data:image/svg+xml;base64,{}", svg_base64)} alt={svg.filename.clone()} />
+                                                </div>
+                                                <div class="divider-vert"></div>
+                                                <div class="column col-5">
+                                                    <p class="text-center"><small>{"Toolpath Preview"}</small></p>
+                                                    <img class="img-responsive" style="cursor:pointer" src={format!("data:image/svg+xml;base64,{}", preview_svg_base64)} alt="toolpath preview" onclick={open_preview} />
+                                                </div>
+                                            </div>
                                         )}
                                         footer={footer}
                                     />
