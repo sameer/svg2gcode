@@ -13,9 +13,11 @@ mod dpi;
 mod elements;
 mod g_code;
 mod preprocess;
+mod svg_preview;
+
 pub use self::{
     collect::StrokeCollectingTurtle, dpi::DpiConvertingTurtle, elements::Stroke,
-    g_code::GCodeTurtle, preprocess::PreprocessTurtle,
+    g_code::GCodeTurtle, preprocess::PreprocessTurtle, svg_preview::SvgPreviewTurtle,
 };
 
 /// Abstraction for drawing paths based on [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics)

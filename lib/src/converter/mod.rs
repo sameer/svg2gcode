@@ -15,7 +15,8 @@ use self::units::CSS_DEFAULT_DPI;
 use crate::{
     Machine, Turtle, tsp,
     turtle::{
-        DpiConvertingTurtle, GCodeTurtle, PreprocessTurtle, StrokeCollectingTurtle, Terrarium,
+        DpiConvertingTurtle, GCodeTurtle, PreprocessTurtle, StrokeCollectingTurtle,
+        SvgPreviewTurtle, Terrarium,
     },
 };
 
@@ -180,30 +181,7 @@ pub fn svg2program<'a, 'input: 'a>(
     conversion_visitor.begin();
 
     if config.optimize_path_order {
-        // Collect strokes in machine space
-        let strokes = {
-            let mut collect_visitor = ConversionVisitor {
-                terrarium: Terrarium::new(DpiConvertingTurtle {
-                    inner: StrokeCollectingTurtle::default(),
-                    dpi: config.dpi,
-                }),
-                _config: config,
-                options,
-                name_stack: vec![],
-                viewport_dim_stack: vec![],
-            };
-            collect_visitor.terrarium.push_transform(origin_transform);
-            collect_visitor.begin();
-            visit::depth_first_visit(doc, &mut collect_visitor);
-            collect_visitor.end();
-            collect_visitor.terrarium.pop_transform();
-            collect_visitor.terrarium.turtle.inner.into_strokes()
-        };
-
-        // Optimize order
-        let strokes = tsp::minimize_travel_time(strokes);
-
-        // Replay reordered strokes into the g-code turtle
+        let strokes = svg2strokes_optimized(doc, config, options, origin_transform);
         let turtle = &mut conversion_visitor.terrarium.turtle;
         for stroke in strokes {
             turtle.move_to(stroke.start_point());
@@ -219,6 +197,74 @@ pub fn svg2program<'a, 'input: 'a>(
     conversion_visitor.terrarium.pop_transform();
 
     conversion_visitor.terrarium.turtle.inner.program
+}
+
+/// Converts an SVG [`Document`] into a preview SVG showing expected toolpath moves.
+///
+/// - red: tool-on moves (G1/G2/G3)
+/// - green: rapid tool-off moves (G0)
+pub fn svg2preview(
+    doc: &Document,
+    config: &ConversionConfig,
+    options: ConversionOptions,
+) -> String {
+    let mut conversion_visitor = ConversionVisitor {
+        terrarium: Terrarium::new(DpiConvertingTurtle {
+            inner: SvgPreviewTurtle::default(),
+            dpi: config.dpi,
+        }),
+        _config: config,
+        options: options.clone(),
+        name_stack: vec![],
+        viewport_dim_stack: vec![],
+    };
+
+    conversion_visitor
+        .terrarium
+        .push_transform(Transform2D::identity());
+    conversion_visitor.begin();
+
+    if config.optimize_path_order {
+        let strokes = svg2strokes_optimized(doc, config, options, Transform2D::identity());
+        let turtle = &mut conversion_visitor.terrarium.turtle;
+        for stroke in strokes {
+            turtle.move_to(stroke.start_point());
+            for cmd in stroke.commands() {
+                cmd.apply(turtle);
+            }
+        }
+    } else {
+        visit::depth_first_visit(doc, &mut conversion_visitor);
+    }
+
+    conversion_visitor.end();
+    conversion_visitor.terrarium.pop_transform();
+    conversion_visitor.terrarium.turtle.inner.into_preview()
+}
+
+fn svg2strokes_optimized(
+    doc: &Document,
+    config: &ConversionConfig,
+    options: ConversionOptions,
+    origin_transform: Transform2D<f64>,
+) -> Vec<crate::turtle::Stroke> {
+    let mut collect_visitor = ConversionVisitor {
+        terrarium: Terrarium::new(DpiConvertingTurtle {
+            inner: StrokeCollectingTurtle::default(),
+            dpi: config.dpi,
+        }),
+        _config: config,
+        options,
+        name_stack: vec![],
+        viewport_dim_stack: vec![],
+    };
+    collect_visitor.terrarium.push_transform(origin_transform);
+    collect_visitor.begin();
+    visit::depth_first_visit(doc, &mut collect_visitor);
+    collect_visitor.end();
+    collect_visitor.terrarium.pop_transform();
+    let strokes = collect_visitor.terrarium.turtle.inner.into_strokes();
+    tsp::minimize_travel_time(strokes)
 }
 
 fn node_name(node: &Node, attr_to_print: &Option<String>) -> String {

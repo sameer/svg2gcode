@@ -4,6 +4,25 @@ div.card {
     img {
       max-height: 30em;
     }
+    .preview-columns {
+      align-items: center;
+      img {
+        display: block;
+        height: 20em;
+        object-fit: contain;
+        max-height: unset;
+        width: 100%;
+      }
+      .divider-vert {
+        flex: none;
+        align-self: stretch;
+        &::before {
+          top: 0;
+          bottom: 0;
+          height: auto;
+        }
+      }
+    }
   }
 }
 
