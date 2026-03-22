@@ -140,8 +140,8 @@ pub fn settings_form() -> Html {
                     <div class="column col-12">
                         <FormGroup>
                             <Checkbox
-                                label="Enable circular interpolation (experimental)"
-                                desc="Please check if your machine supports G2/G3 commands before enabling this"
+                                label="Enable circular interpolation"
+                                desc="Your machine must support G2/G3 commands for this to work"
                                 checked={form_state.circular_interpolation}
                                 onchange={on_circular_interpolation_change}
                             />
