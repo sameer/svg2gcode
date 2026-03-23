@@ -1377,6 +1377,7 @@ dependencies = [
  "log",
  "lyon_geom",
  "paste",
+ "peg",
  "pretty_assertions",
  "rand",
  "roxmltree",

@@ -56,6 +56,7 @@ impl TryInto<Settings> for &FormState {
                 ],
                 extra_attribute_name: None,
                 optimize_path_order: self.optimize_path_order,
+                selector_filter: None,
             },
             machine: MachineConfig {
                 supported_functionality: SupportedFunctionality {

@@ -12,6 +12,7 @@ serde = ["dep:serde", "dep:serde_repr", "g-code/serde"]
 
 [dependencies]
 g-code.workspace = true
+peg = "0.8"
 rand = "0.8"
 rustc-hash = "1"
 rust_decimal = { version = "1", default-features = false }

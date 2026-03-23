@@ -41,7 +41,7 @@ fn should_render_node(node: Node) -> bool {
     node.is_element()
         && !node
             .attribute("style")
-            .is_some_and( |style| style.contains("display:none"))
+            .is_some_and(|style| style.contains("display:none"))
         // - Defs are not rendered
         // - Markers are not directly rendered
         // - Symbols are not directly rendered
@@ -274,199 +274,201 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
 
         self.terrarium.push_transform(flattened_transform);
 
-        match node.tag_name().name() {
-            PATH_TAG_NAME => {
-                if let Some(d) = node.attribute("d") {
-                    self.comment(&node);
-                    apply_path(
-                        &mut self.terrarium,
-                        PathParser::from(d)
-                            .map(|segment| segment.expect("could not parse path segment")),
-                    );
-                } else {
-                    warn!("There is a path node containing no actual path: {node:?}");
-                }
-            }
-            name @ (POLYLINE_TAG_NAME | POLYGON_TAG_NAME) => {
-                if let Some(points) = node.attribute("points") {
-                    self.comment(&node);
-
-                    let mut pp = PointsParser::from(points).peekable();
-                    let path = pp
-                        .peek()
-                        .copied()
-                        .map(|(x, y)| MoveTo { abs: true, x, y })
-                        .into_iter()
-                        .chain(pp.map(|(x, y)| LineTo { abs: true, x, y }))
-                        .chain(
-                            // Path must be closed if this is a polygon
-                            if name == POLYGON_TAG_NAME {
-                                Some(ClosePath { abs: true })
-                            } else {
-                                None
-                            },
-                        );
-
-                    apply_path(&mut self.terrarium, path);
-                } else {
-                    warn!("There is a {name} node containing no actual path: {node:?}");
-                }
-            }
-            RECT_TAG_NAME => {
-                let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
-                let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
-                let width = self.length_attr_to_user_units(&node, "width");
-                let height = self.length_attr_to_user_units(&node, "height");
-                let rx = self.length_attr_to_user_units(&node, "rx").unwrap_or(0.);
-                let ry = self.length_attr_to_user_units(&node, "ry").unwrap_or(0.);
-                let has_radius = rx > 0. && ry > 0.;
-
-                match (width, height) {
-                    (Some(width), Some(height)) => {
+        if self.should_draw_node(node) {
+            match node.tag_name().name() {
+                PATH_TAG_NAME => {
+                    if let Some(d) = node.attribute("d") {
                         self.comment(&node);
                         apply_path(
                             &mut self.terrarium,
-                            [
-                                MoveTo {
-                                    abs: true,
-                                    x: x + rx,
-                                    y,
-                                },
-                                HorizontalLineTo {
-                                    abs: true,
-                                    x: x + width - rx,
-                                },
-                                EllipticalArc {
-                                    abs: true,
-                                    rx,
-                                    ry,
-                                    x_axis_rotation: 0.,
-                                    large_arc: false,
-                                    sweep: true,
-                                    x: x + width,
-                                    y: y + ry,
-                                },
-                                VerticalLineTo {
-                                    abs: true,
-                                    y: y + height - ry,
-                                },
-                                EllipticalArc {
-                                    abs: true,
-                                    rx,
-                                    ry,
-                                    x_axis_rotation: 0.,
-                                    large_arc: false,
-                                    sweep: true,
-                                    x: x + width - rx,
-                                    y: y + height,
-                                },
-                                HorizontalLineTo {
-                                    abs: true,
-                                    x: x + rx,
-                                },
-                                EllipticalArc {
-                                    abs: true,
-                                    rx,
-                                    ry,
-                                    x_axis_rotation: 0.,
-                                    large_arc: false,
-                                    sweep: true,
-                                    x,
-                                    y: y + height - ry,
-                                },
-                                VerticalLineTo {
-                                    abs: true,
-                                    y: y + ry,
-                                },
-                                EllipticalArc {
-                                    abs: true,
-                                    rx,
-                                    ry,
-                                    x_axis_rotation: 0.,
-                                    large_arc: false,
-                                    sweep: true,
-                                    x: x + rx,
-                                    y,
-                                },
-                                ClosePath { abs: true },
-                            ]
+                            PathParser::from(d)
+                                .map(|segment| segment.expect("could not parse path segment")),
+                        );
+                    } else {
+                        warn!("There is a path node containing no actual path: {node:?}");
+                    }
+                }
+                name @ (POLYLINE_TAG_NAME | POLYGON_TAG_NAME) => {
+                    if let Some(points) = node.attribute("points") {
+                        self.comment(&node);
+
+                        let mut pp = PointsParser::from(points).peekable();
+                        let path = pp
+                            .peek()
+                            .copied()
+                            .map(|(x, y)| MoveTo { abs: true, x, y })
                             .into_iter()
-                            .filter(|p| has_radius || !matches!(p, EllipticalArc { .. })),
-                        )
-                    }
-                    _other => {
-                        warn!("Invalid rectangle node: {node:?}");
-                    }
-                }
-            }
-            CIRCLE_TAG_NAME | ELLIPSE_TAG_NAME => {
-                let cx = self.length_attr_to_user_units(&node, "cx").unwrap_or(0.);
-                let cy = self.length_attr_to_user_units(&node, "cy").unwrap_or(0.);
-                let r = self.length_attr_to_user_units(&node, "r").unwrap_or(0.);
-                let rx = self.length_attr_to_user_units(&node, "rx").unwrap_or(r);
-                let ry = self.length_attr_to_user_units(&node, "ry").unwrap_or(r);
-                if rx > 0. && ry > 0. {
-                    self.comment(&node);
-                    apply_path(
-                        &mut self.terrarium,
-                        std::iter::once(MoveTo {
-                            abs: true,
-                            x: cx + rx,
-                            y: cy,
-                        })
-                        .chain(
-                            [(cx, cy + ry), (cx - rx, cy), (cx, cy - ry), (cx + rx, cy)].map(
-                                |(x, y)| EllipticalArc {
-                                    abs: true,
-                                    rx,
-                                    ry,
-                                    x_axis_rotation: 0.,
-                                    large_arc: false,
-                                    sweep: true,
-                                    x,
-                                    y,
+                            .chain(pp.map(|(x, y)| LineTo { abs: true, x, y }))
+                            .chain(
+                                // Path must be closed if this is a polygon
+                                if name == POLYGON_TAG_NAME {
+                                    Some(ClosePath { abs: true })
+                                } else {
+                                    None
                                 },
-                            ),
-                        )
-                        .chain(std::iter::once(ClosePath { abs: true })),
-                    );
-                } else {
-                    warn!("Invalid {} node: {node:?}", node.tag_name().name());
+                            );
+
+                        apply_path(&mut self.terrarium, path);
+                    } else {
+                        warn!("There is a {name} node containing no actual path: {node:?}");
+                    }
                 }
-            }
-            LINE_TAG_NAME => {
-                let x1 = self.length_attr_to_user_units(&node, "x1");
-                let y1 = self.length_attr_to_user_units(&node, "y1");
-                let x2 = self.length_attr_to_user_units(&node, "x2");
-                let y2 = self.length_attr_to_user_units(&node, "y2");
-                match (x1, y1, x2, y2) {
-                    (Some(x1), Some(y1), Some(x2), Some(y2)) => {
+                RECT_TAG_NAME => {
+                    let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
+                    let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
+                    let width = self.length_attr_to_user_units(&node, "width");
+                    let height = self.length_attr_to_user_units(&node, "height");
+                    let rx = self.length_attr_to_user_units(&node, "rx").unwrap_or(0.);
+                    let ry = self.length_attr_to_user_units(&node, "ry").unwrap_or(0.);
+                    let has_radius = rx > 0. && ry > 0.;
+
+                    match (width, height) {
+                        (Some(width), Some(height)) => {
+                            self.comment(&node);
+                            apply_path(
+                                &mut self.terrarium,
+                                [
+                                    MoveTo {
+                                        abs: true,
+                                        x: x + rx,
+                                        y,
+                                    },
+                                    HorizontalLineTo {
+                                        abs: true,
+                                        x: x + width - rx,
+                                    },
+                                    EllipticalArc {
+                                        abs: true,
+                                        rx,
+                                        ry,
+                                        x_axis_rotation: 0.,
+                                        large_arc: false,
+                                        sweep: true,
+                                        x: x + width,
+                                        y: y + ry,
+                                    },
+                                    VerticalLineTo {
+                                        abs: true,
+                                        y: y + height - ry,
+                                    },
+                                    EllipticalArc {
+                                        abs: true,
+                                        rx,
+                                        ry,
+                                        x_axis_rotation: 0.,
+                                        large_arc: false,
+                                        sweep: true,
+                                        x: x + width - rx,
+                                        y: y + height,
+                                    },
+                                    HorizontalLineTo {
+                                        abs: true,
+                                        x: x + rx,
+                                    },
+                                    EllipticalArc {
+                                        abs: true,
+                                        rx,
+                                        ry,
+                                        x_axis_rotation: 0.,
+                                        large_arc: false,
+                                        sweep: true,
+                                        x,
+                                        y: y + height - ry,
+                                    },
+                                    VerticalLineTo {
+                                        abs: true,
+                                        y: y + ry,
+                                    },
+                                    EllipticalArc {
+                                        abs: true,
+                                        rx,
+                                        ry,
+                                        x_axis_rotation: 0.,
+                                        large_arc: false,
+                                        sweep: true,
+                                        x: x + rx,
+                                        y,
+                                    },
+                                    ClosePath { abs: true },
+                                ]
+                                .into_iter()
+                                .filter(|p| has_radius || !matches!(p, EllipticalArc { .. })),
+                            )
+                        }
+                        _other => {
+                            warn!("Invalid rectangle node: {node:?}");
+                        }
+                    }
+                }
+                CIRCLE_TAG_NAME | ELLIPSE_TAG_NAME => {
+                    let cx = self.length_attr_to_user_units(&node, "cx").unwrap_or(0.);
+                    let cy = self.length_attr_to_user_units(&node, "cy").unwrap_or(0.);
+                    let r = self.length_attr_to_user_units(&node, "r").unwrap_or(0.);
+                    let rx = self.length_attr_to_user_units(&node, "rx").unwrap_or(r);
+                    let ry = self.length_attr_to_user_units(&node, "ry").unwrap_or(r);
+                    if rx > 0. && ry > 0. {
                         self.comment(&node);
                         apply_path(
                             &mut self.terrarium,
-                            [
-                                MoveTo {
-                                    abs: true,
-                                    x: x1,
-                                    y: y1,
-                                },
-                                LineTo {
-                                    abs: true,
-                                    x: x2,
-                                    y: y2,
-                                },
-                            ],
+                            std::iter::once(MoveTo {
+                                abs: true,
+                                x: cx + rx,
+                                y: cy,
+                            })
+                            .chain(
+                                [(cx, cy + ry), (cx - rx, cy), (cx, cy - ry), (cx + rx, cy)].map(
+                                    |(x, y)| EllipticalArc {
+                                        abs: true,
+                                        rx,
+                                        ry,
+                                        x_axis_rotation: 0.,
+                                        large_arc: false,
+                                        sweep: true,
+                                        x,
+                                        y,
+                                    },
+                                ),
+                            )
+                            .chain(std::iter::once(ClosePath { abs: true })),
                         );
-                    }
-                    _other => {
-                        warn!("Invalid line node: {node:?}");
+                    } else {
+                        warn!("Invalid {} node: {node:?}", node.tag_name().name());
                     }
                 }
-            }
-            // No-op tags
-            SVG_TAG_NAME | GROUP_TAG_NAME | USE_TAG_NAME | SYMBOL_TAG_NAME => {}
-            _ => {
-                debug!("Unknown node: {}", node.tag_name().name());
+                LINE_TAG_NAME => {
+                    let x1 = self.length_attr_to_user_units(&node, "x1");
+                    let y1 = self.length_attr_to_user_units(&node, "y1");
+                    let x2 = self.length_attr_to_user_units(&node, "x2");
+                    let y2 = self.length_attr_to_user_units(&node, "y2");
+                    match (x1, y1, x2, y2) {
+                        (Some(x1), Some(y1), Some(x2), Some(y2)) => {
+                            self.comment(&node);
+                            apply_path(
+                                &mut self.terrarium,
+                                [
+                                    MoveTo {
+                                        abs: true,
+                                        x: x1,
+                                        y: y1,
+                                    },
+                                    LineTo {
+                                        abs: true,
+                                        x: x2,
+                                        y: y2,
+                                    },
+                                ],
+                            );
+                        }
+                        _other => {
+                            warn!("Invalid line node: {node:?}");
+                        }
+                    }
+                }
+                // No-op tags
+                SVG_TAG_NAME | GROUP_TAG_NAME | USE_TAG_NAME | SYMBOL_TAG_NAME => {}
+                _ => {
+                    debug!("Unknown node: {}", node.tag_name().name());
+                }
             }
         }
 
