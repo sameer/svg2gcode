@@ -223,7 +223,7 @@ fn app() -> Html {
                             .ok()
                             .map(|doc| {
                                 let options = ConversionOptions { dimensions: svg.dimensions };
-                                svg2preview(&doc, &app_store.settings.conversion, options)
+                                svg2preview(&doc, &app_store.settings.conversion, options, None)
                             })
                             .unwrap_or_default();
                             let preview_svg_base64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(preview_svg.as_bytes());

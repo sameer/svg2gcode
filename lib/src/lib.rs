@@ -400,13 +400,21 @@ mod test {
         let mut normal_values: Vec<f64> = normal
             .iter()
             .filter_map(|t| {
-                if let Token::Field(f) = t { f.value.as_f64() } else { None }
+                if let Token::Field(f) = t {
+                    f.value.as_f64()
+                } else {
+                    None
+                }
             })
             .collect();
         let mut optimized_values: Vec<f64> = optimized
             .iter()
             .filter_map(|t| {
-                if let Token::Field(f) = t { f.value.as_f64() } else { None }
+                if let Token::Field(f) = t {
+                    f.value.as_f64()
+                } else {
+                    None
+                }
             })
             .collect();
 

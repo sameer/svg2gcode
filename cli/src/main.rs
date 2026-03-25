@@ -95,6 +95,13 @@ struct Opt {
     #[arg(long)]
     /// Reorder paths to minimize travel time
     optimize_path_order: Option<bool>,
+    /// CSS selector to filter which SVG elements are converted.
+    ///
+    /// Only the `:not`, `:is`, and `:has` pseudo classes are supported.
+    ///
+    /// <https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Selectors>
+    #[arg(long)]
+    selector_filter: Option<String>,
 }
 
 fn main() -> io::Result<()> {
@@ -173,6 +180,9 @@ fn main() -> io::Result<()> {
         settings.conversion.extra_attribute_name = opt.extra_attribute_name;
         if let Some(optimize_path_order) = opt.optimize_path_order {
             settings.conversion.optimize_path_order = optimize_path_order;
+        }
+        if let Some(selector_filter) = opt.selector_filter {
+            settings.conversion.selector_filter = Some(selector_filter);
         }
 
         if let Version::Unknown(ref unknown) = settings.version {

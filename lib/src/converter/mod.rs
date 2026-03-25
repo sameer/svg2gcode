@@ -13,7 +13,9 @@ use uom::si::{
 
 use self::units::CSS_DEFAULT_DPI;
 use crate::{
-    Machine, Turtle, tsp,
+    Machine, Turtle,
+    converter::selector::SelectorList,
+    tsp,
     turtle::{
         DpiConvertingTurtle, GCodeTurtle, PreprocessTurtle, StrokeCollectingTurtle,
         SvgPreviewTurtle, Terrarium,
@@ -23,6 +25,7 @@ use crate::{
 #[cfg(feature = "serde")]
 mod length_serde;
 mod path;
+mod selector;
 mod transform;
 mod units;
 mod visit;
@@ -45,6 +48,13 @@ pub struct ConversionConfig {
     /// Reorder paths to minimize travel time
     #[cfg_attr(feature = "serde", serde(default))]
     pub optimize_path_order: bool,
+    /// CSS selector to filter which SVG elements are converted.
+    ///
+    /// Only the `:not`, `:is`, and `:has` pseudo classes are supported.
+    ///
+    /// <https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Selectors>
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub selector_filter: Option<String>,
 }
 
 const fn zero_origin() -> [Option<f64>; 2] {
@@ -60,6 +70,7 @@ impl Default for ConversionConfig {
             origin: zero_origin(),
             extra_attribute_name: None,
             optimize_path_order: false,
+            selector_filter: None,
         }
     }
 }
@@ -86,6 +97,8 @@ struct ConversionVisitor<'a, T: Turtle> {
     viewport_dim_stack: Vec<[f64; 2]>,
     _config: &'a ConversionConfig,
     options: ConversionOptions,
+    /// Parsed CSS include selector — only draw elements that match (or are inside a matching ancestor)
+    selector_filter: Option<selector::SelectorList>,
 }
 
 impl<'a, T: Turtle> ConversionVisitor<'a, T> {
@@ -98,6 +111,12 @@ impl<'a, T: Turtle> ConversionVisitor<'a, T> {
         comment += &node_name(node, &self._config.extra_attribute_name);
 
         self.terrarium.turtle.comment(comment);
+    }
+
+    fn should_draw_node(&self, node: Node) -> bool {
+        self.selector_filter
+            .as_ref()
+            .is_none_or(|s| s.matches(node))
     }
 
     fn begin(&mut self) {
@@ -119,6 +138,11 @@ pub fn svg2program<'a, 'input: 'a>(
     options: ConversionOptions,
     machine: Machine<'input>,
 ) -> Vec<Token<'input>> {
+    let selector_filter = config
+        .selector_filter
+        .as_deref()
+        .map(|s| selector::SelectorList::parse(s).expect("invalid selector_filter"));
+
     let bounding_box_generator = || {
         let mut visitor = ConversionVisitor {
             terrarium: Terrarium::new(DpiConvertingTurtle {
@@ -129,6 +153,7 @@ pub fn svg2program<'a, 'input: 'a>(
             options: options.clone(),
             name_stack: vec![],
             viewport_dim_stack: vec![],
+            selector_filter: selector_filter.clone(),
         };
 
         visitor.begin();
@@ -173,6 +198,7 @@ pub fn svg2program<'a, 'input: 'a>(
         options: options.clone(),
         name_stack: vec![],
         viewport_dim_stack: vec![],
+        selector_filter: selector_filter.clone(),
     };
 
     conversion_visitor
@@ -181,7 +207,8 @@ pub fn svg2program<'a, 'input: 'a>(
     conversion_visitor.begin();
 
     if config.optimize_path_order {
-        let strokes = svg2strokes_optimized(doc, config, options, origin_transform);
+        let strokes =
+            svg2strokes_optimized(doc, config, options, origin_transform, selector_filter);
         let turtle = &mut conversion_visitor.terrarium.turtle;
         for stroke in strokes {
             turtle.move_to(stroke.start_point());
@@ -207,6 +234,7 @@ pub fn svg2preview(
     doc: &Document,
     config: &ConversionConfig,
     options: ConversionOptions,
+    selector_filter: Option<SelectorList>,
 ) -> String {
     let mut conversion_visitor = ConversionVisitor {
         terrarium: Terrarium::new(DpiConvertingTurtle {
@@ -217,6 +245,7 @@ pub fn svg2preview(
         options: options.clone(),
         name_stack: vec![],
         viewport_dim_stack: vec![],
+        selector_filter: selector_filter.clone(),
     };
 
     conversion_visitor
@@ -225,7 +254,13 @@ pub fn svg2preview(
     conversion_visitor.begin();
 
     if config.optimize_path_order {
-        let strokes = svg2strokes_optimized(doc, config, options, Transform2D::identity());
+        let strokes = svg2strokes_optimized(
+            doc,
+            config,
+            options,
+            Transform2D::identity(),
+            selector_filter,
+        );
         let turtle = &mut conversion_visitor.terrarium.turtle;
         for stroke in strokes {
             turtle.move_to(stroke.start_point());
@@ -247,6 +282,7 @@ fn svg2strokes_optimized(
     config: &ConversionConfig,
     options: ConversionOptions,
     origin_transform: Transform2D<f64>,
+    selector_filter: Option<SelectorList>,
 ) -> Vec<crate::turtle::Stroke> {
     let mut collect_visitor = ConversionVisitor {
         terrarium: Terrarium::new(StrokeCollectingTurtle::default()),
@@ -254,6 +290,7 @@ fn svg2strokes_optimized(
         options,
         name_stack: vec![],
         viewport_dim_stack: vec![],
+        selector_filter,
     };
     collect_visitor.terrarium.push_transform(origin_transform);
     collect_visitor.begin();
