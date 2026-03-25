@@ -97,7 +97,7 @@ struct Opt {
     optimize_path_order: Option<bool>,
     /// CSS selector to filter which SVG elements are converted.
     ///
-    /// Only the `:not` and `:is` pseudo classes are supported.
+    /// Only the `:not`, `:is`, and `:has` pseudo classes are supported.
     ///
     /// <https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Selectors>
     #[arg(long)]
