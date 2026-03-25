@@ -249,10 +249,7 @@ fn svg2strokes_optimized(
     origin_transform: Transform2D<f64>,
 ) -> Vec<crate::turtle::Stroke> {
     let mut collect_visitor = ConversionVisitor {
-        terrarium: Terrarium::new(DpiConvertingTurtle {
-            inner: StrokeCollectingTurtle::default(),
-            dpi: config.dpi,
-        }),
+        terrarium: Terrarium::new(StrokeCollectingTurtle::default()),
         _config: config,
         options,
         name_stack: vec![],
@@ -263,7 +260,7 @@ fn svg2strokes_optimized(
     visit::depth_first_visit(doc, &mut collect_visitor);
     collect_visitor.end();
     collect_visitor.terrarium.pop_transform();
-    let strokes = collect_visitor.terrarium.turtle.inner.into_strokes();
+    let strokes = collect_visitor.terrarium.turtle.into_strokes();
     tsp::minimize_travel_time(strokes)
 }
 
