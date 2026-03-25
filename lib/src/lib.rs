@@ -357,6 +357,64 @@ mod test {
         assert_close(with_origin, manual)
     }
 
+    /// Regression test for https://github.com/sameer/svg2gcode/issues/105
+    #[test]
+    fn issue_105_optimize_path_order_does_not_shrink_output() {
+        let svg = include_str!("../tests/square.svg");
+        let document = roxmltree::Document::parse_with_options(
+            svg,
+            ParsingOptions {
+                allow_dtd: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let machine = Machine::new(
+            SupportedFunctionality {
+                circular_interpolation: false,
+            },
+            None,
+            None,
+            None,
+            None,
+        );
+        let normal = converter::svg2program(
+            &document,
+            &ConversionConfig::default(),
+            ConversionOptions::default(),
+            machine.clone(),
+        );
+        let optimized = converter::svg2program(
+            &document,
+            &ConversionConfig {
+                optimize_path_order: true,
+                ..ConversionConfig::default()
+            },
+            ConversionOptions::default(),
+            machine,
+        );
+
+        // Collect and sort all numeric coordinate values from each output.
+        // Path reordering changes token order but not the set of coordinate values.
+        // The bug caused optimized values to be ~0.265x smaller than normal.
+        let mut normal_values: Vec<f64> = normal
+            .iter()
+            .filter_map(|t| {
+                if let Token::Field(f) = t { f.value.as_f64() } else { None }
+            })
+            .collect();
+        let mut optimized_values: Vec<f64> = optimized
+            .iter()
+            .filter_map(|t| {
+                if let Token::Field(f) = t { f.value.as_f64() } else { None }
+            })
+            .collect();
+
+        normal_values.sort_by(f64::total_cmp);
+        optimized_values.sort_by(f64::total_cmp);
+        assert_eq!(normal_values, optimized_values);
+    }
+
     #[test]
     #[cfg(feature = "serde")]
     fn deserialize_v1_config_succeeds() {
