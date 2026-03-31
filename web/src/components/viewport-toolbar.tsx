@@ -1,4 +1,4 @@
-import type { TabId, FrontendOperation } from "@/lib/types";
+import type { FrontendOperation, TabId } from "@/lib/types";
 import { formatMillimeters } from "@/lib/utils";
 
 interface ViewportToolbarProps {
@@ -10,10 +10,6 @@ interface ViewportToolbarProps {
   materialThickness: number;
   toolDiameter: number;
   maxDepth: number;
-  visibleSegments: number;
-  maxSegments: number;
-  hasGenerated: boolean;
-  onVisibleSegmentsChange: (value: number) => void;
 }
 
 export function ViewportToolbar({
@@ -25,10 +21,6 @@ export function ViewportToolbar({
   materialThickness,
   toolDiameter,
   maxDepth,
-  visibleSegments,
-  maxSegments,
-  hasGenerated,
-  onVisibleSegmentsChange,
 }: ViewportToolbarProps) {
   if (activeTab === "prepare") {
     return (
@@ -57,23 +49,14 @@ export function ViewportToolbar({
   }
 
   return (
-    <div className="flex h-9 shrink-0 items-center gap-4 border-b border-border bg-muted/50 px-4 text-xs">
+    <div className="flex h-10 shrink-0 items-center gap-4 border-b border-border bg-muted/50 px-4 text-xs">
       <Stat label="Stock" value={`${formatMillimeters(materialWidth)} x ${formatMillimeters(materialHeight)}`} />
       <Stat label="Thickness" value={formatMillimeters(materialThickness)} />
       <Stat label="Tool" value={formatMillimeters(toolDiameter)} />
       <Stat label="Depth" value={formatMillimeters(Math.abs(maxDepth))} />
-      <div className="ml-auto flex items-center gap-2">
-        <span className="text-muted-foreground/60 uppercase tracking-wider text-[10px]">Scrub</span>
-        <input
-          type="range"
-          className="w-32"
-          min={1}
-          max={maxSegments}
-          value={Math.min(visibleSegments, maxSegments)}
-          onChange={(e) => onVisibleSegmentsChange(Number(e.target.value))}
-          disabled={!hasGenerated}
-        />
-      </div>
+      <span className="ml-auto text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        Path-first preview
+      </span>
     </div>
   );
 }
@@ -81,7 +64,7 @@ export function ViewportToolbar({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <span className="text-muted-foreground">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mr-1">{label}</span>
+      <span className="mr-1 text-[10px] uppercase tracking-wider text-muted-foreground/60">{label}</span>
       <span className="font-medium text-foreground">{value}</span>
     </span>
   );

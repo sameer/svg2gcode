@@ -16,11 +16,15 @@ export function buildHeightField(
   toolDiameter: number,
   segments: ParsedSegment[],
 ) {
-  const targetCellSize = Math.max(toolDiameter / 6, 0.05);
-  const cols = clamp(Math.round(materialWidth / targetCellSize) + 1, 250, 1200);
-  const rows = clamp(Math.round(materialHeight / targetCellSize) + 1, 250, 1200);
+  const targetCellSize = Math.max(toolDiameter / 10, 0.03);
+  const cols = clamp(Math.round(materialWidth / targetCellSize) + 1, 420, 1800);
+  const rows = clamp(Math.round(materialHeight / targetCellSize) + 1, 420, 1800);
   const values = new Float32Array(cols * rows).fill(0);
   const radius = Math.max(toolDiameter * 0.5, targetCellSize * 0.5);
+  const cellSize = Math.min(
+    materialWidth / Math.max(1, cols - 1),
+    materialHeight / Math.max(1, rows - 1),
+  );
 
   for (const segment of segments) {
     const depth = Math.min(segment.start.z, segment.end.z);
@@ -29,17 +33,44 @@ export function buildHeightField(
       segment.end.y - segment.start.y,
     );
 
-    if (segment.command !== "G1" || depth >= 0 || xyDistance === 0) {
+    if ((segment.motionKind !== "cut" && segment.motionKind !== "plunge") || depth >= 0) {
       continue;
     }
 
-    const cellSize = Math.min(materialWidth / (cols - 1), materialHeight / (rows - 1));
-    const samples = Math.max(2, Math.ceil(xyDistance / Math.max(cellSize * 0.4, 0.1)));
+    if (xyDistance <= 1.0e-9) {
+      stampCircularCut(
+        values,
+        cols,
+        rows,
+        materialWidth,
+        materialHeight,
+        segment.end.x,
+        segment.end.y,
+        radius,
+        Math.min(segment.end.z, 0),
+        cellSize,
+      );
+      continue;
+    }
+
+    const samples = Math.max(4, Math.ceil(xyDistance / Math.max(cellSize * 0.14, 0.035)));
     for (let sampleIndex = 0; sampleIndex <= samples; sampleIndex += 1) {
       const t = sampleIndex / samples;
       const x = segment.start.x + (segment.end.x - segment.start.x) * t;
       const y = segment.start.y + (segment.end.y - segment.start.y) * t;
-      stampCircularCut(values, cols, rows, materialWidth, materialHeight, x, y, radius, depth);
+      const sampleDepth = segment.start.z + (segment.end.z - segment.start.z) * t;
+      stampCircularCut(
+        values,
+        cols,
+        rows,
+        materialWidth,
+        materialHeight,
+        x,
+        y,
+        radius,
+        Math.min(sampleDepth, 0),
+        cellSize,
+      );
     }
   }
 
@@ -62,9 +93,12 @@ function stampCircularCut(
   centerY: number,
   radius: number,
   depth: number,
+  cellSize: number,
 ) {
-  const colRadius = Math.max(1, Math.ceil((radius / width) * (cols - 1)));
-  const rowRadius = Math.max(1, Math.ceil((radius / height) * (rows - 1)));
+  const feather = Math.max(cellSize * 0.75, radius * 0.07);
+  const stampRadius = radius + feather;
+  const colRadius = Math.max(1, Math.ceil((stampRadius / width) * (cols - 1)));
+  const rowRadius = Math.max(1, Math.ceil((stampRadius / height) * (rows - 1)));
   const centerCol = ((centerX / width) * (cols - 1)) | 0;
   const centerRow = ((centerY / height) * (rows - 1)) | 0;
 
@@ -72,10 +106,22 @@ function stampCircularCut(
     for (let col = Math.max(0, centerCol - colRadius); col <= Math.min(cols - 1, centerCol + colRadius); col += 1) {
       const x = (col / (cols - 1)) * width;
       const y = (row / (rows - 1)) * height;
-      if (Math.hypot(x - centerX, y - centerY) <= radius) {
-        const index = row * cols + col;
-        values[index] = Math.min(values[index], depth);
+      const distance = Math.hypot(x - centerX, y - centerY);
+      if (distance > stampRadius) {
+        continue;
       }
+
+      const blend = smoothstep(radius + feather, Math.max(0, radius - feather), distance);
+      const index = row * cols + col;
+      values[index] = Math.min(values[index], depth * blend);
     }
   }
+}
+
+function smoothstep(edge0: number, edge1: number, x: number) {
+  if (edge0 === edge1) {
+    return x <= edge1 ? 1 : 0;
+  }
+  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
 }

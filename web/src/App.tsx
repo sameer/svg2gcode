@@ -9,6 +9,7 @@ import { SettingsPanel } from "@/components/settings-panel";
 import { SvgCanvas } from "@/components/svg-canvas";
 import { TopBar } from "@/components/top-bar";
 import { ViewportToolbar } from "@/components/viewport-toolbar";
+import { parseGcodeProgram } from "@/components/viewer/parse-gcode";
 import { colorForOperation } from "@/lib/colors";
 import type {
   FillMode,
@@ -18,11 +19,12 @@ import type {
   Settings,
   TabId,
 } from "@/lib/types";
+import { clamp } from "@/lib/utils";
 import { generateEngravingJob, loadDefaultSettings, prepareSvgDocument } from "@/lib/wasm";
-import { parseGcodeProgram } from "@/components/viewer/parse-gcode";
 
 function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [advancedOverrides, setAdvancedOverrides] = useState<Record<string, boolean>>({});
   const [preparedSvg, setPreparedSvg] = useState<PreparedSvgDocument | null>(null);
   const [operations, setOperations] = useState<FrontendOperation[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -32,13 +34,13 @@ function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("prepare");
-  const [visibleSegments, setVisibleSegments] = useState(1);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     loadDefaultSettings()
       .then((defaults) => {
-        setSettings(defaults);
+        setSettings(applyRecommendedSettings(defaults, {}));
+        setAdvancedOverrides({});
         setIsReady(true);
       })
       .catch((err) => {
@@ -92,7 +94,6 @@ function App() {
         operations,
       });
       setGenerated(result);
-      setVisibleSegments(Number.MAX_SAFE_INTEGER);
       setActiveTab("preview");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -110,19 +111,25 @@ function App() {
     await handleSvgImport(file);
   };
 
-  const updateSettingsNumber = (path: string, value: number | null) => {
+  const handleSettingsNumberChange = (
+    path: string,
+    value: number | null,
+    source: "basic" | "advanced",
+  ) => {
+    const nextOverrides =
+      source === "advanced" && RECOMMENDED_ADVANCED_PATHS.has(path)
+        ? { ...advancedOverrides, [path]: true }
+        : advancedOverrides;
+    if (nextOverrides !== advancedOverrides) {
+      setAdvancedOverrides(nextOverrides);
+    }
+
     setSettings((current) => {
       if (!current) {
         return current;
       }
-      const next = structuredClone(current);
-      const segments = path.split(".");
-      let target: unknown = next;
-      for (const segment of segments.slice(0, -1)) {
-        target = (target as Record<string, unknown>)[segment];
-      }
-      (target as Record<string, number | null>)[segments.at(-1)!] = value;
-      return next;
+      const next = setNumberAtPath(current, path, value);
+      return applyRecommendedSettings(next, nextOverrides);
     });
   };
 
@@ -146,14 +153,22 @@ function App() {
       if (!current) {
         return current;
       }
-      return {
-        ...current,
-        engraving: {
-          ...current.engraving,
-          fill_mode: value,
+      return applyRecommendedSettings(
+        {
+          ...current,
+          engraving: {
+            ...current.engraving,
+            fill_mode: value,
+          },
         },
-      };
+        advancedOverrides,
+      );
     });
+  };
+
+  const resetAdvancedRecommendations = () => {
+    setAdvancedOverrides({});
+    setSettings((current) => (current ? applyRecommendedSettings(current, {}) : current));
   };
 
   const selectIds = (ids: string[], additive: boolean) => {
@@ -288,7 +303,6 @@ function App() {
     return parseGcodeProgram(generated.gcode, generated.operation_ranges);
   }, [generated]);
 
-  const maxSegments = parsedProgram?.segments.length ?? 1;
   const maxDepth = parsedProgram?.bounds?.minZ ?? 0;
   const previewSnapshot = generated?.preview_snapshot;
   const previewMaterialWidth = previewSnapshot?.material_width ?? settings?.engraving.material_width ?? 100;
@@ -296,6 +310,7 @@ function App() {
   const previewMaterialThickness =
     previewSnapshot?.material_thickness ?? settings?.engraving.material_thickness ?? 18;
   const previewToolDiameter = previewSnapshot?.tool_diameter ?? settings?.engraving.tool_diameter ?? 6;
+  const recommendedAdvanced = settings ? computeRecommendedAdvancedValues(settings) : {};
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
@@ -338,9 +353,12 @@ function App() {
                 <>
                   <SettingsPanel
                     settings={settings}
-                    onNumberChange={updateSettingsNumber}
+                    recommendedAdvanced={recommendedAdvanced}
+                    advancedOverrides={advancedOverrides}
+                    onNumberChange={handleSettingsNumberChange}
                     onToolShapeChange={handleToolShapeChange}
                     onFillModeChange={handleFillModeChange}
+                    onResetAdvancedRecommendations={resetAdvancedRecommendations}
                   />
                   <div className="border-t border-border" />
                   <OperationList
@@ -387,10 +405,6 @@ function App() {
                 materialThickness={activeTab === "preview" ? previewMaterialThickness : settings?.engraving.material_thickness ?? 18}
                 toolDiameter={activeTab === "preview" ? previewToolDiameter : settings?.engraving.tool_diameter ?? 6}
                 maxDepth={maxDepth}
-                visibleSegments={visibleSegments}
-                maxSegments={maxSegments}
-                hasGenerated={!!generated}
-                onVisibleSegmentsChange={setVisibleSegments}
               />
               <div className="min-h-0 flex-1">
                 {activeTab === "prepare" ? (
@@ -405,7 +419,6 @@ function App() {
                   <NcViewer
                     gcodeResult={generated}
                     activeOperationId={activeOperationId}
-                    visibleSegments={visibleSegments}
                   />
                 )}
               </div>
@@ -418,3 +431,62 @@ function App() {
 }
 
 export default App;
+
+const RECOMMENDED_ADVANCED_PATHS = new Set([
+  "engraving.max_stepdown",
+  "engraving.stepover",
+  "engraving.cut_feedrate",
+  "engraving.plunge_feedrate",
+]);
+
+function setNumberAtPath(settings: Settings, path: string, value: number | null) {
+  const next = structuredClone(settings);
+  const segments = path.split(".");
+  let target: unknown = next;
+  for (const segment of segments.slice(0, -1)) {
+    target = (target as Record<string, unknown>)[segment];
+  }
+  (target as Record<string, number | null>)[segments.at(-1)!] = value;
+  return next;
+}
+
+function computeRecommendedAdvancedValues(settings: Settings) {
+  const toolDiameter = Math.max(settings.engraving.tool_diameter, 0.5);
+  const stepover = Number(
+    (settings.engraving.fill_mode === "Pocket"
+      ? clamp(toolDiameter * 0.48, 0.2, toolDiameter * 0.8)
+      : clamp(toolDiameter * 0.5, 0.2, toolDiameter)).toFixed(2),
+  );
+  const maxStepdown = Number(clamp(toolDiameter * 0.4, 0.3, 2.5).toFixed(2));
+  const cutFeedrate = Number(clamp(180 + toolDiameter * 90, 180, 540).toFixed(0));
+  const plungeFeedrate = Number(clamp(cutFeedrate * 0.4, 90, 220).toFixed(0));
+
+  return {
+    "engraving.max_stepdown": maxStepdown,
+    "engraving.stepover": stepover,
+    "engraving.cut_feedrate": cutFeedrate,
+    "engraving.plunge_feedrate": plungeFeedrate,
+  };
+}
+
+function applyRecommendedSettings(
+  settings: Settings,
+  overrides: Record<string, boolean>,
+) {
+  const next = structuredClone(settings);
+  const recommended = computeRecommendedAdvancedValues(next);
+
+  for (const [path, value] of Object.entries(recommended)) {
+    if (overrides[path]) {
+      continue;
+    }
+    const segments = path.split(".");
+    let target: unknown = next;
+    for (const segment of segments.slice(0, -1)) {
+      target = (target as Record<string, unknown>)[segment];
+    }
+    (target as Record<string, number | null>)[segments.at(-1)!] = value;
+  }
+
+  return next;
+}
