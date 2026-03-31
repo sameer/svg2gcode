@@ -23,6 +23,7 @@
     "cut_feedrate": 300.0,
     "plunge_feedrate": 120.0,
     "stepover": 2.0,
+    "fill_mode": "Pocket",
     "svg_width_override": null,
     "placement_x": 0.0,
     "placement_y": 0.0,

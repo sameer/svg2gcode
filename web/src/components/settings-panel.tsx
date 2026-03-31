@@ -3,18 +3,20 @@ import { useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { Settings } from "@/lib/types";
+import type { FillMode, Settings } from "@/lib/types";
 
 interface SettingsPanelProps {
   settings: Settings | null;
   onNumberChange: (path: string, value: number | null) => void;
   onToolShapeChange: (value: "Flat" | "Ball" | "V") => void;
+  onFillModeChange: (value: FillMode) => void;
 }
 
 export function SettingsPanel({
   settings,
   onNumberChange,
   onToolShapeChange,
+  onFillModeChange,
 }: SettingsPanelProps) {
   if (!settings) {
     return (
@@ -57,6 +59,17 @@ export function SettingsPanel({
           <NumberField label="Max Stepdown" unit="mm" value={settings.engraving.max_stepdown} onChange={(v) => onNumberChange("engraving.max_stepdown", v)} />
           <NumberField label="Stepover" unit="mm" value={settings.engraving.stepover} onChange={(v) => onNumberChange("engraving.stepover", v)} />
           <NumberField label="Default Depth" unit="mm" value={settings.engraving.target_depth} onChange={(v) => onNumberChange("engraving.target_depth", v)} />
+          <div className="grid gap-1.5">
+            <Label className="text-xs">Fill Mode</Label>
+            <select
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+              value={settings.engraving.fill_mode ?? "Pocket"}
+              onChange={(e) => onFillModeChange(e.target.value as FillMode)}
+            >
+              <option value="Pocket">Pocket</option>
+              <option value="Contour">Contour</option>
+            </select>
+          </div>
         </div>
         <p className="mt-1.5 text-[10px] text-muted-foreground/70">Default depth is applied to new operations. Change per-operation depths below.</p>
       </SettingsGroup>

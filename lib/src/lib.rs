@@ -19,7 +19,7 @@ pub use converter::{
     ConversionConfig, ConversionOptions, svg2preview, svg2program, svg2program_engraving,
     svg2program_engraving_multi,
 };
-pub use engraving::{EngravingConfig, EngravingOperation, GenerationWarning, ToolShape};
+pub use engraving::{EngravingConfig, EngravingOperation, FillMode, GenerationWarning, ToolShape};
 pub use machine::{Machine, MachineConfig, SupportedFunctionality};
 pub use postprocess::PostprocessConfig;
 pub use turtle::Turtle;
@@ -643,6 +643,62 @@ mod test {
         assert_eq!(donut_warnings, vec![]);
         assert!(circle_code.matches("G0 X").count() >= 1, "{circle_code}");
         assert!(donut_code.matches("G0 X").count() >= 2, "{donut_code}");
+    }
+
+    #[test]
+    fn engraving_fill_contour_mode_traces_boundaries_without_pocket_loops() {
+        let svg = r#"
+            <svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" viewBox="0 0 10 10">
+                <rect x="0" y="0" width="10" height="10" />
+            </svg>
+        "#;
+        let (program, warnings) = get_engraving_actual(
+            svg,
+            EngravingConfig {
+                enabled: true,
+                material_width: 20.0,
+                material_height: 20.0,
+                material_thickness: 10.0,
+                tool_diameter: 2.0,
+                target_depth: 2.0,
+                max_stepdown: 1.0,
+                cut_feedrate: 300.0,
+                plunge_feedrate: 120.0,
+                stepover: 2.0,
+                fill_mode: FillMode::Contour,
+                ..EngravingConfig::default()
+            },
+        );
+        let code = format_tokens(&program);
+
+        assert_eq!(warnings, vec![]);
+        assert_eq!(code.matches("G1 Z-1 F120").count(), 1, "{code}");
+        assert_eq!(code.matches("G1 Z-2 F120").count(), 1, "{code}");
+        assert_eq!(code.matches("\nG0 X").count(), 2, "{code}");
+    }
+
+    #[test]
+    fn engraving_warns_when_pocketing_loses_narrow_fill_details() {
+        let svg = r#"
+            <svg xmlns="http://www.w3.org/2000/svg" width="12mm" height="12mm" viewBox="0 0 12 12">
+                <path fill-rule="evenodd" d="M0 0H12V12H0Z M2 2H10V10H2Z" />
+            </svg>
+        "#;
+        let (_program, warnings) = get_engraving_actual(
+            svg,
+            EngravingConfig {
+                enabled: true,
+                material_width: 20.0,
+                material_height: 20.0,
+                tool_diameter: 2.0,
+                target_depth: 1.0,
+                max_stepdown: 1.0,
+                stepover: 2.0,
+                ..EngravingConfig::default()
+            },
+        );
+
+        assert_eq!(warnings, vec![GenerationWarning::FillDetailLoss]);
     }
 
     #[test]

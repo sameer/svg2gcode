@@ -1,4 +1,5 @@
 export type ToolShape = "Flat" | "Ball" | "V";
+export type FillMode = "Pocket" | "Contour";
 export type TabId = "prepare" | "preview";
 
 export interface Settings {
@@ -23,6 +24,7 @@ export interface Settings {
     cut_feedrate: number;
     plunge_feedrate: number;
     stepover: number;
+    fill_mode: FillMode;
     svg_width_override: number | null;
     placement_x: number;
     placement_y: number;
@@ -91,6 +93,12 @@ export interface GenerateJobResponse {
   gcode: string;
   warnings: string[];
   operation_ranges: OperationLineRange[];
+  preview_snapshot: {
+    material_width: number;
+    material_height: number;
+    material_thickness: number;
+    tool_diameter: number;
+  };
 }
 
 export interface StudioProject {

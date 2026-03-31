@@ -21,7 +21,7 @@ use uom::si::{
 
 use super::{ConversionConfig, ConversionOptions, ConversionVisitor, visit};
 use crate::{
-    EngravingConfig, EngravingOperation, GenerationWarning, Machine, Turtle,
+    EngravingConfig, EngravingOperation, FillMode, GenerationWarning, Machine, Turtle,
     converter::{selector::SelectorList, units::CSS_DEFAULT_DPI},
     turtle::{PaintStyle, SvgFillRule},
 };
@@ -228,6 +228,19 @@ fn depth_passes(target_depth: f64, max_stepdown: f64) -> Vec<f64> {
     depths
 }
 
+fn count_contours(shapes: &[Shape]) -> usize {
+    shapes.iter().map(Vec::len).sum()
+}
+
+fn fill_shape_loses_detail(shape: &Shape, tool_radius: f64) -> bool {
+    let inset = inset_shapes(std::slice::from_ref(shape), tool_radius);
+    if inset.is_empty() {
+        return false;
+    }
+
+    inset.len() != 1 || count_contours(&inset) != shape.len()
+}
+
 fn translate_toolpaths(groups: &mut [OperationGroup], offset: Point<f64>) {
     for group in groups {
         for path in &mut group.paths {
@@ -298,6 +311,30 @@ fn build_fill_groups(
             });
         }
     }
+    groups
+}
+
+fn build_fill_contour_groups(fill_shapes: &[Shape], depths: &[f64]) -> Vec<OperationGroup> {
+    let mut groups = vec![];
+
+    for shape in fill_shapes {
+        let mut paths = vec![];
+        for depth in depths.iter().copied() {
+            for contour in shape {
+                if let Some(path) = contour_toolpath(contour, depth) {
+                    paths.push(path);
+                }
+            }
+        }
+
+        if !paths.is_empty() {
+            groups.push(OperationGroup {
+                paths,
+                reversible: false,
+            });
+        }
+    }
+
     groups
 }
 
@@ -557,13 +594,27 @@ fn collect_engraving_groups<'a>(
     }
 
     let mut groups = build_stroke_groups(cam_turtle.stroke_paths, &depths);
-    groups.extend(build_fill_groups(
-        &fill_shapes,
-        &depths,
-        tool_radius,
-        engraving.stepover,
-        &mut warnings,
-    ));
+    match engraving.fill_mode {
+        FillMode::Pocket => {
+            if fill_shapes
+                .iter()
+                .any(|shape| fill_shape_loses_detail(shape, tool_radius))
+            {
+                warnings.push(GenerationWarning::FillDetailLoss);
+            }
+
+            groups.extend(build_fill_groups(
+                &fill_shapes,
+                &depths,
+                tool_radius,
+                engraving.stepover,
+                &mut warnings,
+            ));
+        }
+        FillMode::Contour => {
+            groups.extend(build_fill_contour_groups(&fill_shapes, &depths));
+        }
+    }
 
     if groups.is_empty() {
         return Err(empty_engraving_geometry_error(

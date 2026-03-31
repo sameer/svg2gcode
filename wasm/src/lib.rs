@@ -57,10 +57,19 @@ pub struct OperationLineRange {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreviewSnapshot {
+    pub material_width: f64,
+    pub material_height: f64,
+    pub material_thickness: f64,
+    pub tool_diameter: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateJobResponse {
     pub gcode: String,
     pub warnings: Vec<String>,
     pub operation_ranges: Vec<OperationLineRange>,
+    pub preview_snapshot: PreviewSnapshot,
 }
 
 #[wasm_bindgen]
@@ -226,6 +235,12 @@ fn generate_job(request: GenerateJobRequest) -> Result<GenerateJobResponse, Stri
             .into_iter()
             .map(|warning| warning.message().to_string())
             .collect(),
+        preview_snapshot: PreviewSnapshot {
+            material_width: request.settings.engraving.material_width,
+            material_height: request.settings.engraving.material_height,
+            material_thickness: request.settings.engraving.material_thickness,
+            tool_diameter: request.settings.engraving.tool_diameter,
+        },
     })
 }
 

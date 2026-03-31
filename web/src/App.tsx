@@ -11,6 +11,7 @@ import { TopBar } from "@/components/top-bar";
 import { ViewportToolbar } from "@/components/viewport-toolbar";
 import { colorForOperation } from "@/lib/colors";
 import type {
+  FillMode,
   FrontendOperation,
   GenerateJobResponse,
   PreparedSvgDocument,
@@ -135,6 +136,21 @@ function App() {
         engraving: {
           ...current.engraving,
           tool_shape: value,
+        },
+      };
+    });
+  };
+
+  const handleFillModeChange = (value: FillMode) => {
+    setSettings((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        engraving: {
+          ...current.engraving,
+          fill_mode: value,
         },
       };
     });
@@ -274,6 +290,12 @@ function App() {
 
   const maxSegments = parsedProgram?.segments.length ?? 1;
   const maxDepth = parsedProgram?.bounds?.minZ ?? 0;
+  const previewSnapshot = generated?.preview_snapshot;
+  const previewMaterialWidth = previewSnapshot?.material_width ?? settings?.engraving.material_width ?? 100;
+  const previewMaterialHeight = previewSnapshot?.material_height ?? settings?.engraving.material_height ?? 100;
+  const previewMaterialThickness =
+    previewSnapshot?.material_thickness ?? settings?.engraving.material_thickness ?? 18;
+  const previewToolDiameter = previewSnapshot?.tool_diameter ?? settings?.engraving.tool_diameter ?? 6;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
@@ -318,6 +340,7 @@ function App() {
                     settings={settings}
                     onNumberChange={updateSettingsNumber}
                     onToolShapeChange={handleToolShapeChange}
+                    onFillModeChange={handleFillModeChange}
                   />
                   <div className="border-t border-border" />
                   <OperationList
@@ -359,10 +382,10 @@ function App() {
                 activeTab={activeTab}
                 selectedCount={selectedIds.length}
                 activeOperation={activeOperation}
-                materialWidth={settings?.engraving.material_width ?? 100}
-                materialHeight={settings?.engraving.material_height ?? 100}
-                materialThickness={settings?.engraving.material_thickness ?? 18}
-                toolDiameter={settings?.engraving.tool_diameter ?? 6}
+                materialWidth={activeTab === "preview" ? previewMaterialWidth : settings?.engraving.material_width ?? 100}
+                materialHeight={activeTab === "preview" ? previewMaterialHeight : settings?.engraving.material_height ?? 100}
+                materialThickness={activeTab === "preview" ? previewMaterialThickness : settings?.engraving.material_thickness ?? 18}
+                toolDiameter={activeTab === "preview" ? previewToolDiameter : settings?.engraving.tool_diameter ?? 6}
                 maxDepth={maxDepth}
                 visibleSegments={visibleSegments}
                 maxSegments={maxSegments}
@@ -381,10 +404,6 @@ function App() {
                 ) : (
                   <NcViewer
                     gcodeResult={generated}
-                    materialWidth={settings?.engraving.material_width ?? 100}
-                    materialHeight={settings?.engraving.material_height ?? 100}
-                    materialThickness={settings?.engraving.material_thickness ?? 18}
-                    toolDiameter={settings?.engraving.tool_diameter ?? 6}
                     activeOperationId={activeOperationId}
                     visibleSegments={visibleSegments}
                   />

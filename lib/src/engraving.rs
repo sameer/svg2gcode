@@ -19,6 +19,28 @@ impl Default for ToolShape {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum FillMode {
+    Pocket,
+    Contour,
+}
+
+impl Default for FillMode {
+    fn default() -> Self {
+        Self::Pocket
+    }
+}
+
+impl fmt::Display for FillMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Pocket => f.write_str("pocket"),
+            Self::Contour => f.write_str("contour"),
+        }
+    }
+}
+
 impl fmt::Display for ToolShape {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -42,6 +64,18 @@ impl FromStr for ToolShape {
     }
 }
 
+impl FromStr for FillMode {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "pocket" => Ok(Self::Pocket),
+            "contour" => Ok(Self::Contour),
+            _ => Err("fill mode must be one of: pocket, contour"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct EngravingConfig {
@@ -58,6 +92,8 @@ pub struct EngravingConfig {
     pub cut_feedrate: f64,
     pub plunge_feedrate: f64,
     pub stepover: f64,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub fill_mode: FillMode,
     #[cfg_attr(feature = "serde", serde(default))]
     pub svg_width_override: Option<f64>,
     #[cfg_attr(feature = "serde", serde(default))]
@@ -84,6 +120,7 @@ impl Default for EngravingConfig {
             cut_feedrate: 300.0,
             plunge_feedrate: 120.0,
             stepover: 2.0,
+            fill_mode: FillMode::Pocket,
             svg_width_override: None,
             placement_x: 0.0,
             placement_y: 0.0,
@@ -107,6 +144,7 @@ pub enum GenerationWarning {
     MaterialBoundsExceeded,
     MachineBoundsExceeded,
     DepthExceedsMaterialThickness,
+    FillDetailLoss,
     ToolTooLargeForFill,
 }
 
@@ -119,6 +157,9 @@ impl GenerationWarning {
             }
             Self::DepthExceedsMaterialThickness => {
                 "Target depth exceeds the configured material thickness."
+            }
+            Self::FillDetailLoss => {
+                "Some narrow filled details are smaller than the selected tool diameter and will be lost."
             }
             Self::ToolTooLargeForFill => {
                 "At least one filled region is too small for the selected tool diameter."

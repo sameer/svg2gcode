@@ -9,24 +9,20 @@ import { parseGcodeProgram } from "./viewer/parse-gcode";
 
 interface NcViewerProps {
   gcodeResult: GenerateJobResponse | null;
-  materialWidth: number;
-  materialHeight: number;
-  materialThickness: number;
-  toolDiameter: number;
   activeOperationId: string | null;
   visibleSegments: number;
 }
 
 export function NcViewer({
   gcodeResult,
-  materialWidth,
-  materialHeight,
-  materialThickness,
-  toolDiameter,
   activeOperationId,
   visibleSegments,
 }: NcViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const materialWidth = gcodeResult?.preview_snapshot.material_width ?? 100;
+  const materialHeight = gcodeResult?.preview_snapshot.material_height ?? 100;
+  const materialThickness = gcodeResult?.preview_snapshot.material_thickness ?? 18;
+  const toolDiameter = gcodeResult?.preview_snapshot.tool_diameter ?? 6;
 
   const parsedProgram = useMemo(() => {
     if (!gcodeResult) {
@@ -79,12 +75,13 @@ export function NcViewer({
     const diagonal = Math.sqrt(materialWidth ** 2 + materialHeight ** 2);
     const fovRad = (Math.PI * 40) / 360;
     const fitDistance = (diagonal / 2) / Math.tan(fovRad) * 1.1;
-    camera.position.set(fitDistance * 0.6, -fitDistance * 0.6, fitDistance * 0.5);
-    camera.up.set(0, 0, 1);
+    camera.position.set(0, 0, fitDistance);
+    camera.up.set(0, 1, 0);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.target.set(0, 0, -materialThickness / 2);
+    camera.lookAt(controls.target);
     // Middle mouse button pans
     controls.mouseButtons = {
       LEFT: THREE.MOUSE.ROTATE,

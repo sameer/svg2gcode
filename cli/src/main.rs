@@ -14,8 +14,8 @@ use g_code::{
 use log::{error, info, warn};
 use roxmltree::ParsingOptions;
 use svg2gcode::{
-    ConversionOptions, Machine, Settings, SupportedFunctionality, ToolShape, Version, svg2program,
-    svg2program_engraving,
+    ConversionOptions, FillMode, Machine, Settings, SupportedFunctionality, ToolShape, Version,
+    svg2program, svg2program_engraving,
 };
 use svgtypes::LengthListParser;
 
@@ -62,6 +62,9 @@ struct Opt {
     #[arg(long)]
     /// Stepover used for pocketing filled regions in CAM mode (mm)
     stepover: Option<f64>,
+    #[arg(long)]
+    /// Fill handling mode for filled SVG regions: pocket or contour
+    fill_mode: Option<String>,
     #[arg(long)]
     /// Optional SVG width override in mm, preserving aspect ratio
     svg_width: Option<f64>,
@@ -212,6 +215,12 @@ fn main() -> io::Result<()> {
             }
             if let Some(stepover) = opt.stepover {
                 engraving.stepover = stepover;
+            }
+            if let Some(fill_mode) = opt.fill_mode.as_deref() {
+                engraving.fill_mode = fill_mode.parse::<FillMode>().unwrap_or_else(|msg| {
+                    error!("{msg}");
+                    std::process::exit(1);
+                });
             }
             if let Some(svg_width) = opt.svg_width {
                 engraving.svg_width_override = Some(svg_width);

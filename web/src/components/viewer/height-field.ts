@@ -16,11 +16,11 @@ export function buildHeightField(
   toolDiameter: number,
   segments: ParsedSegment[],
 ) {
-  const longestSide = Math.max(materialWidth, materialHeight);
-  const cols = clamp(Math.round((materialWidth / longestSide) * 400), 200, 600);
-  const rows = clamp(Math.round((materialHeight / longestSide) * 400), 200, 600);
+  const targetCellSize = Math.max(toolDiameter / 6, 0.05);
+  const cols = clamp(Math.round(materialWidth / targetCellSize) + 1, 250, 1200);
+  const rows = clamp(Math.round(materialHeight / targetCellSize) + 1, 250, 1200);
   const values = new Float32Array(cols * rows).fill(0);
-  const radius = Math.max(toolDiameter * 0.5, longestSide / 800);
+  const radius = Math.max(toolDiameter * 0.5, targetCellSize * 0.5);
 
   for (const segment of segments) {
     const depth = Math.min(segment.start.z, segment.end.z);
