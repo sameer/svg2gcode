@@ -137,6 +137,8 @@ pub struct EngravingOperation {
     pub name: String,
     pub selector_filter: String,
     pub target_depth: f64,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub fill_mode: Option<FillMode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

@@ -1,17 +1,29 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-import type { SvgTreeNode } from "@/lib/types";
+import type { FrontendOperation, SvgTreeNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface LayerTreeProps {
   tree: SvgTreeNode | null;
   selectedIds: string[];
+  operations: FrontendOperation[];
+  elementColors?: Map<string, string>;
   onSelectIds: (ids: string[], additive: boolean) => void;
 }
 
-export function LayerTree({ tree, selectedIds, onSelectIds }: LayerTreeProps) {
+export function LayerTree({ tree, selectedIds, operations, elementColors, onSelectIds }: LayerTreeProps) {
   const [open, setOpen] = useState(true);
+
+  const operationForElement = useMemo(() => {
+    const map = new Map<string, FrontendOperation>();
+    for (const op of operations) {
+      for (const id of op.assigned_element_ids) {
+        map.set(id, op);
+      }
+    }
+    return map;
+  }, [operations]);
 
   return (
     <div>
@@ -29,7 +41,14 @@ export function LayerTree({ tree, selectedIds, onSelectIds }: LayerTreeProps) {
       {open && (
         <div className="px-2 pb-3">
           {tree ? (
-            <TreeNode node={tree} selectedIds={selectedIds} depth={0} onSelectIds={onSelectIds} />
+            <TreeNode
+              node={tree}
+              selectedIds={selectedIds}
+              depth={0}
+              operationForElement={operationForElement}
+              elementColors={elementColors}
+              onSelectIds={onSelectIds}
+            />
           ) : (
             <p className="px-2 text-xs text-muted-foreground">Import an SVG to inspect its structure.</p>
           )}
@@ -43,15 +62,22 @@ function TreeNode({
   node,
   selectedIds,
   depth,
+  operationForElement,
+  elementColors,
   onSelectIds,
 }: {
   node: SvgTreeNode;
   selectedIds: string[];
   depth: number;
+  operationForElement: Map<string, FrontendOperation>;
+  elementColors?: Map<string, string>;
   onSelectIds: (ids: string[], additive: boolean) => void;
 }) {
   const selectedCount = node.selectable_descendant_ids.filter((id) => selectedIds.includes(id)).length;
   const isSelected = selectedCount > 0;
+
+  const operation = node.id ? operationForElement.get(node.id) ?? null : null;
+  const elementColor = node.id ? elementColors?.get(node.id) ?? null : null;
 
   return (
     <div className="space-y-0.5">
@@ -70,10 +96,29 @@ function TreeNode({
       >
         <span className="flex min-w-0 items-center gap-1.5">
           <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+          {elementColor && (
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ backgroundColor: elementColor }}
+            />
+          )}
           <span className="truncate">{node.label}</span>
         </span>
-        <span className="text-[10px] text-muted-foreground">
-          {node.selectable_descendant_ids.length}
+        <span className="flex items-center gap-1.5">
+          {operation && (
+            <span
+              className="rounded px-1 py-0.5 text-[9px] font-medium leading-none"
+              style={{
+                backgroundColor: `${operation.color ?? "#2563eb"}20`,
+                color: operation.color ?? "#2563eb",
+              }}
+            >
+              {operation.target_depth_mm}mm
+            </span>
+          )}
+          <span className="text-[10px] text-muted-foreground">
+            {node.selectable_descendant_ids.length}
+          </span>
         </span>
       </button>
       {node.children.length > 0 && (
@@ -84,6 +129,8 @@ function TreeNode({
               node={child}
               selectedIds={selectedIds}
               depth={depth + 1}
+              operationForElement={operationForElement}
+              elementColors={elementColors}
               onSelectIds={onSelectIds}
             />
           ))}

@@ -1,10 +1,10 @@
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { FrontendOperation } from "@/lib/types";
+import type { FillMode, FrontendOperation } from "@/lib/types";
 
 interface OperationListProps {
   operations: FrontendOperation[];
@@ -13,9 +13,9 @@ interface OperationListProps {
   onActivate: (operationId: string) => void;
   onAddOperation: () => void;
   onDeleteOperation: (operationId: string) => void;
-  onMoveOperation: (operationId: string, direction: "up" | "down") => void;
   onRenameOperation: (operationId: string, value: string) => void;
   onDepthChange: (operationId: string, value: number) => void;
+  onOperationFillModeChange: (operationId: string, value: FillMode | null) => void;
   onAssignSelected: (operationId: string) => void;
 }
 
@@ -26,9 +26,9 @@ export function OperationList({
   onActivate,
   onAddOperation,
   onDeleteOperation,
-  onMoveOperation,
   onRenameOperation,
   onDepthChange,
+  onOperationFillModeChange,
   onAssignSelected,
 }: OperationListProps) {
   return (
@@ -43,7 +43,7 @@ export function OperationList({
         </Button>
       </div>
       <div className="space-y-2 px-4 pb-3">
-        {operations.map((operation, index) => (
+        {operations.map((operation) => (
           <div
             key={operation.id}
             className={`rounded-lg border p-3 transition-colors ${
@@ -55,19 +55,11 @@ export function OperationList({
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: operation.color ?? "#2563eb" }} />
                 <span className="text-xs font-semibold">{operation.name}</span>
               </button>
-              <div className="flex items-center gap-0.5">
-                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => onMoveOperation(operation.id, "up")} disabled={index === 0}>
-                  <ArrowUp className="h-3 w-3" />
-                </Button>
-                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => onMoveOperation(operation.id, "down")} disabled={index === operations.length - 1}>
-                  <ArrowDown className="h-3 w-3" />
-                </Button>
-                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => onDeleteOperation(operation.id)} disabled={operations.length === 1}>
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              </div>
+              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => onDeleteOperation(operation.id)} disabled={operations.length === 1}>
+                <Trash2 className="h-3 w-3" />
+              </Button>
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="mt-2 grid grid-cols-3 gap-2">
               <div className="grid gap-1">
                 <Label className="text-[10px]">Name</Label>
                 <Input
@@ -90,6 +82,24 @@ export function OperationList({
                   />
                   <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">mm</span>
                 </div>
+              </div>
+              <div className="grid gap-1">
+                <Label className="text-[10px]">Fill</Label>
+                <select
+                  className="h-7 rounded-md border border-border bg-background px-1.5 text-xs outline-none focus:ring-1 focus:ring-ring"
+                  value={operation.fill_mode ?? ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    onOperationFillModeChange(
+                      operation.id,
+                      val === "" ? null : (val as FillMode),
+                    );
+                  }}
+                >
+                  <option value="">Default</option>
+                  <option value="Pocket">Pocket</option>
+                  <option value="Contour">Contour</option>
+                </select>
               </div>
             </div>
             <div className="mt-2 flex items-center justify-between">

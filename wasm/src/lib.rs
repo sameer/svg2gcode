@@ -38,6 +38,8 @@ pub struct FrontendOperation {
     pub target_depth_mm: f64,
     pub assigned_element_ids: Vec<String>,
     pub color: Option<String>,
+    #[serde(default)]
+    pub fill_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -203,6 +205,10 @@ fn generate_job(request: GenerateJobRequest) -> Result<GenerateJobResponse, Stri
             name: operation.name.clone(),
             selector_filter: build_selector_filter(&operation.assigned_element_ids),
             target_depth: operation.target_depth_mm,
+            fill_mode: operation
+                .fill_mode
+                .as_deref()
+                .and_then(|s| s.parse().ok()),
         })
         .collect::<Vec<_>>();
 

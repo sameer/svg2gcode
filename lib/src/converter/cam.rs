@@ -755,6 +755,9 @@ pub fn svg2program_engraving_multi<'a, 'input: 'a>(
 
         let mut operation_engraving = engraving.clone();
         operation_engraving.target_depth = operation.target_depth;
+        if let Some(fm) = operation.fill_mode {
+            operation_engraving.fill_mode = fm;
+        }
 
         let (groups, operation_warnings) =
             collect_engraving_groups(doc, &operation_config, &operation_engraving, options.clone())?;

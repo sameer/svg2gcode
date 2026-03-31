@@ -73,6 +73,7 @@ export interface FrontendOperation {
   target_depth_mm: number;
   assigned_element_ids: string[];
   color: string | null;
+  fill_mode?: FillMode | null;
 }
 
 export interface GenerateJobRequest {

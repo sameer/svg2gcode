@@ -908,12 +908,14 @@ mod test {
                 name: "Left".into(),
                 selector_filter: "#left".into(),
                 target_depth: 1.0,
+                fill_mode: None,
             },
             EngravingOperation {
                 id: "right-op".into(),
                 name: "Right".into(),
                 selector_filter: "#right".into(),
                 target_depth: 2.0,
+                fill_mode: None,
             },
         ];
 

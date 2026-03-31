@@ -11,6 +11,7 @@ import { TopBar } from "@/components/top-bar";
 import { ViewportToolbar } from "@/components/viewport-toolbar";
 import { parseGcodeProgram } from "@/components/viewer/parse-gcode";
 import { colorForOperation } from "@/lib/colors";
+import { buildElementColorMap, detectElementColors } from "@/lib/color-detection";
 import type {
   FillMode,
   FrontendOperation,
@@ -34,6 +35,7 @@ function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("prepare");
+  const [elementColors, setElementColors] = useState<Map<string, string>>(new Map());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -68,15 +70,33 @@ function App() {
     setActiveTab("prepare");
 
     const defaultDepth = settings?.engraving.target_depth ?? 1;
-    const initialOperation: FrontendOperation = {
-      id: crypto.randomUUID(),
-      name: "Engrave 1",
-      target_depth_mm: defaultDepth,
-      assigned_element_ids: prepared.selectable_element_ids,
-      color: colorForOperation(0),
-    };
-    setOperations([initialOperation]);
-    setActiveOperationId(initialOperation.id);
+    const colorGroups = detectElementColors(prepared.normalized_svg);
+    setElementColors(buildElementColorMap(prepared.normalized_svg));
+
+    let newOperations: FrontendOperation[];
+    if (colorGroups.length > 1) {
+      newOperations = colorGroups.map((group, index) => ({
+        id: crypto.randomUUID(),
+        name: `Engrave ${index + 1}`,
+        target_depth_mm: defaultDepth,
+        assigned_element_ids: group.elementIds,
+        color: group.normalizedColor,
+        fill_mode: null,
+      }));
+    } else {
+      newOperations = [
+        {
+          id: crypto.randomUUID(),
+          name: "Engrave 1",
+          target_depth_mm: defaultDepth,
+          assigned_element_ids: prepared.selectable_element_ids,
+          color: colorForOperation(0),
+          fill_mode: null,
+        },
+      ];
+    }
+    setOperations(newOperations);
+    setActiveOperationId(newOperations[0].id);
   };
 
   const handleMakePath = async () => {
@@ -250,19 +270,6 @@ function App() {
     setActiveOperationId(fallbackOperationId);
   };
 
-  const moveOperation = (operationId: string, direction: "up" | "down") => {
-    setOperations((current) => {
-      const index = current.findIndex((operation) => operation.id === operationId);
-      const targetIndex = direction === "up" ? index - 1 : index + 1;
-      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) {
-        return current;
-      }
-      const next = [...current];
-      const [item] = next.splice(index, 1);
-      next.splice(targetIndex, 0, item);
-      return next;
-    });
-  };
 
   const renameOperation = (operationId: string, value: string) => {
     setOperations((current) =>
@@ -280,6 +287,30 @@ function App() {
           : operation,
       ),
     );
+  };
+
+  const changeOperationFillMode = (operationId: string, value: FillMode | null) => {
+    setOperations((current) =>
+      current.map((operation) =>
+        operation.id === operationId
+          ? { ...operation, fill_mode: value }
+          : operation,
+      ),
+    );
+  };
+
+  const handlePlacementChange = (x: number, y: number) => {
+    setSettings((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        engraving: {
+          ...current.engraving,
+          placement_x: x,
+          placement_y: y,
+        },
+      };
+    });
   };
 
   const downloadNc = () => {
@@ -347,7 +378,7 @@ function App() {
 
       <div className="min-h-0 flex-1">
         <PanelGroup direction="horizontal" className="h-full">
-          <Panel defaultSize={22} minSize={16} maxSize={35}>
+          <Panel defaultSize={20} minSize={14} maxSize={30}>
             <div className="h-full overflow-y-auto border-r border-border bg-card">
               {activeTab === "prepare" ? (
                 <>
@@ -368,16 +399,10 @@ function App() {
                     onActivate={setActiveOperationId}
                     onAddOperation={addOperation}
                     onDeleteOperation={deleteOperation}
-                    onMoveOperation={moveOperation}
                     onRenameOperation={renameOperation}
                     onDepthChange={changeOperationDepth}
+                    onOperationFillModeChange={changeOperationFillMode}
                     onAssignSelected={assignSelectionToOperation}
-                  />
-                  <div className="border-t border-border" />
-                  <LayerTree
-                    tree={preparedSvg?.tree ?? null}
-                    selectedIds={selectedIds}
-                    onSelectIds={selectIds}
                   />
                 </>
               ) : (
@@ -390,7 +415,7 @@ function App() {
             </div>
           </Panel>
           <PanelResizeHandle className="w-px bg-border hover:bg-primary/40 transition-colors" />
-          <Panel defaultSize={78}>
+          <Panel defaultSize={60}>
             <div
               className="flex h-full flex-col"
               onDragOver={(event) => event.preventDefault()}
@@ -413,7 +438,15 @@ function App() {
                     operations={operations}
                     selectedIds={selectedIds}
                     activeOperationId={activeOperationId}
+                    materialWidth={settings?.engraving.material_width ?? 300}
+                    materialHeight={settings?.engraving.material_height ?? 300}
+                    placementX={settings?.engraving.placement_x ?? 0}
+                    placementY={settings?.engraving.placement_y ?? 0}
                     onSelectIds={selectIds}
+                    onDepthChange={changeOperationDepth}
+                    onFillModeChange={changeOperationFillMode}
+                    onAssignToOperation={assignSelectionToOperation}
+                    onPlacementChange={handlePlacementChange}
                   />
                 ) : (
                   <NcViewer
@@ -424,6 +457,22 @@ function App() {
               </div>
             </div>
           </Panel>
+          {activeTab === "prepare" && (
+            <>
+              <PanelResizeHandle className="w-px bg-border hover:bg-primary/40 transition-colors" />
+              <Panel defaultSize={20} minSize={14} maxSize={30}>
+                <div className="h-full overflow-y-auto border-l border-border bg-card">
+                  <LayerTree
+                    tree={preparedSvg?.tree ?? null}
+                    selectedIds={selectedIds}
+                    operations={operations}
+                    elementColors={elementColors}
+                    onSelectIds={selectIds}
+                  />
+                </div>
+              </Panel>
+            </>
+          )}
         </PanelGroup>
       </div>
     </div>
