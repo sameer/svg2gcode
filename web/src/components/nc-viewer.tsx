@@ -16,6 +16,10 @@ import {
   sampleProgramAtDistance,
   type ParsedSegment,
 } from "./viewer/parse-gcode";
+import {
+  clipSegmentToDistance,
+  splitSegmentAtDistance,
+} from "./viewer/playback-segment";
 
 interface NcViewerProps {
   gcodeResult: GenerateJobResponse | null;
@@ -67,6 +71,7 @@ export function NcViewer({
   }, [materialWidth, materialHeight, maxDepth, parsedProgram, toolDiameter]);
 
   const [showStock, setShowStock] = useState(true);
+  const [liveCutSimulation, setLiveCutSimulation] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [currentDistance, setCurrentDistance] = useState(0);
@@ -195,6 +200,8 @@ export function NcViewer({
     let surface: THREE.Mesh | null = null;
     let surfaceOverlay: THREE.Mesh | null = null;
     let accessTexture: THREE.CanvasTexture | null = null;
+    let surfaceGeometry: THREE.PlaneGeometry | null = null;
+    let surfaceOverlayGeometry: THREE.PlaneGeometry | null = null;
     if (heightField) {
       const plane = new THREE.PlaneGeometry(
         heightField.width,
@@ -212,6 +219,7 @@ export function NcViewer({
       }
       positions.needsUpdate = true;
       plane.computeVertexNormals();
+      surfaceGeometry = plane;
 
       accessTexture = accessMap ? new THREE.CanvasTexture(accessMap) : null;
       if (accessTexture) {
@@ -234,8 +242,9 @@ export function NcViewer({
       world.add(surface);
 
       if (accessTexture) {
+        surfaceOverlayGeometry = plane.clone();
         surfaceOverlay = new THREE.Mesh(
-          plane.clone(),
+          surfaceOverlayGeometry,
           new THREE.MeshBasicMaterial({
             map: accessTexture,
             transparent: true,
@@ -297,6 +306,49 @@ export function NcViewer({
     const centerX = materialWidth / 2;
     const centerY = materialHeight / 2;
     let lastAppliedDistance = -1;
+    let lastAppliedSurfaceDistance = Number.NaN;
+
+    const updateSurface = (distance: number) => {
+      if (!parsedProgram || !heightField || !surfaceGeometry || !accessTexture) {
+        return;
+      }
+
+      const useFullCarve = !liveCutSimulation || distance >= parsedProgram.totalDistance;
+      if (!useFullCarve && Math.abs(distance - lastAppliedSurfaceDistance) < Math.max(toolDiameter * 0.2, 0.2)) {
+        return;
+      }
+
+      const dynamicHeightField = useFullCarve
+        ? heightField
+        : buildHeightField(
+            materialWidth,
+            materialHeight,
+            toolDiameter,
+            parsedProgram.segments.flatMap((segment) => {
+              const clipped = clipSegmentToDistance(segment, distance);
+              return clipped ? [clipped] : [];
+            }),
+          );
+      applyHeightFieldToPlaneGeometry(surfaceGeometry, dynamicHeightField);
+      if (surfaceOverlayGeometry) {
+        applyHeightFieldToPlaneGeometry(surfaceOverlayGeometry, dynamicHeightField);
+      }
+
+      accessTexture.image = useFullCarve
+        ? accessMap ?? accessTexture.image
+        : buildAccessMap(
+            materialWidth,
+            materialHeight,
+            toolDiameter,
+            parsedProgram.segments.flatMap((segment) => {
+              const clipped = clipSegmentToDistance(segment, distance);
+              return clipped ? [clipped] : [];
+            }),
+            maxDepth,
+          );
+      accessTexture.needsUpdate = true;
+      lastAppliedSurfaceDistance = distance;
+    };
 
     const updateLayerGeometries = (distance: number) => {
       if (!parsedProgram) {
@@ -313,9 +365,15 @@ export function NcViewer({
       };
 
       for (const segment of parsedProgram.segments) {
-        const targetBucket = selectBucket(segment, distance, buckets);
-        const color = colorForSegment(segment, activeOperationId);
-        pushSegment(targetBucket, segment, color, centerX, centerY);
+        const { past, future } = splitSegmentAtDistance(segment, distance);
+        if (past) {
+          const color = colorForSegment(past, activeOperationId);
+          pushSegment(selectBucketForMotion(past.motionKind, true, buckets), past, color, centerX, centerY);
+        }
+        if (future) {
+          const color = colorForSegment(future, activeOperationId);
+          pushSegment(selectBucketForMotion(future.motionKind, false, buckets), future, color, centerX, centerY);
+        }
       }
 
       applyLineBuffers(cutPast.geometry, buckets.cutPast);
@@ -331,6 +389,7 @@ export function NcViewer({
         sample.position.y - centerY,
         sample.position.z + toolLength / 2,
       );
+      updateSurface(distance);
     };
 
     syncViewport();
@@ -391,6 +450,7 @@ export function NcViewer({
     materialWidth,
     parsedProgram,
     showStock,
+    liveCutSimulation,
     toolDiameter,
   ]);
 
@@ -424,6 +484,7 @@ export function NcViewer({
         isPlaying={isPlaying}
         playbackRate={playbackRate}
         showStock={showStock}
+        liveCutSimulation={liveCutSimulation}
         activeOperationId={activeOperationId}
         onDistanceChange={(distance) => {
           const nextDistance = clamp(distance, 0, parsedProgram?.totalDistance ?? 0);
@@ -434,6 +495,7 @@ export function NcViewer({
         onTogglePlaying={handleTogglePlaying}
         onPlaybackRateChange={setPlaybackRate}
         onShowStockChange={setShowStock}
+        onLiveCutSimulationChange={setLiveCutSimulation}
       />
     </div>
   );
@@ -502,19 +564,18 @@ function createLineBuffers() {
   };
 }
 
-function selectBucket(
-  segment: ParsedSegment,
-  currentDistance: number,
+function selectBucketForMotion(
+  motionKind: ParsedSegment["motionKind"],
+  played: boolean,
   buckets: Record<string, ReturnType<typeof createLineBuffers>>,
 ) {
-  const past = segment.cumulativeDistanceEnd <= currentDistance;
-  if (segment.motionKind === "cut") {
-    return past ? buckets.cutPast : buckets.cutFuture;
+  if (motionKind === "cut") {
+    return played ? buckets.cutPast : buckets.cutFuture;
   }
-  if (segment.motionKind === "rapid") {
-    return past ? buckets.travelPast : buckets.travelFuture;
+  if (motionKind === "rapid") {
+    return played ? buckets.travelPast : buckets.travelFuture;
   }
-  return past ? buckets.verticalPast : buckets.verticalFuture;
+  return played ? buckets.verticalPast : buckets.verticalFuture;
 }
 
 function colorForSegment(segment: ParsedSegment, activeOperationId: string | null) {
@@ -572,4 +633,20 @@ function applyLineBuffers(
 
   geometry.setPositions(buffers.positions);
   geometry.setColors(buffers.colors);
+}
+
+function applyHeightFieldToPlaneGeometry(
+  geometry: THREE.PlaneGeometry,
+  heightField: ReturnType<typeof buildHeightField>,
+) {
+  const positions = geometry.attributes.position as THREE.BufferAttribute;
+  for (let row = 0; row < heightField.rows; row += 1) {
+    for (let col = 0; col < heightField.cols; col += 1) {
+      const vertexIndex = row * heightField.cols + col;
+      const hfRow = heightField.rows - 1 - row;
+      positions.setZ(vertexIndex, heightField.values[hfRow * heightField.cols + col]);
+    }
+  }
+  positions.needsUpdate = true;
+  geometry.computeVertexNormals();
 }

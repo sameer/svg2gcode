@@ -12,11 +12,13 @@ interface PreviewTimelineProps {
   isPlaying: boolean;
   playbackRate: number;
   showStock: boolean;
+  liveCutSimulation: boolean;
   activeOperationId: string | null;
   onDistanceChange: (distance: number) => void;
   onTogglePlaying: () => void;
   onPlaybackRateChange: (rate: number) => void;
   onShowStockChange: (value: boolean) => void;
+  onLiveCutSimulationChange: (value: boolean) => void;
 }
 
 const PLAYBACK_RATES = [0.5, 1, 2, 4] as const;
@@ -27,11 +29,13 @@ export function PreviewTimeline({
   isPlaying,
   playbackRate,
   showStock,
+  liveCutSimulation,
   activeOperationId,
   onDistanceChange,
   onTogglePlaying,
   onPlaybackRateChange,
   onShowStockChange,
+  onLiveCutSimulationChange,
 }: PreviewTimelineProps) {
   const [hoveredEvent, setHoveredEvent] = useState<ParsedEvent | null>(null);
 
@@ -73,6 +77,13 @@ export function PreviewTimeline({
         >
           {showStock ? <Eye className="mr-1 h-3.5 w-3.5" /> : <EyeOff className="mr-1 h-3.5 w-3.5" />}
           Stock
+        </Button>
+        <Button
+          size="sm"
+          variant={liveCutSimulation ? "secondary" : "outline"}
+          onClick={() => onLiveCutSimulationChange(!liveCutSimulation)}
+        >
+          Live Cut
         </Button>
 
         <div className="ml-2 flex items-center gap-1 rounded-full border border-border bg-background p-1">
