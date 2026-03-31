@@ -17,8 +17,9 @@ mod turtle;
 
 pub use converter::{
     ConversionConfig, ConversionOptions, svg2preview, svg2program, svg2program_engraving,
+    svg2program_engraving_multi,
 };
-pub use engraving::{EngravingConfig, GenerationWarning, ToolShape};
+pub use engraving::{EngravingConfig, EngravingOperation, GenerationWarning, ToolShape};
 pub use machine::{Machine, MachineConfig, SupportedFunctionality};
 pub use postprocess::PostprocessConfig;
 pub use turtle::Turtle;
@@ -645,6 +646,58 @@ mod test {
     }
 
     #[test]
+    fn engraving_reports_when_tool_is_too_large_for_fill_only_svg() {
+        let svg = r#"
+            <svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" viewBox="0 0 10 10">
+                <rect x="0" y="0" width="2" height="2" />
+            </svg>
+        "#;
+        let document = roxmltree::Document::parse_with_options(
+            svg,
+            ParsingOptions {
+                allow_dtd: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let machine = Machine::new(
+            SupportedFunctionality {
+                circular_interpolation: false,
+            },
+            Some(5.0),
+            Some(-1.0),
+            Some(120.0),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let error = converter::svg2program_engraving(
+            &document,
+            &ConversionConfig::default(),
+            ConversionOptions::default(),
+            machine,
+            &EngravingConfig {
+                enabled: true,
+                material_width: 20.0,
+                material_height: 20.0,
+                tool_diameter: 6.0,
+                target_depth: 1.0,
+                max_stepdown: 1.0,
+                stepover: 2.0,
+                ..EngravingConfig::default()
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            "Filled SVG geometry was found, but the selected tool diameter is too large to fit inside any filled region. Reduce the tool diameter or use stroke engraving."
+        );
+    }
+
+    #[test]
     fn engraving_strokes_follow_centerline_at_each_depth() {
         let svg = r#"
             <svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" viewBox="0 0 10 10">
@@ -751,6 +804,84 @@ mod test {
                 GenerationWarning::DepthExceedsMaterialThickness,
             ]
         );
+    }
+
+    #[test]
+    fn engraving_multi_operation_emits_one_program_with_operation_markers() {
+        let svg = r#"
+            <svg xmlns="http://www.w3.org/2000/svg" width="20mm" height="10mm" viewBox="0 0 20 10">
+                <path id="left" d="M1 5 L9 5" fill="none" stroke="black" />
+                <path id="right" d="M11 5 L19 5" fill="none" stroke="black" />
+            </svg>
+        "#;
+        let document = roxmltree::Document::parse_with_options(
+            svg,
+            ParsingOptions {
+                allow_dtd: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let machine = Machine::new(
+            SupportedFunctionality {
+                circular_interpolation: false,
+            },
+            Some(5.0),
+            Some(-1.0),
+            Some(120.0),
+            None,
+            Some(g_code::parse::snippet_parser("M3 S18000").unwrap()),
+            Some(g_code::parse::snippet_parser("M5").unwrap()),
+            Some(g_code::parse::snippet_parser("G17").unwrap()),
+            Some(g_code::parse::snippet_parser("M30").unwrap()),
+        );
+        let engraving = EngravingConfig {
+            enabled: true,
+            material_width: 40.0,
+            material_height: 20.0,
+            machine_width: 40.0,
+            machine_height: 20.0,
+            tool_diameter: 2.0,
+            target_depth: 1.0,
+            max_stepdown: 1.0,
+            ..EngravingConfig::default()
+        };
+        let operations = vec![
+            EngravingOperation {
+                id: "left-op".into(),
+                name: "Left".into(),
+                selector_filter: "#left".into(),
+                target_depth: 1.0,
+            },
+            EngravingOperation {
+                id: "right-op".into(),
+                name: "Right".into(),
+                selector_filter: "#right".into(),
+                target_depth: 2.0,
+            },
+        ];
+
+        let (program, warnings) = converter::svg2program_engraving_multi(
+            &document,
+            &ConversionConfig::default(),
+            ConversionOptions::default(),
+            machine,
+            &engraving,
+            &operations,
+        )
+        .unwrap();
+        let code = format_tokens(&program);
+
+        assert_eq!(warnings, vec![]);
+        assert_eq!(code.matches("G21").count(), 1, "{code}");
+        assert_eq!(code.matches("G17").count(), 1, "{code}");
+        assert_eq!(code.matches("operation:start:").count(), 2, "{code}");
+        assert!(code.contains("operation:start:left-op:Left"), "{code}");
+        assert!(code.contains("operation:end:left-op"), "{code}");
+        assert!(code.contains("operation:start:right-op:Right"), "{code}");
+        assert!(code.contains("operation:end:right-op"), "{code}");
+        assert!(code.contains("G1 Z-1 F120"), "{code}");
+        assert!(code.contains("G1 Z-2 F120"), "{code}");
     }
 
     #[test]

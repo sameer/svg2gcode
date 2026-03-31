@@ -93,6 +93,15 @@ impl Default for EngravingConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct EngravingOperation {
+    pub id: String,
+    pub name: String,
+    pub selector_filter: String,
+    pub target_depth: f64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GenerationWarning {
     MaterialBoundsExceeded,

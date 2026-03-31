@@ -1,0 +1,10 @@
+services:
+  studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: svg2gcode-studio:latest
+    container_name: svg2gcode-studio
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

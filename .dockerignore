@@ -1,0 +1,7 @@
+.git
+.github
+target
+web/node_modules
+web/dist
+web/src/wasm/pkg
+**/.DS_Store

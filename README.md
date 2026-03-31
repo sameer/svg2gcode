@@ -15,9 +15,37 @@ Convert vector graphics to g-code for pen plotters, laser engravers, and other C
 
 ### Web interface
 
-Check it out at https://sameer.github.io/svg2gcode. Just select an SVG and click generate!
+The `web` workspace is now a React + Vite studio that runs the Rust CAM engine in the browser
+through WebAssembly. It lets you:
 
-![SVG selected on web interface](https://user-images.githubusercontent.com/11097096/129305765-f78da85d-cf4f-4286-a97c-7124a716b5fa.png)
+- drag in a single SVG job
+- assign selected SVG elements to different engraving operations
+- change per-operation depths and regenerate immediately
+- inspect the resulting `.nc` output in an integrated Three.js viewer
+
+For local development:
+
+```sh
+cd web
+npm install
+npm run dev
+```
+
+For a production build:
+
+```sh
+cd web
+npm run build
+```
+
+For Docker:
+
+```sh
+docker build -t svg2gcode-studio .
+docker run --rm -p 8080:8080 svg2gcode-studio
+```
+
+Then open `http://localhost:8080`.
 
 ### Command line interface (CLI)
 

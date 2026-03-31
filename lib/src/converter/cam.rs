@@ -21,7 +21,7 @@ use uom::si::{
 
 use super::{ConversionConfig, ConversionOptions, ConversionVisitor, visit};
 use crate::{
-    EngravingConfig, GenerationWarning, Machine, Turtle,
+    EngravingConfig, EngravingOperation, GenerationWarning, Machine, Turtle,
     converter::{selector::SelectorList, units::CSS_DEFAULT_DPI},
     turtle::{PaintStyle, SvgFillRule},
 };
@@ -424,13 +424,7 @@ fn append_cut_move<'input>(program: &mut Vec<Token<'input>>, point: Point<f64>, 
     );
 }
 
-pub fn svg2program_engraving<'a, 'input: 'a>(
-    doc: &'a Document,
-    config: &ConversionConfig,
-    mut options: ConversionOptions,
-    machine: Machine<'input>,
-    engraving: &EngravingConfig,
-) -> Result<(Vec<Token<'input>>, Vec<GenerationWarning>), String> {
+fn validate_engraving_config(engraving: &EngravingConfig) -> Result<(), String> {
     if engraving.tool_shape != crate::ToolShape::Flat {
         return Err("Tool shape is not yet supported for engraving CAM; select Flat.".into());
     }
@@ -447,6 +441,28 @@ pub fn svg2program_engraving<'a, 'input: 'a>(
         return Err("Stepover must be greater than 0.".into());
     }
 
+    Ok(())
+}
+
+fn empty_engraving_geometry_error(
+    has_fill_shapes: bool,
+    has_stroke_paths: bool,
+    warnings: &[GenerationWarning],
+) -> String {
+    if has_fill_shapes
+        && !has_stroke_paths
+        && warnings.contains(&GenerationWarning::ToolTooLargeForFill)
+    {
+        return "Filled SVG geometry was found, but the selected tool diameter is too large to fit inside any filled region. Reduce the tool diameter or use stroke engraving.".into();
+    }
+
+    "No engravable SVG geometry was found. Add fills and/or strokes.".into()
+}
+
+fn apply_dimension_overrides(
+    mut options: ConversionOptions,
+    engraving: &EngravingConfig,
+) -> ConversionOptions {
     if let Some(width) = engraving.svg_width_override {
         options.dimensions[0] = Some(Length {
             number: width,
@@ -455,6 +471,17 @@ pub fn svg2program_engraving<'a, 'input: 'a>(
         options.dimensions[1] = None;
     }
 
+    options
+}
+
+fn collect_engraving_groups<'a>(
+    doc: &'a Document,
+    config: &ConversionConfig,
+    engraving: &EngravingConfig,
+    options: ConversionOptions,
+) -> Result<(Vec<OperationGroup>, Vec<GenerationWarning>), String> {
+    validate_engraving_config(engraving)?;
+    let options = apply_dimension_overrides(options, engraving);
     let selector_filter = config
         .selector_filter
         .as_deref()
@@ -518,7 +545,9 @@ pub fn svg2program_engraving<'a, 'input: 'a>(
     collect_visitor.terrarium.pop_transform();
 
     let cam_turtle = collect_visitor.terrarium.turtle.inner;
+    let has_stroke_paths = !cam_turtle.stroke_paths.is_empty();
     let fill_shapes = simplify_fill_nodes(cam_turtle.fill_nodes);
+    let has_fill_shapes = !fill_shapes.is_empty();
     let depths = depth_passes(engraving.target_depth, engraving.max_stepdown);
     let tool_radius = engraving.tool_diameter * 0.5;
 
@@ -537,7 +566,11 @@ pub fn svg2program_engraving<'a, 'input: 'a>(
     ));
 
     if groups.is_empty() {
-        return Err("No engravable SVG geometry was found. Add fills and/or strokes.".into());
+        return Err(empty_engraving_geometry_error(
+            has_fill_shapes,
+            has_stroke_paths,
+            &warnings,
+        ));
     }
 
     translate_toolpaths(
@@ -563,17 +596,30 @@ pub fn svg2program_engraving<'a, 'input: 'a>(
         }
     }
 
-    let travel_z = machine
-        .z_motion()
-        .map(|(travel_z, _, _)| travel_z)
-        .unwrap_or(2.0);
-    let mut machine = machine;
-    let mut program = vec![];
+    Ok((optimize_operation_groups(groups), collect_warnings(warnings)))
+}
+
+fn append_engraving_program_header<'input>(
+    program: &mut Vec<Token<'input>>,
+    machine: &mut Machine<'input>,
+) {
     program.append(&mut command!(UnitsMillimeters {}).into_token_vec());
     program.extend(machine.absolute());
     program.extend(machine.program_begin());
     program.extend(machine.absolute());
     program.push(comment_token("Engraving CAM"));
+}
+
+fn append_engraving_paths<'input>(
+    program: &mut Vec<Token<'input>>,
+    machine: &mut Machine<'input>,
+    engraving: &EngravingConfig,
+    groups: Vec<OperationGroup>,
+) {
+    let travel_z = machine
+        .z_motion()
+        .map(|(travel_z, _, _)| travel_z)
+        .unwrap_or(2.0);
 
     for group in groups {
         for path in group.paths {
@@ -584,21 +630,103 @@ pub fn svg2program_engraving<'a, 'input: 'a>(
             program.extend(machine.absolute());
             program.extend(machine.path_begin());
             program.extend(machine.absolute());
-            append_rapid_z(&mut program, travel_z);
-            append_rapid_xy(&mut program, path.points[0]);
+            append_rapid_z(program, travel_z);
+            append_rapid_xy(program, path.points[0]);
             program.extend(machine.tool_on());
             program.extend(machine.absolute());
-            append_plunge(&mut program, path.depth, engraving.plunge_feedrate);
+            append_plunge(program, path.depth, engraving.plunge_feedrate);
             for point in path.points.iter().copied().skip(1) {
-                append_cut_move(&mut program, point, engraving.cut_feedrate);
+                append_cut_move(program, point, engraving.cut_feedrate);
             }
         }
     }
+}
 
+fn append_engraving_program_footer<'input>(
+    program: &mut Vec<Token<'input>>,
+    machine: &mut Machine<'input>,
+) {
+    let travel_z = machine
+        .z_motion()
+        .map(|(travel_z, _, _)| travel_z)
+        .unwrap_or(2.0);
     program.extend(machine.tool_off());
     program.extend(machine.absolute());
-    append_rapid_z(&mut program, travel_z);
+    append_rapid_z(program, travel_z);
     program.extend(machine.program_end());
+}
+
+pub fn svg2program_engraving<'a, 'input: 'a>(
+    doc: &'a Document,
+    config: &ConversionConfig,
+    options: ConversionOptions,
+    machine: Machine<'input>,
+    engraving: &EngravingConfig,
+) -> Result<(Vec<Token<'input>>, Vec<GenerationWarning>), String> {
+    let (groups, warnings) = collect_engraving_groups(doc, config, engraving, options)?;
+    if groups.is_empty() {
+        return Err("No engravable SVG geometry was found. Add fills and/or strokes.".into());
+    }
+
+    let mut machine = machine;
+    let mut program = vec![];
+    append_engraving_program_header(&mut program, &mut machine);
+    append_engraving_paths(&mut program, &mut machine, engraving, groups);
+    append_engraving_program_footer(&mut program, &mut machine);
+
+    Ok((program, warnings))
+}
+
+pub fn svg2program_engraving_multi<'a, 'input: 'a>(
+    doc: &'a Document,
+    config: &ConversionConfig,
+    options: ConversionOptions,
+    machine: Machine<'input>,
+    engraving: &EngravingConfig,
+    operations: &[EngravingOperation],
+) -> Result<(Vec<Token<'input>>, Vec<GenerationWarning>), String> {
+    validate_engraving_config(engraving)?;
+
+    let mut machine = machine;
+    let mut program = vec![];
+    let mut warnings = Vec::new();
+    let mut emitted_any_geometry = false;
+
+    append_engraving_program_header(&mut program, &mut machine);
+
+    for operation in operations {
+        if operation.selector_filter.trim().is_empty() {
+            continue;
+        }
+
+        let mut operation_config = config.clone();
+        operation_config.selector_filter = Some(operation.selector_filter.clone());
+
+        let mut operation_engraving = engraving.clone();
+        operation_engraving.target_depth = operation.target_depth;
+
+        let (groups, operation_warnings) =
+            collect_engraving_groups(doc, &operation_config, &operation_engraving, options.clone())?;
+
+        warnings.extend(operation_warnings);
+        if groups.is_empty() {
+            continue;
+        }
+
+        emitted_any_geometry = true;
+        program.push(comment_token(format!(
+            "operation:start:{}:{}",
+            operation.id, operation.name
+        )));
+        append_engraving_paths(&mut program, &mut machine, &operation_engraving, groups);
+        program.push(comment_token(format!("operation:end:{}", operation.id)));
+    }
+
+    if !emitted_any_geometry {
+        return Err("No engravable SVG geometry was found. Add fills and/or strokes.".into());
+    }
+
+    append_engraving_program_footer(&mut program, &mut machine);
 
     Ok((program, collect_warnings(warnings)))
 }

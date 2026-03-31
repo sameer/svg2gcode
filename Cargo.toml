@@ -1,5 +1,5 @@
 [workspace]
-members = ["lib", "cli", "web"]
+members = ["lib", "cli", "wasm"]
 default-members = ["cli"]
 resolver = "2"
 
