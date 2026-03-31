@@ -2,6 +2,8 @@
 mod arc;
 /// Converts an SVG to an internal representation
 mod converter;
+/// CAM-specific engraving configuration and warnings
+mod engraving;
 /// Emulates the state of an arbitrary machine that can run G-Code
 mod machine;
 /// Operations that are easier to implement while/after G-Code is generated, or would
@@ -13,7 +15,10 @@ mod tsp;
 /// This concept is referred to as [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics).
 mod turtle;
 
-pub use converter::{ConversionConfig, ConversionOptions, svg2preview, svg2program};
+pub use converter::{
+    ConversionConfig, ConversionOptions, svg2preview, svg2program, svg2program_engraving,
+};
+pub use engraving::{EngravingConfig, GenerationWarning, ToolShape};
 pub use machine::{Machine, MachineConfig, SupportedFunctionality};
 pub use postprocess::PostprocessConfig;
 pub use turtle::Turtle;
@@ -23,6 +28,8 @@ pub use turtle::Turtle;
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Settings {
     pub conversion: ConversionConfig,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub engraving: EngravingConfig,
     pub machine: MachineConfig,
     pub postprocess: PostprocessConfig,
     #[cfg_attr(feature = "serde", serde(default = "Version::unknown"))]
@@ -133,8 +140,55 @@ mod test {
             None,
             None,
             None,
+            None,
+            None,
+            None,
+            None,
         );
         converter::svg2program(&document, &config, options, machine)
+    }
+
+    fn get_engraving_actual(
+        input: &str,
+        engraving: EngravingConfig,
+    ) -> (Vec<Token<'static>>, Vec<GenerationWarning>) {
+        let config = ConversionConfig::default();
+        let document = roxmltree::Document::parse_with_options(
+            input,
+            ParsingOptions {
+                allow_dtd: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let machine = Machine::new(
+            SupportedFunctionality {
+                circular_interpolation: false,
+            },
+            Some(5.0),
+            Some(-1.0),
+            Some(120.0),
+            None,
+            Some(g_code::parse::snippet_parser("M3 S18000").unwrap()),
+            Some(g_code::parse::snippet_parser("M5").unwrap()),
+            None,
+            None,
+        );
+
+        converter::svg2program_engraving(
+            &document,
+            &config,
+            ConversionOptions::default(),
+            machine,
+            &engraving,
+        )
+        .unwrap()
+    }
+
+    fn format_tokens(tokens: &[Token<'_>]) -> String {
+        let mut code = String::new();
+        g_code::emit::format_gcode_fmt(tokens.iter(), FormatOptions::default(), &mut code).unwrap();
+        code
     }
 
     fn assert_close(left: Vec<Token<'_>>, right: Vec<Token<'_>>) {
@@ -377,6 +431,10 @@ mod test {
             None,
             None,
             None,
+            None,
+            None,
+            None,
+            None,
         );
         let normal = converter::svg2program(
             &document,
@@ -421,6 +479,278 @@ mod test {
         normal_values.sort_by(f64::total_cmp);
         optimized_values.sort_by(f64::total_cmp);
         assert_eq!(normal_values, optimized_values);
+    }
+
+    #[test]
+    fn path_begin_sequence_is_emitted_before_stroke_motion() {
+        let svg = include_str!("../tests/square.svg");
+        let document = roxmltree::Document::parse_with_options(
+            svg,
+            ParsingOptions {
+                allow_dtd: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let machine = Machine::new(
+            SupportedFunctionality {
+                circular_interpolation: false,
+            },
+            None,
+            None,
+            None,
+            Some(g_code::parse::snippet_parser("M800").unwrap()),
+            None,
+            None,
+            None,
+            None,
+        );
+        let actual = converter::svg2program(
+            &document,
+            &ConversionConfig::default(),
+            ConversionOptions::default(),
+            machine,
+        );
+        let mut code = String::new();
+        g_code::emit::format_gcode_fmt(actual.iter(), FormatOptions::default(), &mut code).unwrap();
+
+        assert!(code.contains("path#path838\nM800\nG0 X1 Y9"), "{code}");
+        assert!(code.contains("path#path832\nM800\nG0 X8 Y2.5"), "{code}");
+    }
+
+    #[test]
+    fn z_motion_retracts_before_rapids_and_plunges_before_cuts() {
+        let svg = include_str!("../tests/square.svg");
+        let document = roxmltree::Document::parse_with_options(
+            svg,
+            ParsingOptions {
+                allow_dtd: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let machine = Machine::new(
+            SupportedFunctionality {
+                circular_interpolation: false,
+            },
+            Some(5.0),
+            Some(-1.0),
+            Some(120.0),
+            Some(g_code::parse::snippet_parser("M800").unwrap()),
+            Some(g_code::parse::snippet_parser("M3 S18000").unwrap()),
+            Some(g_code::parse::snippet_parser("M5").unwrap()),
+            None,
+            Some(g_code::parse::snippet_parser("G28\nM30").unwrap()),
+        );
+        let actual = converter::svg2program(
+            &document,
+            &ConversionConfig::default(),
+            ConversionOptions::default(),
+            machine,
+        );
+        let mut code = String::new();
+        g_code::emit::format_gcode_fmt(actual.iter(), FormatOptions::default(), &mut code).unwrap();
+
+        assert!(
+            code.contains(
+                "path#path838\nM5\nM800\nG0 Z5\nG0 X1 Y9\nM3 S18000\nG1 Z-1 F120\nG1 X9 Y9 F300"
+            ),
+            "{code}"
+        );
+        assert!(
+            code.contains("G1 X8 Y2.5 F300\nM5\nG0 Z5\nG28\nM30"),
+            "{code}"
+        );
+    }
+
+    #[test]
+    fn engraving_fill_rect_generates_multi_pass_pockets() {
+        let svg = r#"
+            <svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" viewBox="0 0 10 10">
+                <rect x="0" y="0" width="10" height="10" />
+            </svg>
+        "#;
+        let (program, warnings) = get_engraving_actual(
+            svg,
+            EngravingConfig {
+                enabled: true,
+                material_width: 20.0,
+                material_height: 20.0,
+                material_thickness: 10.0,
+                tool_diameter: 2.0,
+                target_depth: 2.0,
+                max_stepdown: 1.0,
+                cut_feedrate: 300.0,
+                plunge_feedrate: 120.0,
+                stepover: 2.0,
+                ..EngravingConfig::default()
+            },
+        );
+        let code = format_tokens(&program);
+
+        assert_eq!(warnings, vec![]);
+        assert_eq!(code.matches("G1 Z-1 F120").count(), 2, "{code}");
+        assert_eq!(code.matches("G1 Z-2 F120").count(), 2, "{code}");
+        assert!(!code.contains("\nG2"), "{code}");
+        assert!(!code.contains("\nG3"), "{code}");
+    }
+
+    #[test]
+    fn engraving_circle_and_donut_generate_fill_toolpaths() {
+        let circle = r#"
+            <svg xmlns="http://www.w3.org/2000/svg" width="12mm" height="12mm" viewBox="0 0 12 12">
+                <circle cx="6" cy="6" r="6" />
+            </svg>
+        "#;
+        let donut = r#"
+            <svg xmlns="http://www.w3.org/2000/svg" width="12mm" height="12mm" viewBox="0 0 12 12">
+                <path fill-rule="evenodd" d="M0 0H12V12H0Z M4 4H8V8H4Z" />
+            </svg>
+        "#;
+
+        let (circle_program, circle_warnings) = get_engraving_actual(
+            circle,
+            EngravingConfig {
+                enabled: true,
+                material_width: 20.0,
+                material_height: 20.0,
+                tool_diameter: 2.0,
+                target_depth: 1.0,
+                max_stepdown: 1.0,
+                stepover: 2.0,
+                ..EngravingConfig::default()
+            },
+        );
+        let (donut_program, donut_warnings) = get_engraving_actual(
+            donut,
+            EngravingConfig {
+                enabled: true,
+                material_width: 20.0,
+                material_height: 20.0,
+                tool_diameter: 2.0,
+                target_depth: 1.0,
+                max_stepdown: 1.0,
+                stepover: 2.0,
+                ..EngravingConfig::default()
+            },
+        );
+
+        let circle_code = format_tokens(&circle_program);
+        let donut_code = format_tokens(&donut_program);
+
+        assert_eq!(circle_warnings, vec![]);
+        assert_eq!(donut_warnings, vec![]);
+        assert!(circle_code.matches("G0 X").count() >= 1, "{circle_code}");
+        assert!(donut_code.matches("G0 X").count() >= 2, "{donut_code}");
+    }
+
+    #[test]
+    fn engraving_strokes_follow_centerline_at_each_depth() {
+        let svg = r#"
+            <svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" viewBox="0 0 10 10">
+                <path d="M1 5 L9 5" fill="none" stroke="black" />
+            </svg>
+        "#;
+        let (program, warnings) = get_engraving_actual(
+            svg,
+            EngravingConfig {
+                enabled: true,
+                material_width: 20.0,
+                material_height: 20.0,
+                tool_diameter: 2.0,
+                target_depth: 2.0,
+                max_stepdown: 1.0,
+                ..EngravingConfig::default()
+            },
+        );
+        let code = format_tokens(&program);
+
+        assert_eq!(warnings, vec![]);
+        assert_eq!(code.matches("G1 Z-1 F120").count(), 1, "{code}");
+        assert_eq!(code.matches("G1 Z-2 F120").count(), 1, "{code}");
+        assert_eq!(code.matches("Y5 F300").count(), 2, "{code}");
+        assert!(code.contains("G0 X1 Y5"), "{code}");
+    }
+
+    #[test]
+    fn engraving_width_override_preserves_aspect_ratio() {
+        let svg = r#"
+            <svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="20mm" viewBox="0 0 10 20">
+                <path d="M0 10 L10 10" fill="none" stroke="black" />
+            </svg>
+        "#;
+        let (program, warnings) = get_engraving_actual(
+            svg,
+            EngravingConfig {
+                enabled: true,
+                material_width: 60.0,
+                material_height: 60.0,
+                machine_width: 60.0,
+                machine_height: 60.0,
+                tool_diameter: 2.0,
+                target_depth: 1.0,
+                max_stepdown: 1.0,
+                svg_width_override: Some(20.0),
+                placement_x: 2.0,
+                ..EngravingConfig::default()
+            },
+        );
+        let code = format_tokens(&program);
+
+        assert_eq!(warnings, vec![]);
+        assert!(code.contains("G1 X22 Y20 F300"), "{code}");
+    }
+
+    #[test]
+    fn engraving_applies_stock_offset_and_warns_on_bounds() {
+        let svg = r#"
+            <svg xmlns="http://www.w3.org/2000/svg" width="10mm" height="10mm" viewBox="0 0 10 10">
+                <path d="M0 10 L10 10" fill="none" stroke="black" />
+            </svg>
+        "#;
+        let (offset_program, offset_warnings) = get_engraving_actual(
+            svg,
+            EngravingConfig {
+                enabled: true,
+                material_width: 30.0,
+                material_height: 30.0,
+                tool_diameter: 2.0,
+                target_depth: 1.0,
+                max_stepdown: 1.0,
+                placement_x: 3.0,
+                placement_y: 4.0,
+                ..EngravingConfig::default()
+            },
+        );
+        let offset_code = format_tokens(&offset_program);
+        assert_eq!(offset_warnings, vec![]);
+        assert!(offset_code.contains("G0 X3 Y4"), "{offset_code}");
+
+        let (_program, warnings) = get_engraving_actual(
+            svg,
+            EngravingConfig {
+                enabled: true,
+                material_width: 10.0,
+                material_height: 10.0,
+                material_thickness: 5.0,
+                machine_width: 12.0,
+                machine_height: 12.0,
+                tool_diameter: 2.0,
+                target_depth: 12.0,
+                max_stepdown: 1.0,
+                placement_x: 3.0,
+                placement_y: 4.0,
+                ..EngravingConfig::default()
+            },
+        );
+        assert_eq!(
+            warnings,
+            vec![
+                GenerationWarning::MaterialBoundsExceeded,
+                GenerationWarning::MachineBoundsExceeded,
+                GenerationWarning::DepthExceedsMaterialThickness,
+            ]
+        );
     }
 
     #[test]

@@ -27,6 +27,10 @@ pub struct Machine<'input> {
     supported_functionality: SupportedFunctionality,
     tool_state: Option<Tool>,
     distance_mode: Option<Distance>,
+    travel_z: Option<f64>,
+    cut_z: Option<f64>,
+    plunge_feedrate: Option<f64>,
+    path_begin_sequence: Snippet<'input>,
     tool_on_sequence: Snippet<'input>,
     tool_off_sequence: Snippet<'input>,
     program_begin_sequence: Snippet<'input>,
@@ -39,6 +43,10 @@ pub struct Machine<'input> {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct MachineConfig {
     pub supported_functionality: SupportedFunctionality,
+    pub travel_z: Option<f64>,
+    pub cut_z: Option<f64>,
+    pub plunge_feedrate: Option<f64>,
+    pub path_begin_sequence: Option<String>,
     pub tool_on_sequence: Option<String>,
     pub tool_off_sequence: Option<String>,
     pub begin_sequence: Option<String>,
@@ -57,6 +65,10 @@ pub struct SupportedFunctionality {
 impl<'input> Machine<'input> {
     pub fn new(
         supported_functionality: SupportedFunctionality,
+        travel_z: Option<f64>,
+        cut_z: Option<f64>,
+        plunge_feedrate: Option<f64>,
+        path_begin_sequence: Option<Snippet<'input>>,
         tool_on_sequence: Option<Snippet<'input>>,
         tool_off_sequence: Option<Snippet<'input>>,
         program_begin_sequence: Option<Snippet<'input>>,
@@ -65,6 +77,10 @@ impl<'input> Machine<'input> {
         let empty_snippet = snippet_parser("").expect("empty string is a valid snippet");
         Self {
             supported_functionality,
+            travel_z,
+            cut_z,
+            plunge_feedrate,
+            path_begin_sequence: path_begin_sequence.unwrap_or_else(|| empty_snippet.clone()),
             tool_on_sequence: tool_on_sequence.unwrap_or_else(|| empty_snippet.clone()),
             tool_off_sequence: tool_off_sequence.unwrap_or_else(|| empty_snippet.clone()),
             program_begin_sequence: program_begin_sequence.unwrap_or_else(|| empty_snippet.clone()),
@@ -77,6 +93,18 @@ impl<'input> Machine<'input> {
 
     pub fn supported_functionality(&self) -> &SupportedFunctionality {
         &self.supported_functionality
+    }
+
+    pub fn z_motion(&self) -> Option<(f64, f64, Option<f64>)> {
+        match (self.travel_z, self.cut_z) {
+            (Some(travel_z), Some(cut_z)) => Some((travel_z, cut_z, self.plunge_feedrate)),
+            _ => None,
+        }
+    }
+
+    /// Output user-defined gcode at the beginning of each path/stroke.
+    pub fn path_begin(&self) -> impl Iterator<Item = Token<'input>> + '_ {
+        self.path_begin_sequence.iter_emit_tokens()
     }
 
     /// Output gcode to turn the tool on.

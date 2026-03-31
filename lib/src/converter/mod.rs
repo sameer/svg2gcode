@@ -17,11 +17,12 @@ use crate::{
     converter::selector::SelectorList,
     tsp,
     turtle::{
-        DpiConvertingTurtle, GCodeTurtle, PreprocessTurtle, StrokeCollectingTurtle,
+        DpiConvertingTurtle, GCodeTurtle, PaintStyle, PreprocessTurtle, StrokeCollectingTurtle,
         SvgPreviewTurtle, Terrarium,
     },
 };
 
+mod cam;
 #[cfg(feature = "serde")]
 mod length_serde;
 mod path;
@@ -29,6 +30,8 @@ mod selector;
 mod transform;
 mod units;
 mod visit;
+
+pub use cam::svg2program_engraving;
 
 /// High-level output configuration
 #[derive(Debug, Clone, PartialEq)]
@@ -93,6 +96,7 @@ pub struct ConversionOptions {
 struct ConversionVisitor<'a, T: Turtle> {
     terrarium: Terrarium<T>,
     name_stack: Vec<String>,
+    paint_stack: Vec<PaintStyle>,
     /// Used to convert percentage values
     viewport_dim_stack: Vec<[f64; 2]>,
     _config: &'a ConversionConfig,
@@ -152,6 +156,7 @@ pub fn svg2program<'a, 'input: 'a>(
             _config: config,
             options: options.clone(),
             name_stack: vec![],
+            paint_stack: vec![PaintStyle::default()],
             viewport_dim_stack: vec![],
             selector_filter: selector_filter.clone(),
         };
@@ -191,12 +196,14 @@ pub fn svg2program<'a, 'input: 'a>(
                 tolerance: config.tolerance,
                 feedrate: config.feedrate,
                 program: vec![],
+                current_z: None,
             },
             dpi: config.dpi,
         }),
         _config: config,
         options: options.clone(),
         name_stack: vec![],
+        paint_stack: vec![PaintStyle::default()],
         viewport_dim_stack: vec![],
         selector_filter: selector_filter.clone(),
     };
@@ -244,6 +251,7 @@ pub fn svg2preview(
         _config: config,
         options: options.clone(),
         name_stack: vec![],
+        paint_stack: vec![PaintStyle::default()],
         viewport_dim_stack: vec![],
         selector_filter: selector_filter.clone(),
     };
@@ -289,6 +297,7 @@ fn svg2strokes_optimized(
         _config: config,
         options,
         name_stack: vec![],
+        paint_stack: vec![PaintStyle::default()],
         viewport_dim_stack: vec![],
         selector_filter,
     };

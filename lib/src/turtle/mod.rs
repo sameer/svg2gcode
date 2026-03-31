@@ -20,10 +20,35 @@ pub use self::{
     g_code::GCodeTurtle, preprocess::PreprocessTurtle, svg_preview::SvgPreviewTurtle,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum SvgFillRule {
+    EvenOdd,
+    #[default]
+    NonZero,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PaintStyle {
+    pub fill: bool,
+    pub stroke: bool,
+    pub fill_rule: SvgFillRule,
+}
+
+impl Default for PaintStyle {
+    fn default() -> Self {
+        Self {
+            fill: true,
+            stroke: false,
+            fill_rule: SvgFillRule::NonZero,
+        }
+    }
+}
+
 /// Abstraction for drawing paths based on [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics)
 pub trait Turtle: Debug {
     fn begin(&mut self);
     fn end(&mut self);
+    fn set_paint_style(&mut self, _style: PaintStyle) {}
     fn comment(&mut self, comment: String);
     fn move_to(&mut self, to: Point<f64>);
     fn line_to(&mut self, to: Point<f64>);

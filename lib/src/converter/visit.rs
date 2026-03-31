@@ -14,7 +14,11 @@ use super::{
     transform::{get_viewport_transform, svg_transform_into_euclid_transform},
     units::DimensionHint,
 };
-use crate::{Turtle, converter::node_name};
+use crate::{
+    Turtle,
+    converter::node_name,
+    turtle::{PaintStyle, SvgFillRule},
+};
 
 const SVG_TAG_NAME: &str = "svg";
 const CLIP_PATH_TAG_NAME: &str = "clipPath";
@@ -34,6 +38,58 @@ const SYMBOL_TAG_NAME: &str = "symbol";
 pub trait XmlVisitor {
     fn visit_enter(&mut self, node: Node);
     fn visit_exit(&mut self, node: Node);
+}
+
+fn parse_style_value<'a>(style: &'a str, key: &str) -> Option<&'a str> {
+    style.split(';').find_map(|entry| {
+        let (entry_key, entry_value) = entry.split_once(':')?;
+        (entry_key.trim() == key).then_some(entry_value.trim())
+    })
+}
+
+fn node_presentation_value<'a, 'input>(node: &'a Node<'a, 'input>, key: &str) -> Option<&'a str> {
+    node.attribute(key)
+}
+
+fn node_style_value<'a, 'input>(node: &'a Node<'a, 'input>, key: &str) -> Option<&'a str> {
+    node.attribute("style")
+        .and_then(|style| parse_style_value(style, key))
+        .or_else(|| node_presentation_value(node, key))
+}
+
+fn parse_paint_enabled(value: &str) -> Option<bool> {
+    match value.trim() {
+        "inherit" => None,
+        "none" => Some(false),
+        _ => Some(true),
+    }
+}
+
+fn parse_fill_rule(value: &str) -> Option<SvgFillRule> {
+    match value.trim() {
+        "inherit" => None,
+        "evenodd" => Some(SvgFillRule::EvenOdd),
+        "nonzero" => Some(SvgFillRule::NonZero),
+        _ => None,
+    }
+}
+
+fn resolve_paint_style<'a, 'input>(node: Node<'a, 'input>, parent: PaintStyle) -> PaintStyle {
+    let mut paint = parent;
+    if let Some(fill) = node_style_value(&node, "fill").and_then(parse_paint_enabled) {
+        paint.fill = fill;
+    }
+    if let Some(stroke) = node_style_value(&node, "stroke").and_then(parse_paint_enabled) {
+        paint.stroke = stroke;
+    }
+    if let Some(fill_rule) = node_style_value(&node, "fill-rule").and_then(parse_fill_rule) {
+        paint.fill_rule = fill_rule;
+    }
+    if node_style_value(&node, "visibility") == Some("hidden") {
+        paint.fill = false;
+        paint.stroke = false;
+    }
+    paint
 }
 
 /// Used to skip over SVG elements that are explicitly marked as do not render
@@ -107,6 +163,10 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
     fn visit_enter(&mut self, node: Node) {
         use PathSegment::*;
 
+        let inherited_paint = *self.paint_stack.last().unwrap_or(&PaintStyle::default());
+        let resolved_paint = resolve_paint_style(node, inherited_paint);
+        self.paint_stack.push(resolved_paint);
+
         if node.tag_name().name() == CLIP_PATH_TAG_NAME {
             warn!("Clip paths are not supported: {:?}", node);
         }
@@ -168,11 +228,11 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
                 .options
                 .dimensions
                 .map(|l| l.map(|l| self.length_to_user_units(l, DimensionHint::Horizontal)));
-            for (original_dim, override_dim) in viewport_size
-                .iter_mut()
-                .zip(dimensions_override.into_iter())
-            {
-                *original_dim = override_dim.or(*original_dim);
+            match dimensions_override {
+                [Some(width), Some(height)] => viewport_size = [Some(width), Some(height)],
+                [Some(width), None] => viewport_size = [Some(width), None],
+                [None, Some(height)] => viewport_size = [None, Some(height)],
+                [None, None] => {}
             }
 
             // https://www.w3.org/TR/SVG/coords.html#SizingSVGInCSS
@@ -275,6 +335,7 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
         self.terrarium.push_transform(flattened_transform);
 
         if self.should_draw_node(node) {
+            self.terrarium.turtle.set_paint_style(resolved_paint);
             match node.tag_name().name() {
                 PATH_TAG_NAME => {
                     if let Some(d) = node.attribute("d") {
@@ -479,6 +540,7 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
     fn visit_exit(&mut self, node: Node) {
         self.terrarium.pop_transform();
         self.name_stack.pop();
+        self.paint_stack.pop();
         if matches!(node.tag_name().name(), SVG_TAG_NAME | SYMBOL_TAG_NAME) {
             self.viewport_dim_stack.pop();
         }

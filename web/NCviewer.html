@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>NC Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8">
+  <style>
+  
+      :root {
+      --bg-header: #f5f5f5;
+      --text-header: #222;
+      --bg-editor: #ffffff;
+      --text-editor: #000000;
+      --bg-viewer: #eeeeee;
+      --text-viewer: #222;
+      --bg-resizer: #ccc;
+      --btn-bg: #ddd;
+      --scrollbar-bg: #ddd;
+      --scrollbar-thumb: #aaa;
+      --viewer-bg-color: #eeeeee;
+    }
+	
+    body.light {
+      --bg-header: #222;
+      --text-header: white;
+      --bg-editor: #1e1e1e;
+      --text-editor: #d4d4d4;
+      --bg-viewer: #2c2c2c;
+      --text-viewer: white;
+      --bg-resizer: #555;
+      --btn-bg: #444;
+      --scrollbar-bg: #555;
+      --scrollbar-thumb: #888;
+      --viewer-bg-color: #2c2c2c;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: sans-serif;
+      overflow: hidden;
+    }
+
+    header {
+      height: 50px;
+      background-color: var(--bg-header);
+      color: var(--text-header);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+    }
+
+    header .left, header .right {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+	  justify-content: space-between;
+    }
+
+    header button {
+      background: var(--btn-bg);
+      color: var(--text-header);
+      border: none;
+      padding: 5px 10px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+	
+	.right svg {
+	  max-height: 40px; 
+	}
+	
+	.ncnetic-link {
+	  color: inherit;
+	}
+	
+	.separator {
+	  margin: 0 10px;
+	  color: #888;
+	}
+
+    .theme-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 34px;
+      height: 20px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: 0.4s;
+      border-radius: 50px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 12px;
+      width: 12px;
+      border-radius: 50px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: 0.4s;
+    }
+
+    input:checked + .slider {
+      background-color: #2196F3;
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(14px);
+    }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--scrollbar-bg);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--scrollbar-thumb);
+      border-radius: 10px;
+    }
+
+    main {
+      display: flex;
+      height: calc(100% - 50px);
+      width: 100%;
+      overflow: auto;
+    }
+
+    .editor {
+      width: 30%;
+      flex-shrink: 0;
+      flex-grow: 0;
+      background: var(--bg-editor);
+      color: var(--text-editor);
+      padding: 10px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+	.monaco-scrollable-element > .scrollbar > .slider {
+	  border-radius: 4px;
+	  background: var(--scrollbar-thumb, #888);
+	  box-shadow: none;
+	}
+	.monaco-scrollable-element > .scrollbar > .slider::before {
+	  display: none;
+	}
+	
+	.myLineHighlight {
+		background-color: rgba(100, 180, 255, 0.2);
+	}
+
+    .resizer {
+      width: 8px;
+      background: var(--bg-resizer);
+      cursor: col-resize;
+    }
+
+	.viewer {
+	  flex: 1 1 auto;
+	  min-width: 100px;
+	  background: var(--bg-viewer);
+	  color: var(--text-viewer);
+	  position: relative;
+	  display: flex;
+	  flex-direction: column;
+	  justify-content: flex-end;
+	  font-size: 1.2rem;
+	}
+
+	.viewer-info {
+	  position: absolute;
+	  top: 10px;
+	  right: 10px;
+	  z-index: 1;
+
+	  display: flex;
+	  flex-direction: column;
+	  align-items: flex-start;
+
+	  padding: 8px 12px;
+	  background-color: rgba(0, 0, 0, 0.3);
+	  color: var(--text-viewer);
+	  font-family: monospace;
+	  font-size: 0.85rem;
+
+	  border: 1px solid rgba(255, 255, 255, 0.2);
+	  border-radius: 4px;
+	  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+	}
+	.viewer-info span {
+	  margin-bottom: 4px;
+	}
+	
+	#viewer {
+		position: relative;
+		width: 100%;
+	}
+
+	#viewerSlider {
+		position: absolute;
+		bottom: 10px;
+		left: 10px;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 60%;
+		height: 10px;
+		background-color: #ddd;
+		-webkit-appearance: none;
+		appearance: none;
+		border-radius: 5px;
+		outline: none;
+	}
+
+	#viewerSlider::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 20px;
+		height: 20px;
+		background-color: #007bff;
+		border-radius: 50%;
+		cursor: pointer;
+	}
+
+	#viewerSlider::-moz-range-thumb {
+		width: 20px;
+		height: 20px;
+		background-color: #007bff;
+		border-radius: 50%;
+		cursor: pointer;
+	}
+
+    @media (max-width: 768px) {
+      .resizer,
+      .viewer {
+        display: none;
+      }
+
+      .editor {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body class="light">
+  <header>
+    <div class="left">
+      <button id="loadBtn">Load File</button>
+	  <button id="reprocessBtn">Reprocess File</button>
+	  <button id="newBtn">New File</button>
+	  <button id="downloadBtn">Download File</button>
+      <input type="file" id="fileInput" style="display: none;" />
+	  <span class="separator">|</span>
+	  <button id="resetViewBtn">Reset View</button>
+	  <div class="theme-toggle">
+        <label for="toggleTheme" class="switch">
+          <input type="checkbox" id="toggleTheme" checked/>
+          <span class="slider"></span>
+        </label>
+        <span>Dark Mode</span>
+      </div>
+	  <span class="separator">|</span>
+    </div>
+  </header>
+  <main id="main">
+    <div class="editor" id="editor">
+      <div id="codeEditor" style="width:100%; height:100%;"></div>
+    </div>
+    <div class="resizer" id="resizer"></div>
+    <div class="viewer" id="viewer">
+      <div class="viewer-info" id="viewerInfo">
+        <span>X: <span id="posX">0.000</span></span>
+        <span>Y: <span id="posY">0.000</span></span>
+        <span>Z: <span id="posZ">0.000</span></span>
+      </div>
+      <input type="range" id="viewerSlider" min="0" max="100" value="0" step="1" />
+    </div>
+  </main>
+  
+<script src="custom_gcode_parser.js"></script> <!-- script for your parseGCode function. -->
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
+
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.173.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.173.0/examples/jsm/",
+      "three-viewport-gizmo": "https://unpkg.com/three-viewport-gizmo@2.2.0/dist/three-viewport-gizmo.js"
+    }
+  }
+</script>
+
+<script type="module">
+
+	import * as THREE from "three";
+
+	import {
+		ViewportGizmo
+	}
+	from "three-viewport-gizmo";
+
+	import {
+		OrbitControls
+	}
+	from "three/addons/controls/OrbitControls.js";
+
+	const viewer = document.getElementById('viewer');
+	const scene = new THREE.Scene();
+	scene.up.set(0, 0, 1);
+	const segmentsGroup = new THREE.Group();
+	scene.add(segmentsGroup);
+
+	const aspect = viewer.clientWidth / viewer.clientHeight;
+	const f0 = 20000;
+	const camera = new THREE.OrthographicCamera(
+			-f0 * aspect / 2,
+			f0 * aspect / 2,
+			f0 / 2,
+			-f0 / 2,
+			0.1,
+			2 * f0);
+	camera.up.set(0, 0, 1);
+
+	const renderer = new THREE.WebGLRenderer();
+	renderer.setSize(viewer.clientWidth, viewer.clientHeight);
+	viewer.appendChild(renderer.domElement);
+
+	const setViewerBackground = () => {
+		const bgColor = getComputedStyle(document.body).getPropertyValue('--viewer-bg-color').trim();
+		renderer.setClearColor(new THREE.Color(bgColor));
+	};
+
+	setViewerBackground();
+
+	const controls = new OrbitControls(camera, renderer.domElement);
+	controls.mouseButtons = {
+		LEFT: THREE.MOUSE.PAN,
+		MIDDLE: THREE.MOUSE.ROTATE,
+		RIGHT: null
+	};
+	controls.screenSpacePanning = true;
+
+	const gizmo = new ViewportGizmo(camera, renderer, {
+		placement: 'bottom-right'
+	});
+	gizmo.attachControls(controls);
+
+	const raycaster = new THREE.Raycaster();
+	// raycaster.params.Line.threshold = 1;
+	const mouse = new THREE.Vector2();
+
+	let isMouseDown = false;
+	let mouseDownPosition = { x: 0, y: 0 };
+
+	renderer.domElement.addEventListener('mousedown', (event) => {
+		isMouseDown = true;
+		mouseDownPosition.x = event.clientX;
+		mouseDownPosition.y = event.clientY;
+	});
+
+	renderer.domElement.addEventListener('mouseup', (event) => {
+		if (!isMouseDown) return;
+		isMouseDown = false;
+
+		const dx = event.clientX - mouseDownPosition.x;
+		const dy = event.clientY - mouseDownPosition.y;
+		const distanceSquared = dx * dx + dy * dy;
+
+		const clickThreshold = 5 * 5;
+
+		if (distanceSquared <= clickThreshold) {
+			const rect = renderer.domElement.getBoundingClientRect();
+			mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+			mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+			raycaster.params.Line.threshold = size / 100 / camera.zoom;
+			
+			raycaster.setFromCamera(mouse, camera);
+			const intersects = raycaster.intersectObject(lineSegmentsMesh, false);
+
+			if (intersects.length > 0) {
+				const intersect = intersects[0];
+				const faceIndex = intersect.index;
+				const segmentIndex = Math.floor(faceIndex / 2);
+
+				const movement = movements[segmentIndex + 1];
+				const lineIdx = movement.lineNumber;
+
+				highlightEditorLine(lineIdx);
+				slider.value = segmentIndex;
+				// selectLineSegments(segmentIndex, segmentIndex);
+
+				let startIdx = -1;
+				let endIdx = -1;
+
+				for (let i = 1; i < movements.length; i++) {
+					if (movements[i].lineNumber === lineIdx) {
+						const segmentIdx = i - 1;
+						if (startIdx === -1) startIdx = segmentIdx;
+						endIdx = segmentIdx;
+					}
+				}
+
+				if (startIdx !== -1 && endIdx !== -1) {
+					selectLineSegments(startIdx, endIdx);
+				}
+				
+			} else {
+				slider.value = 0;
+				selectLineSegments(movements.length, movements.length);
+			}
+		}
+	});
+
+	let size = 0;
+
+	function resetCamera() {
+		let box = new THREE.Box3().setFromObject(segmentsGroup);
+		
+		if (box.isEmpty()) {
+			box = new THREE.Box3(
+				new THREE.Vector3(-1, -1, -1),
+				new THREE.Vector3(1, 1, 1)
+			);
+		}
+		
+		size = box.getSize(new THREE.Vector3()).length();
+		const center = box.getCenter(new THREE.Vector3());
+
+		const f = size * 1.1;
+		// raycaster.params.Line.threshold = f / 200 * camera.zoom;
+		camera.left = -f * aspect / 2;
+		camera.right = f * aspect / 2;
+		camera.top = f / 2;
+		camera.bottom = -f / 2;
+		camera.zoom = 1;
+		camera.updateProjectionMatrix();
+
+		camera.position.set(center.x + size * 1.1, center.y + size * -1.1, size * 1.1);
+		camera.lookAt(center);
+
+		controls.target.copy(center);
+		controls.update();
+		
+		addAxisLines(box);
+
+		const viewerWidth = viewer.clientWidth;
+		const viewerHeight = viewer.clientHeight;
+		const newAspect = viewerWidth / viewerHeight;
+
+		const viewSize = camera.top - camera.bottom;
+		camera.left = -viewSize * newAspect / 2;
+		camera.right = viewSize * newAspect / 2;
+		camera.updateProjectionMatrix();
+
+		renderer.setSize(viewerWidth, viewerHeight);
+
+		gizmo.update();
+	}
+
+	const loadBtn = document.getElementById('loadBtn');
+	const fileInput = document.getElementById('fileInput');
+
+	let monacoEditor;
+	require.config({
+		paths: {
+			vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs"
+		}
+	});
+	require(["vs/editor/editor.main"], function () {
+		monacoEditor = monaco.editor.create(document.getElementById("codeEditor"), {
+			value: '',
+			language: "plaintext",
+			theme: document.body.classList.contains('light') ? "vs-dark" : "vs-light",
+			fontSize: 14,
+			lineNumbers: "on",
+			wordWrap: "off",
+			automaticLayout: true,
+			glyphMargin: false,
+			lineDecorationsWidth: 0,
+			overviewRulerLanes: 0,
+			hideCursorInOverviewRuler: true,
+			renderLineHighlight: 'none',
+			selectionHighlight: false,
+			wordHighlighter: false,
+			occurrencesHighlight: false,
+			minimap: {
+				enabled: false
+			},
+			scrollbar: {
+				vertical: 'auto',
+				horizontal: 'auto',
+				useShadows: false,
+				verticalScrollbarSize: 8,
+				horizontalScrollbarSize: 8,
+				handleMouseWheel: true,
+				alwaysConsumeMouseWheel: false
+			}
+		});
+		
+		monacoEditor.onDidChangeCursorPosition((e) => {
+			const lineNumber = e.position.lineNumber;
+			const targetLineIndex = lineNumber - 1;
+
+			highlightEditorLine(targetLineIndex);
+
+			let startIdx = -1;
+			let endIdx = -1;
+
+			for (let i = 1; i < movements.length; i++) {
+				if (movements[i].lineNumber === targetLineIndex) {
+					const segmentIdx = i - 1;
+					if (startIdx === -1) startIdx = segmentIdx;
+					endIdx = segmentIdx;
+				}
+			}
+
+			if (startIdx !== -1 && endIdx !== -1) {
+				slider.value = endIdx;
+				selectLineSegments(startIdx, endIdx);
+			}
+		});
+	});
+
+	let movements = [];
+	let lineSegmentsMesh = null;
+	let loadedFilename = "gcode.txt";
+
+	loadBtn.addEventListener('click', () => fileInput.click());
+
+	fileInput.addEventListener('change', (e) => {
+	const file = e.target.files[0];
+		if (file) {
+			
+			loadedFilename = file.name;
+			
+			const reader = new FileReader();
+			reader.onload = function (evt) {
+				monacoEditor.setValue(evt.target.result);
+				processGCodeFromEditor();
+			};
+			reader.readAsText(file);
+		}
+	});
+	
+	function processGCodeFromEditor() {
+		
+		clearSceneLines();
+		
+		const gcode = monacoEditor.getValue();
+		
+		movements = parseGCode(gcode);
+
+		const positions = [];
+		const colorsArray = [];
+
+		const colorFeed = new THREE.Color(colors.feedColor);
+		const colorRapid = new THREE.Color(colors.rapidColor);
+
+		for (let i = 1; i < movements.length; i++) {
+			const start = new THREE.Vector3(movements[i - 1].X, movements[i - 1].Y, movements[i - 1].Z);
+			const end = new THREE.Vector3(movements[i].X, movements[i].Y, movements[i].Z);
+			const isRapid = movements[i].command === 'G0';
+			const color = isRapid ? colorRapid : colorFeed;
+
+			positions.push(start.x, start.y, start.z, end.x, end.y, end.z);
+			colorsArray.push(color.r, color.g, color.b, color.r, color.g, color.b);
+		}
+
+		const geometry = new THREE.BufferGeometry();
+		geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+		geometry.setAttribute('color', new THREE.Float32BufferAttribute(colorsArray, 3));
+
+		const material = new THREE.LineBasicMaterial({ vertexColors: true });
+		lineSegmentsMesh = new THREE.LineSegments(geometry, material);
+		segmentsGroup.add(lineSegmentsMesh);
+
+		slider.value = 0;
+		slider.max = movements.length - 1;
+		selectLineSegments(movements.length, movements.length);
+		resetCamera();
+	}
+	
+	document.getElementById("reprocessBtn").addEventListener("click", function () {
+		processGCodeFromEditor();
+	});
+	
+	document.getElementById("newBtn").addEventListener("click", function () {
+		monacoEditor.setValue('');
+		loadedFilename = "gcode.txt";
+		processGCodeFromEditor();
+	});
+	
+	document.getElementById("downloadBtn").addEventListener("click", function () {
+		const content = monacoEditor.getValue();
+		const blob = new Blob([content], { type: "text/plain" });
+		const url = URL.createObjectURL(blob);
+
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = loadedFilename || "gcode.txt";
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+
+		URL.revokeObjectURL(url);
+	});
+	
+	document.getElementById("resetViewBtn").addEventListener("click", function () {
+		resetCamera();
+	});
+
+	const resizer = document.getElementById('resizer');
+	const editor = document.getElementById('editor');
+	const main = document.getElementById('main');
+	let isResizing = false;
+
+	renderer.domElement.addEventListener('dblclick', (event) => {
+		resetCamera();
+	});
+
+	resizer.addEventListener('mousedown', function (e) {
+		isResizing = true;
+		document.body.style.cursor = 'col-resize';
+	});
+
+	document.addEventListener('mousemove', function (e) {
+		if (!isResizing)
+			return;
+
+		const offsetLeft = main.getBoundingClientRect().left;
+		const newEditorWidth = e.clientX - offsetLeft;
+
+		if (newEditorWidth > 150 && newEditorWidth < main.clientWidth - 100) {
+			editor.style.width = newEditorWidth + 'px';
+
+			const viewerWidth = viewer.clientWidth;
+			const viewerHeight = viewer.clientHeight;
+			const newAspect = viewerWidth / viewerHeight;
+
+			const viewSize = camera.top - camera.bottom;
+			camera.left = -viewSize * newAspect / 2;
+			camera.right = viewSize * newAspect / 2;
+			camera.updateProjectionMatrix();
+
+			gizmo.update();
+
+			setTimeout(() => {
+				renderer.setSize(viewerWidth, viewerHeight);
+			}, 0);
+		}
+	});
+
+	document.addEventListener('mouseup', function () {
+		if (isResizing) {
+			isResizing = false;
+			document.body.style.cursor = 'default';
+		}
+	});
+
+	window.addEventListener('resize', function () {
+		resetCamera();
+	});
+
+	function clearSceneLines() {
+		
+		if (lineSegmentsMesh) {
+			segmentsGroup.remove(lineSegmentsMesh);
+			lineSegmentsMesh.geometry.dispose();
+			lineSegmentsMesh.material.dispose();
+			lineSegmentsMesh = null;
+		}
+
+		
+		const axisLines = [];
+		scene.traverse(child => {
+			if (child.userData.isAxisLine) {
+				axisLines.push(child);
+			}
+		});
+
+		axisLines.forEach(line => scene.remove(line));
+	}
+
+	let currentHighlightDecoration = [];
+
+	function highlightEditorLine(lineIndex) {
+		const lineNumber = lineIndex + 1;
+
+		currentHighlightDecoration = monacoEditor.deltaDecorations(currentHighlightDecoration, [{
+						range: new monaco.Range(lineNumber, 1, lineNumber, 1),
+						options: {
+							isWholeLine: true,
+							className: 'myLineHighlight'
+						}
+					}
+				]);
+
+		const currentPosition = monacoEditor.getPosition();
+
+		if (currentPosition.lineNumber !== lineNumber) {
+			monacoEditor.setPosition({
+				lineNumber: lineNumber,
+				column: 1
+			});
+		}
+
+		monacoEditor.revealLineInCenter(lineNumber);
+		monacoEditor.focus();
+	}
+	
+	const slider = document.getElementById('viewerSlider');
+	
+	slider.addEventListener('input', (event) => {
+		const value = parseInt(event.target.value, 10);
+
+		if (value >= 0 && value < movements.length - 1) {
+			const startIdx = value;
+			const endIdx = value;
+
+			selectLineSegments(startIdx, endIdx);
+
+			const lineNumber = movements[startIdx + 1].lineNumber;
+			highlightEditorLine(lineNumber);
+		}
+	});
+	
+	function addAxisLines(box) {
+		const marginFactor = 0.2;
+		const min = box.min;
+		const max = box.max;
+
+		const axes = [
+			{
+				dir: 'x',
+				color: 0xff3653,
+				start: min.x,
+				end: max.x
+			},
+			{
+				dir: 'y',
+				color: 0x8adb00,
+				start: min.y,
+				end: max.y
+			},
+			{
+				dir: 'z',
+				color: 0x2c8fff,
+				start: min.z,
+				end: max.z
+			}
+		];
+
+		axes.forEach(({ dir, color, start, end }) => {
+			const length = end - start;
+			const margin = length * marginFactor;
+
+			let from = new THREE.Vector3();
+			let to = new THREE.Vector3();
+
+			if (dir === 'x') {
+				from.set(start - margin, 0, 0);
+				to.set(end + margin, 0, 0);
+			} else if (dir === 'y') {
+				from.set(0, start - margin, 0);
+				to.set(0, end + margin, 0);
+			} else if (dir === 'z') {
+				from.set(0, 0, start - margin);
+				to.set(0, 0, end + margin);
+			}
+
+			const material = new THREE.LineBasicMaterial({
+				color,
+				depthTest: false,
+				transparent: true,
+				opacity: 0.8
+			});
+
+			const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
+			const line = new THREE.Line(geometry, material);
+			line.userData.isAxisLine = true;
+
+			scene.add(line);
+		});
+	}
+				
+	function selectLineSegments(startIdx, endIdx) {
+		if (!lineSegmentsMesh) return;
+
+		const colorAttr = lineSegmentsMesh.geometry.attributes.color;
+		const color = new THREE.Color();
+
+		for (let i = 0; i < movements.length - 1; i++) {
+			const segmentIndex = i;
+			const isSelected = segmentIndex >= startIdx && segmentIndex <= endIdx;
+			const isAfter = segmentIndex > endIdx;
+
+			const isRapid = movements[i + 1].command === 'G0';
+			let baseColor = isRapid ? colors.rapidColor : colors.feedColor;
+
+			if (isSelected) {
+				color.setHex(colors.selectedColor);
+			} else {
+				if (isAfter) {
+					color.setHex(colors.afterSelColor);
+				}
+				 else {
+					color.setHex(baseColor);
+				}
+			}
+
+			const vi = segmentIndex * 2;
+			colorAttr.setXYZ(vi, color.r, color.g, color.b);
+			colorAttr.setXYZ(vi + 1, color.r, color.g, color.b);
+		}
+
+		colorAttr.needsUpdate = true;
+
+		if (startIdx < movements.length - 1) {
+			const startPos = new THREE.Vector3(movements[startIdx].X, movements[startIdx].Y, movements[startIdx].Z);
+			const endPos = new THREE.Vector3(movements[endIdx + 1].X, movements[endIdx + 1].Y, movements[endIdx + 1].Z);
+
+			startMarker.position.copy(startPos);
+			endMarker.position.copy(endPos);
+
+			startMarker.visible = true;
+			endMarker.visible = true;
+			
+			document.getElementById('posX').textContent = movements[endIdx + 1].X.toFixed(3);
+			document.getElementById('posY').textContent = movements[endIdx + 1].Y.toFixed(3);
+			document.getElementById('posZ').textContent = movements[endIdx + 1].Z.toFixed(3);
+			
+		} else {
+			startMarker.visible = false;
+			endMarker.visible = false;
+			
+			document.getElementById('posX').textContent = 0.000;
+			document.getElementById('posY').textContent = 0.000;
+			document.getElementById('posZ').textContent = 0.000;
+		}
+	}
+		
+	function getSegmentStartPosition(segment) {
+		const posAttr = segment.geometry.attributes.position;
+		return new THREE.Vector3().fromArray(posAttr.array, 0);
+	}
+
+	function getSegmentEndPosition(segment) {
+		const posAttr = segment.geometry.attributes.position;
+		const lastIndex = posAttr.count - 1;
+		return new THREE.Vector3().fromArray(posAttr.array, lastIndex * 3);
+	}
+	
+	let colors = {
+		selectedColor: 0xFFFFFF,
+		feedColor: 0x39FF14,
+		rapidColor: 0xFF0000,
+		afterSelColor: 0xA6A6A6
+	};
+	
+	const markerMaterial = new THREE.SpriteMaterial({
+		color: colors.selectedColor,
+		transparent: true,
+		opacity: 1.0,
+		depthTest: false,
+		sizeAttenuation: true
+	});
+	const startMarker = new THREE.Sprite(markerMaterial.clone());
+	const endMarker = new THREE.Sprite(markerMaterial.clone());
+	scene.add(startMarker);
+	scene.add(endMarker);
+	startMarker.visible = false;
+	endMarker.visible = false;
+	
+	function updateColorsForTheme(isLight) {
+		if (isLight) {
+			colors.selectedColor = 0x000000;
+			colors.feedColor = 0x000080;
+			colors.rapidColor = 0xFF0000;
+		} else {
+			colors.selectedColor = 0xFFFFFF;
+			colors.feedColor = 0x39FF14;
+			colors.rapidColor = 0xFF0000;
+		}
+	}
+	
+	const toggleTheme = document.getElementById('toggleTheme');
+
+	function applyTheme(isLight) {
+		toggleTheme.checked = isLight;
+		document.body.classList.toggle('dark', !isLight);
+		document.body.classList.toggle('light', isLight);
+		setViewerBackground();
+		updateColorsForTheme(!isLight);
+		
+		startMarker.material.color.set(colors.selectedColor);
+		endMarker.material.color.set(colors.selectedColor);
+
+		if (monacoEditor) {
+			monaco.editor.setTheme(isLight ? 'vs-dark' : 'vs-light');
+		}
+	}
+
+	const savedTheme = localStorage.getItem('theme');
+	const isLight = savedTheme ? savedTheme === 'light' : toggleTheme.checked;
+
+	applyTheme(isLight);
+
+	toggleTheme.addEventListener('change', function () {
+		const isLight = this.checked;
+		localStorage.setItem('theme', isLight ? 'light' : 'dark');
+		applyTheme(isLight);
+		selectLineSegments(movements.length, movements.length);
+	});
+	
+	function animate() {
+		requestAnimationFrame(animate);
+		controls.update();
+		
+		startMarker.scale.set(size * 0.01 / camera.zoom, size * 0.01 / camera.zoom, 1);
+		endMarker.scale.set(size * 0.01 / camera.zoom, size * 0.01 / camera.zoom, 1);
+		
+		renderer.render(scene, camera);
+		gizmo.render();
+	}
+
+	resetCamera();
+
+	animate();
+	
+  </script>
+</body>
+</html>
+

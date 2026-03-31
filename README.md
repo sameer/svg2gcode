@@ -43,8 +43,20 @@ Options:
       --dpi <DPI>
           Dots per Inch (DPI) Used for scaling visual units (pixels, points, picas, etc.)
 
+      --travel-z <TRAVEL_Z>
+          Absolute safe travel height on the Z axis (mm)
+
+      --cut-z <CUT_Z>
+          Absolute cutting depth on the Z axis (mm)
+
+      --plunge-feedrate <PLUNGE_FEEDRATE>
+          Feedrate for plunging from travel_z to cut_z (mm/min)
+
       --on <TOOL_ON_SEQUENCE>
           G-Code for turning on the tool
+
+      --path-begin <PATH_BEGIN_SEQUENCE>
+          G-Code for inserting at the beginning of each SVG path/stroke
 
       --off <TOOL_OFF_SEQUENCE>
           G-Code for turning off the tool
@@ -117,6 +129,67 @@ Options:
 svg2gcode-cli examples/Vanderbilt_Commodores_logo.svg --off 'M4' --on 'M5' -o out.gcode
 ```
 
+#### Compass-style output
+
+If you want output closer to the Autodesk Compass post, you can now inject a sequence at the
+start of every SVG stroke/path. That is useful for per-feature commands such as `M800`.
+
+There is a starter preset at [`examples/compass_settings.json`](examples/compass_settings.json).
+For example:
+
+```sh
+svg2gcode-cli examples/Vanderbilt_Commodores_logo.svg \
+  --settings examples/compass_settings.json \
+  -o out.nc
+```
+
+This gets the output closer to Compass conventions by:
+
+- retracting to a configurable travel Z before rapids
+- plunging to a configurable cut Z at a separate plunge feed
+- forcing `G17` at program start
+- inserting `M800` at each path start
+- using fixed spindle start/stop snippets
+- ending with `G28` and `M30`
+
+This project now supports simple absolute Z motion for SVG strokes, but it still does not model
+full CAM concepts such as tool libraries, operation-specific depths, tabs, lead-ins, or adaptive
+toolpaths, so it is not yet a full replacement for the Fusion post.
+
+#### Engraving CAM mode
+
+There is now a first DMA-oriented engraving workflow for SVG artwork.
+
+In engraving mode the converter can:
+
+- preserve the SVG's authored size by default, or infer height from `--svg-width`
+- use a bottom-left stock origin with `placement_x` / `placement_y`
+- engrave SVG strokes as centerline cuts
+- pocket filled SVG regions with inward offset contours
+- cut to a constant target depth using automatic multi-pass stepdown
+- emit DMA-safe `G0` / `G1` programs only
+- warn when toolpaths exceed the configured stock or machine envelope
+
+CLI flags for this mode include:
+
+- `--engrave`
+- `--material-width`
+- `--material-height`
+- `--material-thickness`
+- `--tool-diameter`
+- `--tool-shape`
+- `--target-depth`
+- `--max-stepdown`
+- `--cut-feedrate`
+- `--plunge-feedrate`
+- `--stepover`
+- `--svg-width`
+- `--placement-x`
+- `--placement-y`
+
+The bundled Compass preset now includes engraving settings for a flat end mill and DMA-style
+travel/plunge behavior.
+
 
 To convert curves to G02/G03 Gcode commands, use flag `--circular-interpolation true`.
 
@@ -147,7 +220,7 @@ These go into greater detail on the tool's origins, implementation details, and 
 
 - Convert a PDF to GCode: follow [this guide using Inkscape to convert a PDF to an SVG](https://en.wikipedia.org/wiki/Wikipedia:Graphics_Lab/Resources/PDF_conversion_to_SVG#Conversion_with_Inkscape), then use it with svg2gcode
 
-- Are shapes, fill patterns supported? No, but you can convert them to paths in Inkscape with `Object to Path`. See [#15](https://github.com/sameer/svg2gcode/issues/15) for more discussion.
+- Are shapes and fills supported? Yes in engraving CAM mode for constant-depth pocketing. Outside engraving mode, standard conversion still traces SVG strokes/paths rather than machining filled areas.
 - Are stroke patterns supported? No, but you can convert them into paths in Inkscape with `Stroke to Path`.
 
 ## Reference Documents

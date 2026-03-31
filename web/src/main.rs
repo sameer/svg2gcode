@@ -11,7 +11,9 @@ use g_code::{
 use js_sys::Date;
 use log::Level;
 use roxmltree::{Document, ParsingOptions};
-use svg2gcode::{ConversionOptions, Machine, svg2preview, svg2program};
+use svg2gcode::{
+    ConversionOptions, GenerationWarning, Machine, svg2preview, svg2program, svg2program_engraving,
+};
 use yew::prelude::*;
 
 mod forms;
@@ -53,10 +55,12 @@ fn app() -> Html {
     let generate_disabled = *generating || app_store.svgs.is_empty();
     let generate_onclick = {
         let app_store = app_store.clone();
+        let app_dispatch = app_dispatch.clone();
         Callback::from(move |_| {
             generating_setter.set(true);
             let mut zip = ZipWriter::new(Cursor::new(vec![]));
             let opts = FileOptions::default().compression_method(CompressionMethod::Stored);
+            let mut warnings = Vec::<GenerationWarning>::new();
 
             if app_store.svgs.len() > 1 {
                 zip.add_directory("svg2gcode_output", opts).unwrap();
@@ -69,6 +73,17 @@ fn app() -> Html {
 
                 let machine = Machine::new(
                     app_store.settings.machine.supported_functionality.clone(),
+                    app_store.settings.machine.travel_z,
+                    app_store.settings.machine.cut_z,
+                    app_store.settings.machine.plunge_feedrate,
+                    app_store
+                        .settings
+                        .machine
+                        .path_begin_sequence
+                        .as_deref()
+                        .map(snippet_parser)
+                        .transpose()
+                        .unwrap(),
                     app_store
                         .settings
                         .machine
@@ -111,8 +126,24 @@ fn app() -> Html {
                 )
                 .unwrap();
 
-                let program =
-                    svg2program(&document, &app_store.settings.conversion, options, machine);
+                let program = if app_store.settings.engraving.enabled {
+                    let (program, program_warnings) = svg2program_engraving(
+                        &document,
+                        &app_store.settings.conversion,
+                        options,
+                        machine,
+                        &app_store.settings.engraving,
+                    )
+                    .unwrap();
+                    for warning in program_warnings {
+                        if !warnings.contains(&warning) {
+                            warnings.push(warning);
+                        }
+                    }
+                    program
+                } else {
+                    svg2program(&document, &app_store.settings.conversion, options, machine)
+                };
 
                 let filepath = if app_store.svgs.len() > 1 {
                     PathBuf::from("svg2gcode_output")
@@ -178,6 +209,9 @@ fn app() -> Html {
                 );
             }
 
+            app_dispatch.reduce_mut(|app| {
+                app.generation_warnings = warnings.clone();
+            });
             generating_setter.set(false);
         })
     };
@@ -212,6 +246,24 @@ fn app() -> Html {
                         href="#settings"
                     />
                 </ButtonGroup>
+                {
+                    if !app_store.generation_warnings.is_empty() {
+                        html! {
+                            <div class="toast toast-warning">
+                                <p>{ "Generation warnings:" }</p>
+                                <ul>
+                                    {
+                                        for app_store.generation_warnings.iter().map(|warning| {
+                                            html!(<li>{ warning.message() }</li>)
+                                        })
+                                    }
+                                </ul>
+                            </div>
+                        }
+                    } else {
+                        html!()
+                    }
+                }
                 <div class={classes!("card-container", "columns")}>
                     {
                         for app_store.svgs.iter().enumerate().map(|(i, svg)| {

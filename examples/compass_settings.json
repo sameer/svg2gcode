@@ -1,0 +1,51 @@
+{
+  "conversion": {
+    "tolerance": 0.002,
+    "feedrate": 300.0,
+    "dpi": 96.0,
+    "origin": [
+      0.0,
+      0.0
+    ],
+    "extra_attribute_name": null,
+    "optimize_path_order": false,
+    "selector_filter": null
+  },
+  "engraving": {
+    "enabled": true,
+    "material_width": 400.0,
+    "material_height": 400.0,
+    "material_thickness": 18.0,
+    "tool_diameter": 6.0,
+    "tool_shape": "Flat",
+    "target_depth": 1.0,
+    "max_stepdown": 1.0,
+    "cut_feedrate": 300.0,
+    "plunge_feedrate": 120.0,
+    "stepover": 2.0,
+    "svg_width_override": null,
+    "placement_x": 0.0,
+    "placement_y": 0.0,
+    "machine_width": 400.0,
+    "machine_height": 400.0
+  },
+  "machine": {
+    "supported_functionality": {
+      "circular_interpolation": false
+    },
+    "travel_z": 5.0,
+    "cut_z": -1.0,
+    "plunge_feedrate": 120.0,
+    "path_begin_sequence": "M800",
+    "tool_on_sequence": "M3 S18000",
+    "tool_off_sequence": "M5",
+    "begin_sequence": "G17",
+    "end_sequence": "G28\nM30"
+  },
+  "postprocess": {
+    "checksums": false,
+    "line_numbers": false,
+    "newline_before_comment": true
+  },
+  "version": "V5"
+}

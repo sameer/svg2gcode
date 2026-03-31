@@ -23,6 +23,7 @@ uom = "0.38"
 roxmltree.workspace = true
 svgtypes.workspace = true
 paste = "1"
+i_overlay = "4.3"
 
 [dependencies.serde]
 default-features = false

@@ -7,6 +7,7 @@ use uom::si::{
 };
 
 use crate::Turtle;
+use crate::turtle::PaintStyle;
 
 /// Wrapper turtle that converts from user units to millimeters at a given DPI
 #[derive(Debug)]
@@ -36,6 +37,10 @@ impl<T: Turtle> Turtle for DpiConvertingTurtle<T> {
 
     fn end(&mut self) {
         self.inner.end()
+    }
+
+    fn set_paint_style(&mut self, style: PaintStyle) {
+        self.inner.set_paint_style(style)
     }
 
     fn comment(&mut self, comment: String) {

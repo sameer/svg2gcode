@@ -25,7 +25,7 @@ zip = { version = "0.6", default-features = false }
 
 yew = { version = "0.21", features = ["csr"] }
 yewdux = "0.11"
-web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "Url", "Window"] }
+web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "HtmlSelectElement", "Url", "Window"] }
 wasm-logger = "0.2"
 gloo-file = { version = "0.3", features = ["futures"] }
 gloo-timers = "0.3"

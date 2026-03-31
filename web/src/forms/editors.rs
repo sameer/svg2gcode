@@ -72,6 +72,12 @@ macro_rules! gcode_input {
 }
 
 gcode_input! {
+    PathBeginSequence {
+        "Path Begin Sequence",
+        "G-Code for inserting at the beginning of each SVG path/stroke",
+        path_begin_sequence,
+        settings.machine.path_begin_sequence,
+    }
     ToolOnSequence {
         "Tool On Sequence",
         "G-Code for turning on the tool",

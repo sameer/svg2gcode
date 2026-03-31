@@ -6,10 +6,12 @@ use gloo_file::{
 };
 use js_sys::TypeError;
 use roxmltree::{Document, ParsingOptions};
-use svg2gcode::{Settings, Version};
+use svg2gcode::{Settings, ToolShape, Version};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{Event, FileList, HtmlElement, HtmlInputElement, Response, window};
+use web_sys::{
+    Event, FileList, HtmlElement, HtmlInputElement, HtmlSelectElement, Response, window,
+};
 use yew::prelude::*;
 use yewdux::{functional::use_store, use_dispatch};
 
@@ -35,10 +37,46 @@ pub fn settings_form() -> Html {
     let disabled = form_state.tolerance.is_err()
         || form_state.feedrate.is_err()
         || form_state.dpi.is_err()
+        || form_state.material_width.is_err()
+        || form_state.material_height.is_err()
+        || form_state.material_thickness.is_err()
+        || form_state.tool_diameter.is_err()
+        || form_state.target_depth.is_err()
+        || form_state.max_stepdown.is_err()
+        || form_state.cut_feedrate.is_err()
+        || form_state.stepover.is_err()
+        || form_state.placement_x.is_err()
+        || form_state.placement_y.is_err()
+        || form_state
+            .svg_width_override
+            .as_ref()
+            .map(Result::is_err)
+            .unwrap_or(false)
+        || form_state
+            .travel_z
+            .as_ref()
+            .map(Result::is_err)
+            .unwrap_or(false)
+        || form_state
+            .cut_z
+            .as_ref()
+            .map(Result::is_err)
+            .unwrap_or(false)
+        || form_state
+            .plunge_feedrate
+            .as_ref()
+            .map(Result::is_err)
+            .unwrap_or(false)
+        || form_state.travel_z.is_some() != form_state.cut_z.is_some()
         || form_state
             .origin
             .iter()
             .all(|opt| opt.as_ref().is_some_and(|r| r.is_err()))
+        || form_state
+            .path_begin_sequence
+            .as_ref()
+            .map(Result::is_err)
+            .unwrap_or(false)
         || form_state
             .tool_on_sequence
             .as_ref()
@@ -74,6 +112,16 @@ pub fn settings_form() -> Html {
         form_dispatch.reduce_mut_callback_with(|form, event: Event| {
             form.optimize_path_order = event.target_unchecked_into::<HtmlInputElement>().checked();
         });
+
+    let on_engraving_enabled_change =
+        form_dispatch.reduce_mut_callback_with(|form, event: Event| {
+            form.engraving_enabled = event.target_unchecked_into::<HtmlInputElement>().checked();
+        });
+
+    let on_tool_shape_change = form_dispatch.reduce_mut_callback_with(|form, event: Event| {
+        let value = event.target_unchecked_into::<HtmlSelectElement>().value();
+        form.tool_shape = value.parse().unwrap_or(ToolShape::Flat);
+    });
 
     let on_checksums_change = form_dispatch.reduce_mut_callback_with(|form, event: Event| {
         form.checksums = event.target_unchecked_into::<HtmlInputElement>().checked();
@@ -140,6 +188,60 @@ pub fn settings_form() -> Html {
                     <div class="column col-12">
                         <FormGroup>
                             <Checkbox
+                                label="Enable engraving CAM"
+                                desc="Pocket filled SVG regions and engrave stroke centerlines for DMA CNC."
+                                checked={form_state.engraving_enabled}
+                                onchange={on_engraving_enabled_change}
+                            />
+                        </FormGroup>
+                    </div>
+                    <div class="column col-4 col-sm-12">
+                        <MaterialWidthInput/>
+                    </div>
+                    <div class="column col-4 col-sm-12">
+                        <MaterialHeightInput/>
+                    </div>
+                    <div class="column col-4 col-sm-12">
+                        <MaterialThicknessInput/>
+                    </div>
+                    <div class="column col-4 col-sm-12">
+                        <ToolDiameterInput/>
+                    </div>
+                    <div class="column col-4 col-sm-12">
+                        <FormGroup>
+                            <label class="form-label" for="tool-shape">{ "Tool Shape" }</label>
+                            <select id="tool-shape" class="form-select" onchange={on_tool_shape_change}>
+                                <option value="flat" selected={form_state.tool_shape == ToolShape::Flat}>{ "Flat" }</option>
+                                <option value="ball" selected={form_state.tool_shape == ToolShape::Ball}>{ "Ball" }</option>
+                                <option value="v" selected={form_state.tool_shape == ToolShape::V}>{ "V" }</option>
+                            </select>
+                            <p class="form-input-hint">{ "Only Flat is supported for engraving CAM in v1." }</p>
+                        </FormGroup>
+                    </div>
+                    <div class="column col-4 col-sm-12">
+                        <SvgWidthOverrideInput/>
+                    </div>
+                    <div class="column col-4 col-sm-12">
+                        <PlacementXInput/>
+                    </div>
+                    <div class="column col-4 col-sm-12">
+                        <PlacementYInput/>
+                    </div>
+                    <div class="column col-3 col-sm-12">
+                        <TargetDepthInput/>
+                    </div>
+                    <div class="column col-3 col-sm-12">
+                        <MaxStepdownInput/>
+                    </div>
+                    <div class="column col-3 col-sm-12">
+                        <CutFeedrateInput/>
+                    </div>
+                    <div class="column col-3 col-sm-12">
+                        <StepoverInput/>
+                    </div>
+                    <div class="column col-12">
+                        <FormGroup>
+                            <Checkbox
                                 label="Enable circular interpolation"
                                 desc="Your machine must support G2/G3 commands for this to work"
                                 checked={form_state.circular_interpolation}
@@ -159,6 +261,18 @@ pub fn settings_form() -> Html {
                     </div>
                     <div class="column col-12">
                         <DpiInput/>
+                    </div>
+                    <div class="column col-4 col-sm-12">
+                        <TravelZInput/>
+                    </div>
+                    <div class="column col-4 col-sm-12">
+                        <CutZInput/>
+                    </div>
+                    <div class="column col-4 col-sm-12">
+                        <PlungeFeedrateInput/>
+                    </div>
+                    <div class="column col-12">
+                        <PathBeginSequenceInput/>
                     </div>
                     <div class="column col-12">
                         <ToolOnSequenceInput/>

@@ -17,6 +17,7 @@ pub struct GCodeTurtle<'input> {
     pub tolerance: f64,
     pub feedrate: f64,
     pub program: Vec<Token<'input>>,
+    pub(crate) current_z: Option<f64>,
 }
 
 impl<'input> GCodeTurtle<'input> {
@@ -112,6 +113,44 @@ impl<'input> GCodeTurtle<'input> {
         self.program.extend(self.machine.tool_off());
         self.program.extend(self.machine.absolute());
     }
+
+    fn z_motion(&self) -> Option<(f64, f64, f64)> {
+        self.machine
+            .z_motion()
+            .map(|(travel_z, cut_z, plunge_feedrate)| {
+                (travel_z, cut_z, plunge_feedrate.unwrap_or(self.feedrate))
+            })
+    }
+
+    fn rapid_to_z(&mut self, z: f64) {
+        let z = self.round(z);
+        if self.current_z != Some(z) {
+            self.program
+                .append(&mut command!(RapidPositioning { Z: z }).into_token_vec());
+            self.current_z = Some(z);
+        }
+    }
+
+    fn plunge_to_cut_z(&mut self) {
+        if let Some((_travel_z, cut_z, plunge_feedrate)) = self.z_motion() {
+            let cut_z = self.round(cut_z);
+            if self.current_z != Some(cut_z) {
+                self.program.append(
+                    &mut command!(LinearInterpolation {
+                        Z: cut_z,
+                        F: plunge_feedrate,
+                    })
+                    .into_token_vec(),
+                );
+                self.current_z = Some(cut_z);
+            }
+        }
+    }
+
+    fn prepare_for_cut(&mut self) {
+        self.tool_on();
+        self.plunge_to_cut_z();
+    }
 }
 
 impl<'input> Turtle for GCodeTurtle<'input> {
@@ -126,6 +165,9 @@ impl<'input> Turtle for GCodeTurtle<'input> {
     fn end(&mut self) {
         self.program.extend(self.machine.tool_off());
         self.program.extend(self.machine.absolute());
+        if let Some((travel_z, _, _)) = self.z_motion() {
+            self.rapid_to_z(travel_z);
+        }
         self.program.extend(self.machine.program_end());
     }
 
@@ -138,6 +180,11 @@ impl<'input> Turtle for GCodeTurtle<'input> {
 
     fn move_to(&mut self, to: Point<f64>) {
         self.tool_off();
+        self.program.extend(self.machine.path_begin());
+        self.program.extend(self.machine.absolute());
+        if let Some((travel_z, _, _)) = self.z_motion() {
+            self.rapid_to_z(travel_z);
+        }
         self.program.append(
             &mut command!(RapidPositioning {
                 X: self.round(to.x),
@@ -148,7 +195,7 @@ impl<'input> Turtle for GCodeTurtle<'input> {
     }
 
     fn line_to(&mut self, to: Point<f64>) {
-        self.tool_on();
+        self.prepare_for_cut();
         self.program.append(
             &mut command!(LinearInterpolation {
                 X: self.round(to.x),
@@ -165,7 +212,7 @@ impl<'input> Turtle for GCodeTurtle<'input> {
             return;
         }
 
-        self.tool_on();
+        self.prepare_for_cut();
 
         if self
             .machine
@@ -191,7 +238,7 @@ impl<'input> Turtle for GCodeTurtle<'input> {
     }
 
     fn cubic_bezier(&mut self, cbs: CubicBezierSegment<f64>) {
-        self.tool_on();
+        self.prepare_for_cut();
 
         if self
             .machine
