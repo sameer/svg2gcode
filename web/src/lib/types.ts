@@ -1,7 +1,9 @@
 export type ToolShape = "Flat" | "Ball" | "V";
 export type FillMode = "Pocket" | "Contour";
 export type TabId = "prepare" | "preview";
-export type CanvasSelectionTarget = "artboard" | "svg" | null;
+export type CanvasSelectionTarget = "material" | "svg" | null;
+export type InspectorTab = "design" | "material";
+export type LayerGroupingMode = "structure" | "depth" | "fill";
 export type AlignmentAction =
   | "left"
   | "center-x"
@@ -83,6 +85,51 @@ export interface FrontendOperation {
   color: string | null;
   fill_mode?: FillMode | null;
 }
+
+export interface ElementAssignment {
+  elementId: string;
+  targetDepthMm: number;
+  fillMode: FillMode | null;
+}
+
+export interface AssignmentProfileGroup {
+  key: string;
+  targetDepthMm: number;
+  fillMode: FillMode | null;
+  elementIds: string[];
+}
+
+export interface DiveRootScope {
+  id: string;
+  label: string;
+  elementIds: string[];
+}
+
+export interface DesignSelectionSnapshot {
+  selectionTarget: Exclude<CanvasSelectionTarget, "material">;
+  selectedIds: string[];
+  isDiveMode: boolean;
+  activeDiveRoot: DiveRootScope | null;
+}
+
+export type InspectorContext =
+  | {
+      type: "none";
+    }
+  | {
+      type: "svg";
+      elementIds: string[];
+      profileGroups: AssignmentProfileGroup[];
+    }
+  | {
+      type: "selection";
+      elementIds: string[];
+      profileGroups: AssignmentProfileGroup[];
+      mixedDepth: boolean;
+      mixedFillMode: boolean;
+      targetDepthMm: number | null;
+      fillMode: FillMode | null;
+    };
 
 export interface GenerateJobRequest {
   normalized_svg: string;

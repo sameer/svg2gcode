@@ -2,32 +2,33 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 
 import { LayerTree } from "@/components/layer-tree";
+import { MaterialInspector } from "@/components/material-inspector";
 import { NcViewer } from "@/components/nc-viewer";
-import { OperationList } from "@/components/operation-list";
 import { PreviewSidebar } from "@/components/preview-sidebar";
-import { SettingsPanel } from "@/components/settings-panel";
+import { StudioInspector } from "@/components/studio-inspector";
 import { SvgCanvas } from "@/components/svg-canvas";
 import { TopBar } from "@/components/top-bar";
 import { ViewportToolbar } from "@/components/viewport-toolbar";
 import { parseGcodeProgram } from "@/components/viewer/parse-gcode";
 import { colorForOperation } from "@/lib/colors";
-import { buildElementColorMap, detectElementColors } from "@/lib/color-detection";
+import { buildElementColorMap } from "@/lib/color-detection";
 import {
   clampPlacementToArtboard,
   getAlignedPlacement,
   getCanvasGeometry,
-  getMaxSvgWidthFromPlacement,
   getPaddingValidationMessage,
-  getSvgHeightMm,
-  getSvgWidthMm,
   parseSvgDocumentMetrics,
   type SvgDocumentMetrics,
 } from "@/lib/editor-geometry";
 import type {
-  AlignmentAction,
+  DesignSelectionSnapshot,
+  DiveRootScope,
+  ElementAssignment,
   FillMode,
   FrontendOperation,
   GenerateJobResponse,
+  InspectorContext,
+  InspectorTab,
   PreparedSvgDocument,
   Settings,
   TabId,
@@ -39,16 +40,23 @@ function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [advancedOverrides, setAdvancedOverrides] = useState<Record<string, boolean>>({});
   const [preparedSvg, setPreparedSvg] = useState<PreparedSvgDocument | null>(null);
-  const [operations, setOperations] = useState<FrontendOperation[]>([]);
+  const [elementAssignments, setElementAssignments] = useState<Record<string, ElementAssignment>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
   const [generated, setGenerated] = useState<GenerateJobResponse | null>(null);
+  const [generatedOperationsSnapshot, setGeneratedOperationsSnapshot] = useState<FrontendOperation[]>([]);
   const [isReady, setIsReady] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("prepare");
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("design");
+  const [canvasSelectionTarget, setCanvasSelectionTarget] = useState<"material" | "svg" | null>(null);
+  const [isDiveMode, setIsDiveMode] = useState(false);
+  const [activeDiveRoot, setActiveDiveRoot] = useState<DiveRootScope | null>(null);
+  const [lastDesignSelection, setLastDesignSelection] = useState<DesignSelectionSnapshot | null>(null);
+  const [modifierDirectPick, setModifierDirectPick] = useState(false);
   const [elementColors, setElementColors] = useState<Map<string, string>>(new Map());
   const [paddingMm, setPaddingMm] = useState(0);
+  const [svgSizeMm, setSvgSizeMm] = useState({ width: 100, height: 100, aspectLocked: true });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -63,14 +71,36 @@ function App() {
       });
   }, []);
 
-  const activeOperation = useMemo(
-    () => operations.find((operation) => operation.id === activeOperationId) ?? null,
-    [activeOperationId, operations],
-  );
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey) {
+        setModifierDirectPick(true);
+      }
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (!event.metaKey && !event.ctrlKey) {
+        setModifierDirectPick(false);
+      }
+    };
+    const handleBlur = () => setModifierDirectPick(false);
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
+
   const svgMetrics = useMemo(
     () => (preparedSvg ? parseSvgDocumentMetrics(preparedSvg.normalized_svg) : null),
     [preparedSvg],
   );
+  const svgWidthMm = svgMetrics ? svgSizeMm.width : 0;
+  const svgHeightMm = svgMetrics ? svgSizeMm.height : 0;
+
   const editorGeometry = useMemo(() => {
     if (!settings || !svgMetrics) {
       return null;
@@ -81,15 +111,76 @@ function App() {
       artboardHeightMm: settings.engraving.material_height,
       placementX: settings.engraving.placement_x,
       placementY: settings.engraving.placement_y,
-      svgWidthOverride: settings.engraving.svg_width_override,
       paddingMm,
-      svgMetrics,
+      svgWidthMm,
+      svgHeightMm,
     });
-  }, [paddingMm, settings, svgMetrics]);
+  }, [paddingMm, settings, svgHeightMm, svgMetrics, svgWidthMm]);
   const paddingValidationMessage = useMemo(
     () => (editorGeometry ? getPaddingValidationMessage(editorGeometry, paddingMm) : null),
     [editorGeometry, paddingMm],
   );
+
+  const allElementIds = useMemo(
+    () => preparedSvg?.selectable_element_ids ?? [],
+    [preparedSvg],
+  );
+  const svgDiveRoot = useMemo<DiveRootScope | null>(
+    () =>
+      preparedSvg
+        ? {
+            id: "svg-root",
+            label: "SVG",
+            elementIds: preparedSvg.selectable_element_ids,
+          }
+        : null,
+    [preparedSvg],
+  );
+  const derivedOperations = useMemo(
+    () => deriveOperationsFromAssignments(elementAssignments, allElementIds),
+    [allElementIds, elementAssignments],
+  );
+  const operationForElement = useMemo(() => {
+    const map = new Map<string, FrontendOperation>();
+    for (const operation of derivedOperations) {
+      for (const id of operation.assigned_element_ids) {
+        map.set(id, operation);
+      }
+    }
+    return map;
+  }, [derivedOperations]);
+  const activeOperation =
+    selectedIds.length > 0 ? operationForElement.get(selectedIds[0]) ?? null : null;
+
+  const inspectorContext = useMemo<InspectorContext>(() => {
+    if (canvasSelectionTarget === "svg") {
+      return {
+        type: "svg",
+        elementIds: allElementIds,
+        profileGroups: groupAssignmentsForIds(elementAssignments, allElementIds),
+      };
+    }
+
+    if (selectedIds.length === 0) {
+      return { type: "none" };
+    }
+
+    const selectedAssignments = selectedIds
+      .map((id) => elementAssignments[id])
+      .filter((assignment): assignment is ElementAssignment => Boolean(assignment));
+    const uniqueDepths = new Set(selectedAssignments.map((assignment) => assignment.targetDepthMm));
+    const uniqueFills = new Set(selectedAssignments.map((assignment) => assignment.fillMode ?? "__default__"));
+
+    return {
+      type: "selection",
+      elementIds: selectedIds,
+      profileGroups: groupAssignmentsForIds(elementAssignments, selectedIds),
+      mixedDepth: uniqueDepths.size > 1,
+      mixedFillMode: uniqueFills.size > 1,
+      targetDepthMm: uniqueDepths.size === 1 ? selectedAssignments[0]?.targetDepthMm ?? null : null,
+      fillMode: uniqueFills.size === 1 ? selectedAssignments[0]?.fillMode ?? null : null,
+    };
+  }, [allElementIds, canvasSelectionTarget, elementAssignments, selectedIds]);
 
   const handleSvgImport = async (file: File) => {
     if (!file.type.includes("svg") && !file.name.toLowerCase().endsWith(".svg")) {
@@ -101,11 +192,26 @@ function App() {
     const prepared = await prepareSvgDocument(text);
     const importedMetrics = parseSvgDocumentMetrics(prepared.normalized_svg);
     setPreparedSvg(prepared);
-    setSelectedIds([]);
     setGenerated(null);
-    setError(null);
+    setGeneratedOperationsSnapshot([]);
+    setSelectedIds([]);
+    setCanvasSelectionTarget(null);
+    setIsDiveMode(false);
+    setActiveDiveRoot(null);
+    setLastDesignSelection(null);
+    setInspectorTab("design");
     setActiveTab("prepare");
     setPaddingMm(10);
+    setError(null);
+
+    if (importedMetrics) {
+      setSvgSizeMm({
+        width: roundMm(importedMetrics.width),
+        height: roundMm(importedMetrics.height),
+        aspectLocked: true,
+      });
+    }
+
     setSettings((current) => {
       if (!current || !importedMetrics) {
         return current;
@@ -125,37 +231,22 @@ function App() {
     });
 
     const defaultDepth = settings?.engraving.target_depth ?? 1;
-    const colorGroups = detectElementColors(prepared.normalized_svg);
-    setElementColors(buildElementColorMap(prepared.normalized_svg));
-
-    let newOperations: FrontendOperation[];
-    if (colorGroups.length > 1) {
-      newOperations = colorGroups.map((group, index) => ({
-        id: crypto.randomUUID(),
-        name: `Engrave ${index + 1}`,
-        target_depth_mm: defaultDepth,
-        assigned_element_ids: group.elementIds,
-        color: group.normalizedColor,
-        fill_mode: null,
-      }));
-    } else {
-      newOperations = [
+    const nextAssignments = Object.fromEntries(
+      prepared.selectable_element_ids.map((elementId) => [
+        elementId,
         {
-          id: crypto.randomUUID(),
-          name: "Engrave 1",
-          target_depth_mm: defaultDepth,
-          assigned_element_ids: prepared.selectable_element_ids,
-          color: colorForOperation(0),
-          fill_mode: null,
-        },
-      ];
-    }
-    setOperations(newOperations);
-    setActiveOperationId(newOperations[0].id);
+          elementId,
+          targetDepthMm: defaultDepth,
+          fillMode: null,
+        } satisfies ElementAssignment,
+      ]),
+    );
+    setElementAssignments(nextAssignments);
+    setElementColors(buildElementColorMap(prepared.normalized_svg));
   };
 
   const handleMakePath = async () => {
-    if (!preparedSvg || !settings || operations.length === 0) {
+    if (!preparedSvg || !settings || derivedOperations.length === 0 || !svgMetrics) {
       return;
     }
 
@@ -163,12 +254,16 @@ function App() {
     setError(null);
 
     try {
+      const requestSettings = structuredClone(settings);
+      requestSettings.engraving.svg_width_override = null;
+
       const result = await generateEngravingJob({
-        normalized_svg: preparedSvg.normalized_svg,
-        settings,
-        operations,
+        normalized_svg: resizeSvgDocument(preparedSvg.normalized_svg, svgMetrics, svgWidthMm, svgHeightMm),
+        settings: requestSettings,
+        operations: derivedOperations,
       });
       setGenerated(result);
+      setGeneratedOperationsSnapshot(derivedOperations);
       setActiveTab("preview");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -222,15 +317,12 @@ function App() {
       };
 
       if (svgMetrics) {
-        const svgWidthMm = getSvgWidthMm(svgMetrics, nextEngraving.svg_width_override);
-        const svgHeightMm = getSvgHeightMm(svgMetrics, nextEngraving.svg_width_override);
-        const minimum =
-          dimension === "width" ? svgWidthMm + paddingMm * 2 : svgHeightMm + paddingMm * 2;
+        const minimum = dimension === "width" ? svgWidthMm + paddingMm * 2 : svgHeightMm + paddingMm * 2;
         nextEngraving = {
           ...nextEngraving,
           [field]: Math.max(requested, minimum),
         };
-        nextEngraving = applyPlacementClamp(nextEngraving, svgMetrics);
+        nextEngraving = applyPlacementClamp(nextEngraving, svgWidthMm, svgHeightMm);
       }
 
       return {
@@ -246,48 +338,88 @@ function App() {
         return current;
       }
 
-      const nextEngraving = svgMetrics
-        ? applyPlacementClamp(
-            {
-              ...current.engraving,
-              placement_x: x,
-              placement_y: y,
-            },
-            svgMetrics,
-          )
-        : {
+      return {
+        ...current,
+        engraving: applyPlacementClamp(
+          {
             ...current.engraving,
             placement_x: x,
             placement_y: y,
-          };
-
-      return {
-        ...current,
-        engraving: nextEngraving,
+          },
+          svgWidthMm,
+          svgHeightMm,
+        ),
       };
     });
   };
 
-  const handleSvgWidthOverrideChange = (value: number | null) => {
-    setSettings((current) => {
-      if (!current) {
-        return current;
-      }
+  const handleSvgSizeChange = (width: number | null, height: number | null) => {
+    if (!settings || !svgMetrics) {
+      return;
+    }
 
-      if (!svgMetrics) {
-        return {
-          ...current,
-          engraving: {
-            ...current.engraving,
-            svg_width_override: value,
-          },
-        };
-      }
+    const availableWidth = Math.max(1, settings.engraving.material_width - settings.engraving.placement_x);
+    const availableHeight = Math.max(1, settings.engraving.material_height - settings.engraving.placement_y);
+    const nextWidth = clamp(width ?? svgWidthMm, 1, availableWidth);
+    const nextHeight = clamp(height ?? svgHeightMm, 1, availableHeight);
 
-      return {
+    setSvgSizeMm((current) => ({
+      ...current,
+      width: roundMm(nextWidth),
+      height: roundMm(nextHeight),
+    }));
+  };
+
+  const handleSvgDimensionChange = (dimension: "width" | "height", value: number | null) => {
+    if (!settings || !svgMetrics) {
+      return;
+    }
+
+    const aspectRatio = svgMetrics.aspectRatio;
+    const availableWidth = Math.max(1, settings.engraving.material_width - settings.engraving.placement_x);
+    const availableHeight = Math.max(1, settings.engraving.material_height - settings.engraving.placement_y);
+    const requested = Math.max(1, value ?? (dimension === "width" ? svgWidthMm : svgHeightMm));
+
+    if (svgSizeMm.aspectLocked) {
+      const requestedWidth = dimension === "width" ? requested : requested * aspectRatio;
+      const maxWidth = Math.min(availableWidth, availableHeight * aspectRatio);
+      const nextWidth = clamp(requestedWidth, 1, Math.max(1, maxWidth));
+      const nextHeight = nextWidth / aspectRatio;
+      setSvgSizeMm((current) => ({
         ...current,
-        engraving: setSvgWidthOverrideWithinArtboard(current.engraving, value, svgMetrics),
-      };
+        width: roundMm(nextWidth),
+        height: roundMm(nextHeight),
+      }));
+      return;
+    }
+
+    if (dimension === "width") {
+      handleSvgSizeChange(requested, svgHeightMm);
+    } else {
+      handleSvgSizeChange(svgWidthMm, requested);
+    }
+  };
+
+  const handleSvgAspectLockChange = (value: boolean) => {
+    if (!svgMetrics || !settings) {
+      return;
+    }
+
+    if (!value) {
+      setSvgSizeMm((current) => ({ ...current, aspectLocked: false }));
+      return;
+    }
+
+    const aspectRatio = svgMetrics.aspectRatio;
+    const availableWidth = Math.max(1, settings.engraving.material_width - settings.engraving.placement_x);
+    const availableHeight = Math.max(1, settings.engraving.material_height - settings.engraving.placement_y);
+    const maxWidth = Math.min(availableWidth, availableHeight * aspectRatio);
+    const nextWidth = clamp(svgWidthMm, 1, Math.max(1, maxWidth));
+    const nextHeight = nextWidth / aspectRatio;
+    setSvgSizeMm({
+      width: roundMm(nextWidth),
+      height: roundMm(nextHeight),
+      aspectLocked: true,
     });
   };
 
@@ -295,7 +427,7 @@ function App() {
     setPaddingMm(Math.max(0, value ?? 0));
   };
 
-  const handleAlign = (action: AlignmentAction) => {
+  const handleAlign = (action: Parameters<typeof getAlignedPlacement>[0]) => {
     if (!settings || !editorGeometry) {
       return;
     }
@@ -356,6 +488,8 @@ function App() {
   };
 
   const selectIds = (ids: string[], additive: boolean) => {
+    setInspectorTab("design");
+    setCanvasSelectionTarget(null);
     setSelectedIds((current) => {
       if (!additive) {
         return ids;
@@ -372,95 +506,124 @@ function App() {
     });
   };
 
-  const assignSelectionToOperation = (operationId: string) => {
-    if (selectedIds.length === 0) {
+  const rememberCurrentDesignSelection = () => {
+    if (canvasSelectionTarget === "material") {
       return;
     }
 
-    setOperations((current) =>
-      current.map((operation) => {
-        const remaining = operation.assigned_element_ids.filter(
-          (elementId) => !selectedIds.includes(elementId),
-        );
-        return operation.id === operationId
-          ? {
-              ...operation,
-              assigned_element_ids: Array.from(new Set([...remaining, ...selectedIds])),
-            }
-          : { ...operation, assigned_element_ids: remaining };
-      }),
-    );
-    setActiveOperationId(operationId);
-  };
-
-  const addOperation = () => {
-    const nextIndex = operations.length;
-    const operation: FrontendOperation = {
-      id: crypto.randomUUID(),
-      name: `Engrave ${nextIndex + 1}`,
-      target_depth_mm: settings?.engraving.target_depth ?? 1,
-      assigned_element_ids: [],
-      color: colorForOperation(nextIndex),
-    };
-    setOperations((current) => [...current, operation]);
-    setActiveOperationId(operation.id);
-  };
-
-  const deleteOperation = (operationId: string) => {
-    if (operations.length === 1) {
-      return;
-    }
-    const operation = operations.find((candidate) => candidate.id === operationId);
-    const fallbackOperationId = operations.find((candidate) => candidate.id !== operationId)?.id;
-    if (!fallbackOperationId) {
-      return;
-    }
-
-    setOperations((current) => {
-      const removedIds = operation?.assigned_element_ids ?? [];
-      return current
-        .filter((candidate) => candidate.id !== operationId)
-        .map((candidate) =>
-          candidate.id === fallbackOperationId
-            ? {
-                ...candidate,
-                assigned_element_ids: Array.from(
-                  new Set([...candidate.assigned_element_ids, ...removedIds]),
-                ),
-              }
-            : candidate,
-        );
+    setLastDesignSelection({
+      selectionTarget: canvasSelectionTarget === "svg" ? "svg" : null,
+      selectedIds,
+      isDiveMode,
+      activeDiveRoot,
     });
-    setActiveOperationId(fallbackOperationId);
   };
 
+  const restoreDesignSelection = () => {
+    if (lastDesignSelection) {
+      setCanvasSelectionTarget(lastDesignSelection.selectionTarget);
+      setSelectedIds(lastDesignSelection.selectedIds);
+      setIsDiveMode(lastDesignSelection.isDiveMode);
+      setActiveDiveRoot(lastDesignSelection.activeDiveRoot);
+      return;
+    }
 
-  const renameOperation = (operationId: string, value: string) => {
-    setOperations((current) =>
-      current.map((operation) =>
-        operation.id === operationId ? { ...operation, name: value } : operation,
-      ),
-    );
+    if (preparedSvg) {
+      setCanvasSelectionTarget("svg");
+      setSelectedIds([]);
+      setIsDiveMode(false);
+      setActiveDiveRoot(null);
+      return;
+    }
+
+    setCanvasSelectionTarget(null);
+    setSelectedIds([]);
+    setIsDiveMode(false);
+    setActiveDiveRoot(null);
   };
 
-  const changeOperationDepth = (operationId: string, value: number) => {
-    setOperations((current) =>
-      current.map((operation) =>
-        operation.id === operationId
-          ? { ...operation, target_depth_mm: Number.isFinite(value) ? value : operation.target_depth_mm }
-          : operation,
-      ),
-    );
+  const selectMaterial = () => {
+    rememberCurrentDesignSelection();
+    setSelectedIds([]);
+    setCanvasSelectionTarget("material");
+    setIsDiveMode(false);
+    setActiveDiveRoot(null);
+    setInspectorTab("material");
   };
 
-  const changeOperationFillMode = (operationId: string, value: FillMode | null) => {
-    setOperations((current) =>
-      current.map((operation) =>
-        operation.id === operationId
-          ? { ...operation, fill_mode: value }
-          : operation,
-      ),
-    );
+  const selectCanvasTarget = (target: "material" | "svg" | null) => {
+    if (target === "material") {
+      selectMaterial();
+      return;
+    }
+
+    setSelectedIds([]);
+    setCanvasSelectionTarget(target);
+    setIsDiveMode(false);
+    setActiveDiveRoot(null);
+    setInspectorTab("design");
+  };
+
+  const activateDiveRoot = (scope: DiveRootScope | null) => {
+    setInspectorTab("design");
+    setCanvasSelectionTarget(null);
+    setSelectedIds([]);
+    setIsDiveMode(!!scope);
+    setActiveDiveRoot(scope);
+  };
+
+  const enterSvgDiveMode = () => {
+    if (!svgDiveRoot) {
+      return;
+    }
+    activateDiveRoot(svgDiveRoot);
+  };
+
+  const handleInspectorTabChange = (tab: InspectorTab) => {
+    if (tab === inspectorTab) {
+      return;
+    }
+
+    if (tab === "material") {
+      selectMaterial();
+      return;
+    }
+
+    setInspectorTab("design");
+    restoreDesignSelection();
+  };
+
+  const updateAssignmentsForIds = (elementIds: string[], patch: Partial<Pick<ElementAssignment, "targetDepthMm" | "fillMode">>) => {
+    if (elementIds.length === 0) {
+      return;
+    }
+
+    const uniqueIds = Array.from(new Set(elementIds));
+    setElementAssignments((current) => {
+      const next = { ...current };
+      for (const elementId of uniqueIds) {
+        const existing = next[elementId];
+        if (!existing) {
+          continue;
+        }
+        next[elementId] = {
+          ...existing,
+          ...patch,
+        };
+      }
+      return next;
+    });
+  };
+
+  const changeBatchDepth = (elementIds: string[], value: number) => {
+    if (!Number.isFinite(value)) {
+      return;
+    }
+    updateAssignmentsForIds(elementIds, { targetDepthMm: value });
+  };
+
+  const changeBatchFillMode = (elementIds: string[], value: FillMode | null) => {
+    updateAssignmentsForIds(elementIds, { fillMode: value });
   };
 
   const downloadNc = () => {
@@ -492,6 +655,7 @@ function App() {
     previewSnapshot?.material_thickness ?? settings?.engraving.material_thickness ?? 18;
   const previewToolDiameter = previewSnapshot?.tool_diameter ?? settings?.engraving.tool_diameter ?? 6;
   const recommendedAdvanced = settings ? computeRecommendedAdvancedValues(settings) : {};
+  const previewOperations = generatedOperationsSnapshot.length > 0 ? generatedOperationsSnapshot : derivedOperations;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
@@ -501,7 +665,7 @@ function App() {
         isReady={isReady}
         isGenerating={isGenerating}
         hasGenerated={!!generated}
-        hasSvg={!!preparedSvg && operations.length > 0}
+        hasSvg={!!preparedSvg && derivedOperations.length > 0}
         onImportClick={() => fileInputRef.current?.click()}
         onMakePath={() => void handleMakePath()}
         onDownload={downloadNc}
@@ -520,125 +684,144 @@ function App() {
         }}
       />
 
-      {error && activeTab === "prepare" && (
+      {error && activeTab === "prepare" ? (
         <div className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
           {error}
         </div>
-      )}
+      ) : null}
 
       <div className="min-h-0 flex-1">
-        <PanelGroup direction="horizontal" className="h-full">
-          <Panel defaultSize={20} minSize={14} maxSize={30}>
-            <div className="h-full overflow-y-auto border-r border-border bg-card">
-              {activeTab === "prepare" ? (
-                <>
-                  <SettingsPanel
-                    settings={settings}
-                    recommendedAdvanced={recommendedAdvanced}
-                    advancedOverrides={advancedOverrides}
-                    hasSvg={!!preparedSvg && !!svgMetrics}
-                    paddingMm={paddingMm}
-                    paddingValidationMessage={paddingValidationMessage}
-                    onNumberChange={handleSettingsNumberChange}
-                    onMaterialDimensionChange={handleMaterialDimensionChange}
-                    onPlacementChange={handlePlacementChange}
-                    onSvgWidthOverrideChange={handleSvgWidthOverrideChange}
-                    onPaddingChange={handlePaddingChange}
-                    onAlign={handleAlign}
-                    onToolShapeChange={handleToolShapeChange}
-                    onFillModeChange={handleFillModeChange}
-                    onResetAdvancedRecommendations={resetAdvancedRecommendations}
-                  />
-                  <div className="border-t border-border" />
-                  <OperationList
-                    operations={operations}
-                    activeOperationId={activeOperationId}
-                    selectedCount={selectedIds.length}
-                    onActivate={setActiveOperationId}
-                    onAddOperation={addOperation}
-                    onDeleteOperation={deleteOperation}
-                    onRenameOperation={renameOperation}
-                    onDepthChange={changeOperationDepth}
-                    onOperationFillModeChange={changeOperationFillMode}
-                    onAssignSelected={assignSelectionToOperation}
-                  />
-                </>
-              ) : (
-                <PreviewSidebar
-                  generated={generated}
-                  operations={operations}
-                  error={error}
+        {activeTab === "prepare" ? (
+          <PanelGroup direction="horizontal" className="h-full">
+            <Panel defaultSize={18} minSize={14} maxSize={28}>
+              <div className="h-full overflow-hidden border-r border-border bg-card">
+                <LayerTree
+                  tree={preparedSvg?.tree ?? null}
+                  selectedIds={selectedIds}
+                  selectionTarget={canvasSelectionTarget}
+                  isDiveMode={isDiveMode}
+                  activeDiveRootId={activeDiveRoot?.id ?? null}
+                  assignments={elementAssignments}
+                  elementColors={elementColors}
+                  onSelectIds={selectIds}
+                  onSelectTarget={selectCanvasTarget}
+                  onActivateDiveRoot={activateDiveRoot}
                 />
-              )}
-            </div>
-          </Panel>
-          <PanelResizeHandle className="w-px bg-border hover:bg-primary/40 transition-colors" />
-          <Panel defaultSize={60}>
-            <div
-              className="flex h-full flex-col"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => void handleFileDrop(event)}
-            >
-              <ViewportToolbar
-                activeTab={activeTab}
-                selectedCount={selectedIds.length}
-                activeOperation={activeOperation}
-                materialWidth={activeTab === "preview" ? previewMaterialWidth : settings?.engraving.material_width ?? 100}
-                materialHeight={activeTab === "preview" ? previewMaterialHeight : settings?.engraving.material_height ?? 100}
-                materialThickness={activeTab === "preview" ? previewMaterialThickness : settings?.engraving.material_thickness ?? 18}
-                toolDiameter={activeTab === "preview" ? previewToolDiameter : settings?.engraving.tool_diameter ?? 6}
-                maxDepth={maxDepth}
-              />
-              <div className="min-h-0 flex-1">
-                {activeTab === "prepare" ? (
+              </div>
+            </Panel>
+            <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-primary/40" />
+            <Panel defaultSize={56} minSize={36}>
+              <div
+                className="flex h-full flex-col"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => void handleFileDrop(event)}
+              >
+                <ViewportToolbar
+                  activeTab={activeTab}
+                  selectedCount={selectedIds.length}
+                  activeOperation={activeOperation}
+                  materialWidth={settings?.engraving.material_width ?? 100}
+                  materialHeight={settings?.engraving.material_height ?? 100}
+                  materialThickness={settings?.engraving.material_thickness ?? 18}
+                  toolDiameter={settings?.engraving.tool_diameter ?? 6}
+                  maxDepth={maxDepth}
+                />
+                <div className="min-h-0 flex-1">
                   <SvgCanvas
                     preparedSvg={preparedSvg}
-                    operations={operations}
+                    operations={derivedOperations}
                     selectedIds={selectedIds}
-                    activeOperationId={activeOperationId}
+                    activeOperationId={null}
+                    selectionTarget={canvasSelectionTarget}
+                    isDiveMode={isDiveMode}
+                    activeDiveRoot={activeDiveRoot}
+                    modifierDirectPick={modifierDirectPick}
                     materialWidth={settings?.engraving.material_width ?? 300}
                     materialHeight={settings?.engraving.material_height ?? 300}
                     placementX={settings?.engraving.placement_x ?? 0}
                     placementY={settings?.engraving.placement_y ?? 0}
                     paddingMm={paddingMm}
                     paddingValidationMessage={paddingValidationMessage}
-                    svgWidthOverride={settings?.engraving.svg_width_override ?? null}
+                    svgWidthMm={svgWidthMm}
+                    svgHeightMm={svgHeightMm}
+                    svgAspectLocked={svgSizeMm.aspectLocked}
+                    onSelectionTargetChange={selectCanvasTarget}
                     onSelectIds={selectIds}
-                    onDepthChange={changeOperationDepth}
-                    onFillModeChange={changeOperationFillMode}
-                    onAssignToOperation={assignSelectionToOperation}
+                    onSelectMaterial={selectMaterial}
+                    onEnterSvgDiveMode={enterSvgDiveMode}
                     onMaterialSizeChange={handleMaterialDimensionChange}
                     onPlacementChange={handlePlacementChange}
-                    onPaddingChange={handlePaddingChange}
-                    onAlign={handleAlign}
-                    onSvgWidthOverrideChange={handleSvgWidthOverrideChange}
-                  />
-                ) : (
-                  <NcViewer
-                    gcodeResult={generated}
-                    activeOperationId={activeOperationId}
-                  />
-                )}
-              </div>
-            </div>
-          </Panel>
-          {activeTab === "prepare" && (
-            <>
-              <PanelResizeHandle className="w-px bg-border hover:bg-primary/40 transition-colors" />
-              <Panel defaultSize={20} minSize={14} maxSize={30}>
-                <div className="h-full overflow-y-auto border-l border-border bg-card">
-                  <LayerTree
-                    tree={preparedSvg?.tree ?? null}
-                    selectedIds={selectedIds}
-                    operations={operations}
-                    elementColors={elementColors}
-                    onSelectIds={selectIds}
+                    onSvgDimensionChange={handleSvgDimensionChange}
+                    onSvgSizeChange={handleSvgSizeChange}
                   />
                 </div>
-              </Panel>
-            </>
-          )}
-        </PanelGroup>
+              </div>
+            </Panel>
+            <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-primary/40" />
+            <Panel defaultSize={26} minSize={18} maxSize={34}>
+              <div className="h-full overflow-hidden border-l border-border bg-card">
+                <StudioInspector
+                  activeTab={inspectorTab}
+                  onTabChange={handleInspectorTabChange}
+                  materialContent={
+                    <MaterialInspector
+                      settings={settings}
+                      recommendedAdvanced={recommendedAdvanced}
+                      advancedOverrides={advancedOverrides}
+                      onMaterialSizeChange={handleMaterialDimensionChange}
+                      onNumberChange={handleSettingsNumberChange}
+                      onToolShapeChange={handleToolShapeChange}
+                      onFillModeChange={handleFillModeChange}
+                      onResetAdvancedRecommendations={resetAdvancedRecommendations}
+                    />
+                  }
+                  context={inspectorContext}
+                  settings={settings}
+                  svgWidthMm={svgWidthMm}
+                  svgHeightMm={svgHeightMm}
+                  svgAspectLocked={svgSizeMm.aspectLocked}
+                  placementX={settings?.engraving.placement_x ?? 0}
+                  placementY={settings?.engraving.placement_y ?? 0}
+                  paddingMm={paddingMm}
+                  paddingValidationMessage={paddingValidationMessage}
+                  onSvgDimensionChange={handleSvgDimensionChange}
+                  onSvgAspectLockChange={handleSvgAspectLockChange}
+                  onPlacementChange={handlePlacementChange}
+                  onPaddingChange={handlePaddingChange}
+                  onAlign={handleAlign}
+                  onBatchDepthChange={changeBatchDepth}
+                  onBatchFillModeChange={changeBatchFillMode}
+                />
+              </div>
+            </Panel>
+          </PanelGroup>
+        ) : (
+          <PanelGroup direction="horizontal" className="h-full">
+            <Panel defaultSize={22} minSize={16} maxSize={30}>
+              <div className="h-full overflow-y-auto border-r border-border bg-card">
+                <PreviewSidebar generated={generated} operations={previewOperations} error={error} />
+              </div>
+            </Panel>
+            <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-primary/40" />
+            <Panel defaultSize={78}>
+              <div className="flex h-full flex-col">
+                <ViewportToolbar
+                  activeTab={activeTab}
+                  selectedCount={selectedIds.length}
+                  activeOperation={null}
+                  materialWidth={previewMaterialWidth}
+                  materialHeight={previewMaterialHeight}
+                  materialThickness={previewMaterialThickness}
+                  toolDiameter={previewToolDiameter}
+                  maxDepth={maxDepth}
+                />
+                <div className="min-h-0 flex-1">
+                  <NcViewer gcodeResult={generated} activeOperationId={null} />
+                </div>
+              </div>
+            </Panel>
+          </PanelGroup>
+        )}
       </div>
     </div>
   );
@@ -685,15 +868,16 @@ function computeRecommendedAdvancedValues(settings: Settings) {
 
 function applyPlacementClamp(
   engraving: Settings["engraving"],
-  svgMetrics: SvgDocumentMetrics,
+  svgWidthMm: number,
+  svgHeightMm: number,
 ) {
   const clampedPlacement = clampPlacementToArtboard({
     artboardWidthMm: engraving.material_width,
     artboardHeightMm: engraving.material_height,
     placementX: engraving.placement_x,
     placementY: engraving.placement_y,
-    svgWidthMm: getSvgWidthMm(svgMetrics, engraving.svg_width_override),
-    svgHeightMm: getSvgHeightMm(svgMetrics, engraving.svg_width_override),
+    svgWidthMm,
+    svgHeightMm,
   });
 
   return {
@@ -701,33 +885,6 @@ function applyPlacementClamp(
     placement_x: clampedPlacement.x,
     placement_y: clampedPlacement.y,
   };
-}
-
-function setSvgWidthOverrideWithinArtboard(
-  engraving: Settings["engraving"],
-  value: number | null,
-  svgMetrics: SvgDocumentMetrics,
-) {
-  const naturalWidthMm = svgMetrics.width;
-  const requestedWidthMm = value && value > 0 ? value : naturalWidthMm;
-  const maxWidthMm = getMaxSvgWidthFromPlacement(
-    engraving.material_width,
-    engraving.material_height,
-    engraving.placement_x,
-    engraving.placement_y,
-    svgMetrics,
-  );
-  const clampedWidthMm = clamp(requestedWidthMm, 1, maxWidthMm);
-  const svgWidthOverride =
-    Math.abs(clampedWidthMm - naturalWidthMm) < 0.01 ? null : Number(clampedWidthMm.toFixed(2));
-
-  return applyPlacementClamp(
-    {
-      ...engraving,
-      svg_width_override: svgWidthOverride,
-    },
-    svgMetrics,
-  );
 }
 
 function applyRecommendedSettings(
@@ -750,4 +907,86 @@ function applyRecommendedSettings(
   }
 
   return next;
+}
+
+function groupAssignmentsForIds(
+  assignments: Record<string, ElementAssignment>,
+  elementIds: string[],
+) {
+  const groups = new Map<string, { targetDepthMm: number; fillMode: FillMode | null; elementIds: string[] }>();
+
+  for (const elementId of elementIds) {
+    const assignment = assignments[elementId];
+    if (!assignment) {
+      continue;
+    }
+
+    const key = `${assignment.targetDepthMm}::${assignment.fillMode ?? "default"}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.elementIds.push(elementId);
+    } else {
+      groups.set(key, {
+        targetDepthMm: assignment.targetDepthMm,
+        fillMode: assignment.fillMode,
+        elementIds: [elementId],
+      });
+    }
+  }
+
+  return Array.from(groups.entries())
+    .map(([key, group]) => ({
+      key,
+      targetDepthMm: group.targetDepthMm,
+      fillMode: group.fillMode,
+      elementIds: group.elementIds,
+    }))
+    .sort((left, right) => {
+      if (left.targetDepthMm !== right.targetDepthMm) {
+        return left.targetDepthMm - right.targetDepthMm;
+      }
+      return (left.fillMode ?? "").localeCompare(right.fillMode ?? "");
+    });
+}
+
+function deriveOperationsFromAssignments(
+  assignments: Record<string, ElementAssignment>,
+  elementIds: string[],
+) {
+  return groupAssignmentsForIds(assignments, elementIds).map((group, index) => ({
+    id: `profile-${group.key}`,
+    name: `${formatDepthLabel(group.targetDepthMm)}${group.fillMode ? ` · ${group.fillMode}` : ""}`,
+    target_depth_mm: group.targetDepthMm,
+    assigned_element_ids: group.elementIds,
+    color: colorForOperation(index),
+    fill_mode: group.fillMode,
+  }));
+}
+
+function resizeSvgDocument(
+  normalizedSvg: string,
+  svgMetrics: SvgDocumentMetrics,
+  widthMm: number,
+  heightMm: number,
+) {
+  const parser = new DOMParser();
+  const document = parser.parseFromString(normalizedSvg, "image/svg+xml");
+  const svg = document.querySelector("svg");
+  if (!svg) {
+    return normalizedSvg;
+  }
+
+  svg.setAttribute("viewBox", `${svgMetrics.x} ${svgMetrics.y} ${svgMetrics.width} ${svgMetrics.height}`);
+  svg.setAttribute("width", `${roundMm(widthMm)}mm`);
+  svg.setAttribute("height", `${roundMm(heightMm)}mm`);
+
+  return new XMLSerializer().serializeToString(document);
+}
+
+function roundMm(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function formatDepthLabel(value: number) {
+  return `${roundMm(value)}mm`;
 }

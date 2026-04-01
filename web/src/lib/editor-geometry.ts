@@ -28,9 +28,9 @@ interface CanvasGeometryInput {
   artboardHeightMm: number;
   placementX: number;
   placementY: number;
-  svgWidthOverride: number | null;
   paddingMm: number;
-  svgMetrics: SvgDocumentMetrics;
+  svgWidthMm: number;
+  svgHeightMm: number;
 }
 
 export function parseSvgDocumentMetrics(normalizedSvg: string) {
@@ -61,15 +61,29 @@ export function parseSvgDocumentMetrics(normalizedSvg: string) {
 export function getSvgWidthMm(
   svgMetrics: SvgDocumentMetrics,
   svgWidthOverride: number | null | undefined,
+  svgHeightOverride?: number | null | undefined,
 ) {
-  return svgWidthOverride && svgWidthOverride > 0 ? svgWidthOverride : svgMetrics.width;
+  if (svgWidthOverride && svgWidthOverride > 0) {
+    return svgWidthOverride;
+  }
+
+  if (svgHeightOverride && svgHeightOverride > 0) {
+    return svgHeightOverride * svgMetrics.aspectRatio;
+  }
+
+  return svgMetrics.width;
 }
 
 export function getSvgHeightMm(
   svgMetrics: SvgDocumentMetrics,
   svgWidthOverride: number | null | undefined,
+  svgHeightOverride?: number | null | undefined,
 ) {
-  return getSvgWidthMm(svgMetrics, svgWidthOverride) / svgMetrics.aspectRatio;
+  if (svgHeightOverride && svgHeightOverride > 0) {
+    return svgHeightOverride;
+  }
+
+  return getSvgWidthMm(svgMetrics, svgWidthOverride, svgHeightOverride) / svgMetrics.aspectRatio;
 }
 
 export function getCanvasGeometry({
@@ -77,12 +91,10 @@ export function getCanvasGeometry({
   artboardHeightMm,
   placementX,
   placementY,
-  svgWidthOverride,
   paddingMm,
-  svgMetrics,
+  svgWidthMm,
+  svgHeightMm,
 }: CanvasGeometryInput): CanvasGeometry {
-  const svgWidthMm = getSvgWidthMm(svgMetrics, svgWidthOverride);
-  const svgHeightMm = getSvgHeightMm(svgMetrics, svgWidthOverride);
   const clampedPlacement = clampPlacementToArtboard({
     artboardWidthMm,
     artboardHeightMm,
@@ -170,10 +182,10 @@ export function getMaxSvgWidthFromPlacement(
   artboardHeightMm: number,
   placementX: number,
   placementY: number,
-  svgMetrics: SvgDocumentMetrics,
+  aspectRatio: number,
 ) {
   const maxFromWidth = Math.max(1, artboardWidthMm - placementX);
-  const maxFromHeight = Math.max(1, (artboardHeightMm - placementY) * svgMetrics.aspectRatio);
+  const maxFromHeight = Math.max(1, (artboardHeightMm - placementY) * aspectRatio);
   return Math.max(1, Math.min(maxFromWidth, maxFromHeight));
 }
 

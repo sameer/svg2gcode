@@ -20,7 +20,9 @@ interface UseSvgCanvasControllerOptions {
   placementY: number;
   paddingMm: number;
   paddingValidationMessage: string | null;
-  svgWidthOverride: number | null;
+  svgWidthMm: number;
+  svgHeightMm: number;
+  onSelectionTargetChange: (value: CanvasSelectionTarget) => void;
 }
 
 export function useSvgCanvasController({
@@ -31,7 +33,9 @@ export function useSvgCanvasController({
   placementY,
   paddingMm,
   paddingValidationMessage,
-  svgWidthOverride,
+  svgWidthMm,
+  svgHeightMm,
+  onSelectionTargetChange,
 }: UseSvgCanvasControllerOptions) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const panSessionRef = useRef<{ x: number; y: number; startPanX: number; startPanY: number } | null>(null);
@@ -40,7 +44,6 @@ export function useSvgCanvasController({
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [selectionTarget, setSelectionTarget] = useState<CanvasSelectionTarget>(null);
   const [hoverTarget, setHoverTarget] = useState<CanvasSelectionTarget>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [spacePressed, setSpacePressed] = useState(false);
@@ -59,11 +62,11 @@ export function useSvgCanvasController({
       artboardHeightMm: materialHeight,
       placementX,
       placementY,
-      svgWidthOverride,
       paddingMm,
-      svgMetrics,
+      svgWidthMm,
+      svgHeightMm,
     });
-  }, [materialHeight, materialWidth, paddingMm, placementX, placementY, svgMetrics, svgWidthOverride]);
+  }, [materialHeight, materialWidth, paddingMm, placementX, placementY, svgHeightMm, svgMetrics, svgWidthMm]);
   const toViewportRect = useCallback(
     (box: { x: number; y: number; width: number; height: number } | null) => {
       if (!box) {
@@ -174,10 +177,10 @@ export function useSvgCanvasController({
     fitViewportRef.current = nextViewportKey;
     const frameId = window.requestAnimationFrame(() => {
       fitView();
-      setSelectionTarget(null);
+      onSelectionTargetChange(null);
     });
     return () => window.cancelAnimationFrame(frameId);
-  }, [fitView, preparedSvg, viewportSize.height, viewportSize.width]);
+  }, [fitView, onSelectionTargetChange, preparedSvg, viewportSize.height, viewportSize.width]);
 
   const zoomAtPoint = useCallback(
     (nextZoom: number, anchorClientPoint?: { x: number; y: number }) => {
@@ -271,7 +274,6 @@ export function useSvgCanvasController({
     viewportSize,
     zoom,
     pan,
-    selectionTarget,
     hoverTarget,
     isPanning,
     spacePressed,
@@ -280,7 +282,7 @@ export function useSvgCanvasController({
     overlayRect,
     paddingMessage,
     toViewportRect,
-    setSelectionTarget,
+    setSelectionTarget: onSelectionTargetChange,
     setHoverTarget,
     setPan,
     fitView,
