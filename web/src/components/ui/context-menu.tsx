@@ -41,7 +41,6 @@ const ContextMenuSubContent = React.forwardRef<
       className,
     )}
     {...props}
-    ref={ref}
   />
 ));
 ContextMenuSubContent.displayName = ContextMenuPrimitive.SubContent.displayName;

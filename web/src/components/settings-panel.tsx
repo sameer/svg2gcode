@@ -1,20 +1,28 @@
 import { ChevronDown, ChevronRight, Sparkles } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { FillMode, Settings } from "@/lib/types";
+import type { AlignmentAction, FillMode, Settings } from "@/lib/types";
 
 interface SettingsPanelProps {
   settings: Settings | null;
   recommendedAdvanced: Record<string, number>;
   advancedOverrides: Record<string, boolean>;
+  hasSvg: boolean;
+  paddingMm: number;
+  paddingValidationMessage: string | null;
   onNumberChange: (
     path: string,
     value: number | null,
     source: "basic" | "advanced",
   ) => void;
+  onMaterialDimensionChange: (dimension: "width" | "height", value: number | null) => void;
+  onPlacementChange: (x: number, y: number) => void;
+  onSvgWidthOverrideChange: (value: number | null) => void;
+  onPaddingChange: (value: number | null) => void;
+  onAlign: (alignment: AlignmentAction) => void;
   onToolShapeChange: (value: "Flat" | "Ball" | "V") => void;
   onFillModeChange: (value: FillMode) => void;
   onResetAdvancedRecommendations: () => void;
@@ -24,7 +32,15 @@ export function SettingsPanel({
   settings,
   recommendedAdvanced,
   advancedOverrides,
+  hasSvg,
+  paddingMm,
+  paddingValidationMessage,
   onNumberChange,
+  onMaterialDimensionChange,
+  onPlacementChange,
+  onSvgWidthOverrideChange,
+  onPaddingChange,
+  onAlign,
   onToolShapeChange,
   onFillModeChange,
   onResetAdvancedRecommendations,
@@ -66,13 +82,13 @@ export function SettingsPanel({
                 label="Width"
                 unit="mm"
                 value={settings.engraving.material_width}
-                onChange={(value) => onNumberChange("engraving.material_width", value, "basic")}
+                onChange={(value) => onMaterialDimensionChange("width", value)}
               />
               <NumberField
                 label="Height"
                 unit="mm"
                 value={settings.engraving.material_height}
-                onChange={(value) => onNumberChange("engraving.material_height", value, "basic")}
+                onChange={(value) => onMaterialDimensionChange("height", value)}
               />
               <NumberField
                 label="Thickness"
@@ -111,6 +127,40 @@ export function SettingsPanel({
                 value={settings.engraving.target_depth}
                 onChange={(value) => onNumberChange("engraving.target_depth", value, "basic")}
               />
+              {(() => {
+                const depth = settings.engraving.target_depth ?? 1;
+                const stepdown = settings.engraving.max_stepdown ?? 3;
+                const passes = Math.max(1, Math.ceil(depth / stepdown));
+                const mmPerPass = (depth / passes).toFixed(2);
+                return (
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Passes</Label>
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={passes}
+                        className="h-8 pr-16 text-xs"
+                        onChange={(e) => {
+                          const p = Math.max(1, Math.round(Number(e.target.value)));
+                          onNumberChange("engraving.max_stepdown", depth / p, "advanced");
+                        }}
+                      />
+                      <span className="pointer-events-none absolute right-2 top-1.5 text-xs text-muted-foreground">
+                        passes
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">{mmPerPass}mm per pass</p>
+                  </div>
+                );
+              })()}
+              <NumberField
+                label="SVG Width"
+                unit="mm"
+                value={settings.engraving.svg_width_override}
+                onChange={onSvgWidthOverrideChange}
+              />
             </div>
           </div>
 
@@ -123,14 +173,49 @@ export function SettingsPanel({
                 label="Offset X"
                 unit="mm"
                 value={settings.engraving.placement_x}
-                onChange={(value) => onNumberChange("engraving.placement_x", value, "basic")}
+                onChange={(value) =>
+                  onPlacementChange(value ?? settings.engraving.placement_x, settings.engraving.placement_y)
+                }
               />
               <NumberField
                 label="Offset Y"
                 unit="mm"
                 value={settings.engraving.placement_y}
-                onChange={(value) => onNumberChange("engraving.placement_y", value, "basic")}
+                onChange={(value) =>
+                  onPlacementChange(settings.engraving.placement_x, value ?? settings.engraving.placement_y)
+                }
               />
+              <NumberField
+                label="Padding"
+                unit="mm"
+                value={paddingMm}
+                helper="Used by the alignment tools as the desired inset from the stock edges."
+                onChange={onPaddingChange}
+              />
+            </div>
+            <div className="mt-3 space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                {ALIGNMENT_BUTTONS.map(({ action, label }) => (
+                  <Button
+                    key={action}
+                    size="sm"
+                    variant="outline"
+                    disabled={!hasSvg || !!paddingValidationMessage}
+                    onClick={() => onAlign(action)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+              {paddingValidationMessage ? (
+                <p className="text-[11px] leading-relaxed text-amber-700">
+                  {paddingValidationMessage}
+                </p>
+              ) : (
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Align the SVG to the stock edges or center while respecting the current padding.
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -257,12 +342,6 @@ export function SettingsPanel({
                   value={settings.engraving.machine_height}
                   onChange={(value) => onNumberChange("engraving.machine_height", value, "advanced")}
                 />
-                <NumberField
-                  label="SVG Width Override"
-                  unit="mm"
-                  value={settings.engraving.svg_width_override}
-                  onChange={(value) => onNumberChange("engraving.svg_width_override", value, "advanced")}
-                />
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Tool Shape</Label>
                   <select
@@ -300,18 +379,46 @@ function NumberField({
   helper?: string;
   onChange: (value: number | null) => void;
 }) {
+  const [editValue, setEditValue] = useState<string | null>(null);
+
+  const commit = useCallback(
+    (raw: string) => {
+      const parsed = Number.parseFloat(raw);
+      if (raw.trim() === "") {
+        onChange(null);
+      } else if (Number.isFinite(parsed)) {
+        onChange(parsed);
+      }
+      setEditValue(null);
+    },
+    [onChange],
+  );
+
+  const displayValue = editValue ?? (value != null ? String(value) : "");
+
   return (
     <div className="grid gap-1.5">
       <Label className="text-xs">{label}</Label>
       <div className="relative">
         <Input
-          type="number"
-          step="0.01"
+          type="text"
+          inputMode="decimal"
           className="h-8 pr-12 text-xs"
-          value={value ?? ""}
-          onChange={(event) =>
-            onChange(event.target.value === "" ? null : Number.parseFloat(event.target.value))
-          }
+          value={displayValue}
+          onFocus={(event) => {
+            setEditValue(value != null ? String(value) : "");
+            requestAnimationFrame(() => event.target.select());
+          }}
+          onChange={(event) => setEditValue(event.target.value)}
+          onBlur={(event) => commit(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.currentTarget.blur();
+            } else if (event.key === "Escape") {
+              setEditValue(null);
+              event.currentTarget.blur();
+            }
+          }}
         />
         <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
           {unit}
@@ -321,3 +428,12 @@ function NumberField({
     </div>
   );
 }
+
+const ALIGNMENT_BUTTONS: Array<{ action: AlignmentAction; label: string }> = [
+  { action: "left", label: "Left" },
+  { action: "center-x", label: "Center X" },
+  { action: "right", label: "Right" },
+  { action: "top", label: "Top" },
+  { action: "center-y", label: "Center Y" },
+  { action: "bottom", label: "Bottom" },
+];

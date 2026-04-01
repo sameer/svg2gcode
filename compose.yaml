@@ -8,3 +8,28 @@ services:
     ports:
       - "8080:8080"
     restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend-dev.Dockerfile
+    image: svg2gcode-frontend-dev:latest
+    container_name: svg2gcode-frontend-dev
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      VITE_PORT: "5173"
+    ports:
+      - "5173:5173"
+    profiles:
+      - dev
+    restart: unless-stopped
+    volumes:
+      - .:/app
+      - frontend_node_modules:/app/web/node_modules
+      - frontend_npm_cache:/root/.npm
+      - wasm_target:/tmp/svg2gcode-wasm-target
+
+volumes:
+  frontend_node_modules:
+  frontend_npm_cache:
+  wasm_target:

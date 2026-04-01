@@ -3,10 +3,11 @@
   "configurations": [
     {
       "name": "web-dev",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "--port", "5173"],
+      "runtimeExecutable": "/usr/local/bin/npx",
+      "runtimeArgs": ["vite"],
       "cwd": "web",
-      "port": 5173
+      "port": 5173,
+      "autoPort": true
     }
   ]
 }

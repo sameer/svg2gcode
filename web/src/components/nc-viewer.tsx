@@ -79,8 +79,11 @@ export function NcViewer({
   useEffect(() => {
     const totalDistance = parsedProgram?.totalDistance ?? 0;
     playbackDistanceRef.current = totalDistance;
-    setCurrentDistance(totalDistance);
-    setIsPlaying(false);
+    const frameId = window.requestAnimationFrame(() => {
+      setCurrentDistance(totalDistance);
+      setIsPlaying(false);
+    });
+    return () => window.cancelAnimationFrame(frameId);
   }, [parsedProgram?.totalDistance]);
 
   useEffect(() => {
@@ -448,6 +451,7 @@ export function NcViewer({
     materialHeight,
     materialThickness,
     materialWidth,
+    maxDepth,
     parsedProgram,
     showStock,
     liveCutSimulation,

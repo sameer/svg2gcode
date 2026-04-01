@@ -52,6 +52,13 @@ struct OperationGroup {
     reversible: bool,
 }
 
+#[derive(Debug, Clone)]
+struct ScheduledOperationGroup {
+    operation_id: String,
+    operation_name: String,
+    group: OperationGroup,
+}
+
 #[derive(Debug)]
 struct CamTurtle {
     tolerance: f64,
@@ -388,6 +395,87 @@ fn optimize_operation_groups(mut groups: Vec<OperationGroup>) -> Vec<OperationGr
     ordered
 }
 
+fn optimize_scheduled_operation_groups_from(
+    mut groups: Vec<ScheduledOperationGroup>,
+    mut current: Point<f64>,
+) -> (Vec<ScheduledOperationGroup>, Point<f64>) {
+    if groups.len() <= 1 {
+        if let Some(last_group) = groups.last() {
+            current = *last_group.group.paths.last().unwrap().points.last().unwrap();
+        }
+        return (groups, current);
+    }
+
+    let mut ordered = Vec::with_capacity(groups.len());
+
+    while !groups.is_empty() {
+        let mut best_index = 0usize;
+        let mut best_reversed = false;
+        let mut best_distance = f64::INFINITY;
+
+        for (index, scheduled) in groups.iter().enumerate() {
+            let start = scheduled.group.paths[0].points[0];
+            let start_distance = distance(current, start);
+            if start_distance < best_distance {
+                best_distance = start_distance;
+                best_index = index;
+                best_reversed = false;
+            }
+
+            if scheduled.group.reversible {
+                let end = *scheduled.group.paths[0].points.last().unwrap();
+                let end_distance = distance(current, end);
+                if end_distance < best_distance {
+                    best_distance = end_distance;
+                    best_index = index;
+                    best_reversed = true;
+                }
+            }
+        }
+
+        let mut scheduled = groups.swap_remove(best_index);
+        if best_reversed {
+            for path in &mut scheduled.group.paths {
+                path.points.reverse();
+            }
+        }
+        current = *scheduled.group.paths.last().unwrap().points.last().unwrap();
+        ordered.push(scheduled);
+    }
+
+    (ordered, current)
+}
+
+fn schedule_operation_groups_by_depth(
+    operation_id: &str,
+    operation_name: &str,
+    groups: Vec<OperationGroup>,
+) -> BTreeMap<u64, Vec<ScheduledOperationGroup>> {
+    let mut scheduled = BTreeMap::<u64, Vec<ScheduledOperationGroup>>::new();
+
+    for group in groups {
+        let reversible = group.reversible;
+        let mut depth_paths = BTreeMap::<u64, Vec<Toolpath>>::new();
+
+        for path in group.paths {
+            depth_paths.entry(path.depth.to_bits()).or_default().push(path);
+        }
+
+        for (depth_key, paths) in depth_paths {
+            scheduled
+                .entry(depth_key)
+                .or_default()
+                .push(ScheduledOperationGroup {
+                    operation_id: operation_id.to_string(),
+                    operation_name: operation_name.to_string(),
+                    group: OperationGroup { paths, reversible },
+                });
+        }
+    }
+
+    scheduled
+}
+
 fn collect_warnings(
     warnings: impl IntoIterator<Item = GenerationWarning>,
 ) -> Vec<GenerationWarning> {
@@ -693,6 +781,21 @@ fn append_engraving_paths<'input>(
     }
 }
 
+fn append_operation_start_marker<'input>(
+    program: &mut Vec<Token<'input>>,
+    operation_id: &str,
+    operation_name: &str,
+) {
+    program.push(comment_token(format!(
+        "operation:start:{}:{}",
+        operation_id, operation_name
+    )));
+}
+
+fn append_operation_end_marker<'input>(program: &mut Vec<Token<'input>>, operation_id: &str) {
+    program.push(comment_token(format!("operation:end:{operation_id}")));
+}
+
 fn append_engraving_program_footer<'input>(
     program: &mut Vec<Token<'input>>,
     machine: &mut Machine<'input>,
@@ -742,6 +845,7 @@ pub fn svg2program_engraving_multi<'a, 'input: 'a>(
     let mut program = vec![];
     let mut warnings = Vec::new();
     let mut emitted_any_geometry = false;
+    let mut scheduled_groups = BTreeMap::<u64, Vec<ScheduledOperationGroup>>::new();
 
     append_engraving_program_header(&mut program, &mut machine);
 
@@ -768,16 +872,34 @@ pub fn svg2program_engraving_multi<'a, 'input: 'a>(
         }
 
         emitted_any_geometry = true;
-        program.push(comment_token(format!(
-            "operation:start:{}:{}",
-            operation.id, operation.name
-        )));
-        append_engraving_paths(&mut program, &mut machine, &operation_engraving, groups);
-        program.push(comment_token(format!("operation:end:{}", operation.id)));
+        for (depth_key, depth_groups) in
+            schedule_operation_groups_by_depth(&operation.id, &operation.name, groups)
+        {
+            scheduled_groups
+                .entry(depth_key)
+                .or_default()
+                .extend(depth_groups);
+        }
     }
 
     if !emitted_any_geometry {
         return Err("No engravable SVG geometry was found. Add fills and/or strokes.".into());
+    }
+
+    let mut current = Point::new(0.0, 0.0);
+    for (_depth_key, groups) in scheduled_groups {
+        let (ordered_groups, next_current) =
+            optimize_scheduled_operation_groups_from(groups, current);
+        current = next_current;
+        for scheduled in ordered_groups {
+            append_operation_start_marker(
+                &mut program,
+                &scheduled.operation_id,
+                &scheduled.operation_name,
+            );
+            append_engraving_paths(&mut program, &mut machine, engraving, vec![scheduled.group]);
+            append_operation_end_marker(&mut program, &scheduled.operation_id);
+        }
     }
 
     append_engraving_program_footer(&mut program, &mut machine);

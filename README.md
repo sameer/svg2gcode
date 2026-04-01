@@ -47,6 +47,17 @@ docker run --rm -p 8080:8080 svg2gcode-studio
 
 Then open `http://localhost:8080`.
 
+For Docker-based frontend development with hot reload:
+
+```sh
+docker compose --profile dev up --build frontend
+```
+
+Then open `http://localhost:5173`.
+
+The dev container mounts the repo into Vite, keeps `node_modules` and the WASM build cache in
+named volumes, and uses polling so file changes under `/Volumes/...` are picked up reliably.
+
 ### Command line interface (CLI)
 
 #### Install

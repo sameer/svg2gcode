@@ -929,17 +929,38 @@ mod test {
         )
         .unwrap();
         let code = format_tokens(&program);
+        let z1_positions = code
+            .match_indices("G1 Z-1 F120")
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let right_start_positions = code
+            .match_indices(";operation:start:right-op:Right")
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let right_end_positions = code
+            .match_indices(";operation:end:right-op")
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let left_start = code.find(";operation:start:left-op:Left").unwrap();
+        let left_end = code.find(";operation:end:left-op").unwrap();
+        let z2 = code.find("G1 Z-2 F120").unwrap();
 
         assert_eq!(warnings, vec![]);
         assert_eq!(code.matches("G21").count(), 1, "{code}");
         assert_eq!(code.matches("G17").count(), 1, "{code}");
-        assert_eq!(code.matches("operation:start:").count(), 2, "{code}");
-        assert!(code.contains("operation:start:left-op:Left"), "{code}");
-        assert!(code.contains("operation:end:left-op"), "{code}");
-        assert!(code.contains("operation:start:right-op:Right"), "{code}");
-        assert!(code.contains("operation:end:right-op"), "{code}");
-        assert!(code.contains("G1 Z-1 F120"), "{code}");
-        assert!(code.contains("G1 Z-2 F120"), "{code}");
+        assert_eq!(code.matches("operation:start:left-op:Left").count(), 1, "{code}");
+        assert_eq!(code.matches("operation:start:right-op:Right").count(), 2, "{code}");
+        assert_eq!(z1_positions.len(), 2, "{code}");
+        assert_eq!(right_start_positions.len(), 2, "{code}");
+        assert_eq!(right_end_positions.len(), 2, "{code}");
+        assert!(left_start < z1_positions[0], "{code}");
+        assert!(z1_positions[0] < left_end, "{code}");
+        assert!(left_end < right_start_positions[0], "{code}");
+        assert!(right_start_positions[0] < z1_positions[1], "{code}");
+        assert!(z1_positions[1] < right_end_positions[0], "{code}");
+        assert!(right_end_positions[0] < right_start_positions[1], "{code}");
+        assert!(right_start_positions[1] < z2, "{code}");
+        assert!(z2 < right_end_positions[1], "{code}");
     }
 
     #[test]

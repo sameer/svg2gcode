@@ -1,6 +1,14 @@
 export type ToolShape = "Flat" | "Ball" | "V";
 export type FillMode = "Pocket" | "Contour";
 export type TabId = "prepare" | "preview";
+export type CanvasSelectionTarget = "artboard" | "svg" | null;
+export type AlignmentAction =
+  | "left"
+  | "center-x"
+  | "right"
+  | "top"
+  | "center-y"
+  | "bottom";
 
 export interface Settings {
   conversion: {
@@ -111,4 +119,14 @@ export interface StudioProject {
   generated: GenerateJobResponse | null;
   isGenerating: boolean;
   error: string | null;
+}
+
+export interface CanvasEditorState {
+  zoom: number;
+  pan: {
+    x: number;
+    y: number;
+  };
+  selection: CanvasSelectionTarget;
+  paddingMm: number;
 }

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:22-bookworm-slim AS builder
+FROM node:22-bookworm-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -25,31 +25,10 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-too
     && rustup target add wasm32-unknown-unknown \
     && cargo install wasm-pack
 
-WORKDIR /app
-
-COPY Cargo.toml Cargo.lock LICENSE README.md ./
-COPY cli ./cli
-COPY lib ./lib
-COPY wasm ./wasm
-COPY web/package.json web/package-lock.json ./web/
+COPY docker/start-frontend-dev.sh /usr/local/bin/start-frontend-dev.sh
 
 WORKDIR /app/web
 
-RUN --mount=type=cache,target=/root/.npm npm ci --no-audit
+EXPOSE 5173
 
-WORKDIR /app
-
-COPY web ./web
-
-WORKDIR /app/web
-
-RUN npm run build
-
-FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
-
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=builder /app/web/dist /usr/share/nginx/html
-
-EXPOSE 8080
-
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["sh", "/usr/local/bin/start-frontend-dev.sh"]

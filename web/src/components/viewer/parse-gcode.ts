@@ -80,7 +80,7 @@ export function parseGcodeProgram(
     }
 
     const tokens = line.split(/\s+/);
-    let next = { ...current };
+    const next = { ...current };
     let hasMove = false;
 
     for (const token of tokens) {

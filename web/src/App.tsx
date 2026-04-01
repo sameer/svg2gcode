@@ -12,7 +12,19 @@ import { ViewportToolbar } from "@/components/viewport-toolbar";
 import { parseGcodeProgram } from "@/components/viewer/parse-gcode";
 import { colorForOperation } from "@/lib/colors";
 import { buildElementColorMap, detectElementColors } from "@/lib/color-detection";
+import {
+  clampPlacementToArtboard,
+  getAlignedPlacement,
+  getCanvasGeometry,
+  getMaxSvgWidthFromPlacement,
+  getPaddingValidationMessage,
+  getSvgHeightMm,
+  getSvgWidthMm,
+  parseSvgDocumentMetrics,
+  type SvgDocumentMetrics,
+} from "@/lib/editor-geometry";
 import type {
+  AlignmentAction,
   FillMode,
   FrontendOperation,
   GenerateJobResponse,
@@ -36,6 +48,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("prepare");
   const [elementColors, setElementColors] = useState<Map<string, string>>(new Map());
+  const [paddingMm, setPaddingMm] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -54,6 +67,29 @@ function App() {
     () => operations.find((operation) => operation.id === activeOperationId) ?? null,
     [activeOperationId, operations],
   );
+  const svgMetrics = useMemo(
+    () => (preparedSvg ? parseSvgDocumentMetrics(preparedSvg.normalized_svg) : null),
+    [preparedSvg],
+  );
+  const editorGeometry = useMemo(() => {
+    if (!settings || !svgMetrics) {
+      return null;
+    }
+
+    return getCanvasGeometry({
+      artboardWidthMm: settings.engraving.material_width,
+      artboardHeightMm: settings.engraving.material_height,
+      placementX: settings.engraving.placement_x,
+      placementY: settings.engraving.placement_y,
+      svgWidthOverride: settings.engraving.svg_width_override,
+      paddingMm,
+      svgMetrics,
+    });
+  }, [paddingMm, settings, svgMetrics]);
+  const paddingValidationMessage = useMemo(
+    () => (editorGeometry ? getPaddingValidationMessage(editorGeometry, paddingMm) : null),
+    [editorGeometry, paddingMm],
+  );
 
   const handleSvgImport = async (file: File) => {
     if (!file.type.includes("svg") && !file.name.toLowerCase().endsWith(".svg")) {
@@ -63,11 +99,30 @@ function App() {
 
     const text = await file.text();
     const prepared = await prepareSvgDocument(text);
+    const importedMetrics = parseSvgDocumentMetrics(prepared.normalized_svg);
     setPreparedSvg(prepared);
     setSelectedIds([]);
     setGenerated(null);
     setError(null);
     setActiveTab("prepare");
+    setPaddingMm(10);
+    setSettings((current) => {
+      if (!current || !importedMetrics) {
+        return current;
+      }
+
+      return {
+        ...current,
+        engraving: {
+          ...current.engraving,
+          material_width: Math.max(current.engraving.material_width, importedMetrics.width + 20),
+          material_height: Math.max(current.engraving.material_height, importedMetrics.height + 20),
+          svg_width_override: null,
+          placement_x: 10,
+          placement_y: 10,
+        },
+      };
+    });
 
     const defaultDepth = settings?.engraving.target_depth ?? 1;
     const colorGroups = detectElementColors(prepared.normalized_svg);
@@ -151,6 +206,115 @@ function App() {
       const next = setNumberAtPath(current, path, value);
       return applyRecommendedSettings(next, nextOverrides);
     });
+  };
+
+  const handleMaterialDimensionChange = (dimension: "width" | "height", value: number | null) => {
+    setSettings((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const field = dimension === "width" ? "material_width" : "material_height";
+      const requested = Math.max(1, value ?? current.engraving[field]);
+      let nextEngraving = {
+        ...current.engraving,
+        [field]: requested,
+      };
+
+      if (svgMetrics) {
+        const svgWidthMm = getSvgWidthMm(svgMetrics, nextEngraving.svg_width_override);
+        const svgHeightMm = getSvgHeightMm(svgMetrics, nextEngraving.svg_width_override);
+        const minimum =
+          dimension === "width" ? svgWidthMm + paddingMm * 2 : svgHeightMm + paddingMm * 2;
+        nextEngraving = {
+          ...nextEngraving,
+          [field]: Math.max(requested, minimum),
+        };
+        nextEngraving = applyPlacementClamp(nextEngraving, svgMetrics);
+      }
+
+      return {
+        ...current,
+        engraving: nextEngraving,
+      };
+    });
+  };
+
+  const handlePlacementChange = (x: number, y: number) => {
+    setSettings((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const nextEngraving = svgMetrics
+        ? applyPlacementClamp(
+            {
+              ...current.engraving,
+              placement_x: x,
+              placement_y: y,
+            },
+            svgMetrics,
+          )
+        : {
+            ...current.engraving,
+            placement_x: x,
+            placement_y: y,
+          };
+
+      return {
+        ...current,
+        engraving: nextEngraving,
+      };
+    });
+  };
+
+  const handleSvgWidthOverrideChange = (value: number | null) => {
+    setSettings((current) => {
+      if (!current) {
+        return current;
+      }
+
+      if (!svgMetrics) {
+        return {
+          ...current,
+          engraving: {
+            ...current.engraving,
+            svg_width_override: value,
+          },
+        };
+      }
+
+      return {
+        ...current,
+        engraving: setSvgWidthOverrideWithinArtboard(current.engraving, value, svgMetrics),
+      };
+    });
+  };
+
+  const handlePaddingChange = (value: number | null) => {
+    setPaddingMm(Math.max(0, value ?? 0));
+  };
+
+  const handleAlign = (action: AlignmentAction) => {
+    if (!settings || !editorGeometry) {
+      return;
+    }
+
+    const nextPlacement = getAlignedPlacement(
+      action,
+      editorGeometry,
+      settings.engraving.material_width,
+      settings.engraving.material_height,
+      settings.engraving.placement_x,
+      settings.engraving.placement_y,
+      paddingMm,
+    );
+
+    if (!nextPlacement) {
+      return;
+    }
+
+    handlePlacementChange(nextPlacement.x, nextPlacement.y);
   };
 
   const handleToolShapeChange = (value: "Flat" | "Ball" | "V") => {
@@ -299,20 +463,6 @@ function App() {
     );
   };
 
-  const handlePlacementChange = (x: number, y: number) => {
-    setSettings((current) => {
-      if (!current) return current;
-      return {
-        ...current,
-        engraving: {
-          ...current.engraving,
-          placement_x: x,
-          placement_y: y,
-        },
-      };
-    });
-  };
-
   const downloadNc = () => {
     if (!generated) {
       return;
@@ -386,7 +536,15 @@ function App() {
                     settings={settings}
                     recommendedAdvanced={recommendedAdvanced}
                     advancedOverrides={advancedOverrides}
+                    hasSvg={!!preparedSvg && !!svgMetrics}
+                    paddingMm={paddingMm}
+                    paddingValidationMessage={paddingValidationMessage}
                     onNumberChange={handleSettingsNumberChange}
+                    onMaterialDimensionChange={handleMaterialDimensionChange}
+                    onPlacementChange={handlePlacementChange}
+                    onSvgWidthOverrideChange={handleSvgWidthOverrideChange}
+                    onPaddingChange={handlePaddingChange}
+                    onAlign={handleAlign}
                     onToolShapeChange={handleToolShapeChange}
                     onFillModeChange={handleFillModeChange}
                     onResetAdvancedRecommendations={resetAdvancedRecommendations}
@@ -442,11 +600,18 @@ function App() {
                     materialHeight={settings?.engraving.material_height ?? 300}
                     placementX={settings?.engraving.placement_x ?? 0}
                     placementY={settings?.engraving.placement_y ?? 0}
+                    paddingMm={paddingMm}
+                    paddingValidationMessage={paddingValidationMessage}
+                    svgWidthOverride={settings?.engraving.svg_width_override ?? null}
                     onSelectIds={selectIds}
                     onDepthChange={changeOperationDepth}
                     onFillModeChange={changeOperationFillMode}
                     onAssignToOperation={assignSelectionToOperation}
+                    onMaterialSizeChange={handleMaterialDimensionChange}
                     onPlacementChange={handlePlacementChange}
+                    onPaddingChange={handlePaddingChange}
+                    onAlign={handleAlign}
+                    onSvgWidthOverrideChange={handleSvgWidthOverrideChange}
                   />
                 ) : (
                   <NcViewer
@@ -516,6 +681,53 @@ function computeRecommendedAdvancedValues(settings: Settings) {
     "engraving.cut_feedrate": cutFeedrate,
     "engraving.plunge_feedrate": plungeFeedrate,
   };
+}
+
+function applyPlacementClamp(
+  engraving: Settings["engraving"],
+  svgMetrics: SvgDocumentMetrics,
+) {
+  const clampedPlacement = clampPlacementToArtboard({
+    artboardWidthMm: engraving.material_width,
+    artboardHeightMm: engraving.material_height,
+    placementX: engraving.placement_x,
+    placementY: engraving.placement_y,
+    svgWidthMm: getSvgWidthMm(svgMetrics, engraving.svg_width_override),
+    svgHeightMm: getSvgHeightMm(svgMetrics, engraving.svg_width_override),
+  });
+
+  return {
+    ...engraving,
+    placement_x: clampedPlacement.x,
+    placement_y: clampedPlacement.y,
+  };
+}
+
+function setSvgWidthOverrideWithinArtboard(
+  engraving: Settings["engraving"],
+  value: number | null,
+  svgMetrics: SvgDocumentMetrics,
+) {
+  const naturalWidthMm = svgMetrics.width;
+  const requestedWidthMm = value && value > 0 ? value : naturalWidthMm;
+  const maxWidthMm = getMaxSvgWidthFromPlacement(
+    engraving.material_width,
+    engraving.material_height,
+    engraving.placement_x,
+    engraving.placement_y,
+    svgMetrics,
+  );
+  const clampedWidthMm = clamp(requestedWidthMm, 1, maxWidthMm);
+  const svgWidthOverride =
+    Math.abs(clampedWidthMm - naturalWidthMm) < 0.01 ? null : Number(clampedWidthMm.toFixed(2));
+
+  return applyPlacementClamp(
+    {
+      ...engraving,
+      svg_width_override: svgWidthOverride,
+    },
+    svgMetrics,
+  );
 }
 
 function applyRecommendedSettings(

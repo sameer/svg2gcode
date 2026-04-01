@@ -11,4 +11,10 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    watch: {
+      // Polling is required for external/network drives (e.g. /Volumes/…)
+      usePolling: true,
+    },
+  },
 });
