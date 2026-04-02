@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Button, Chip } from "@heroui/react";
 
 import { AppIcon, Icons } from "@/lib/icons";
 import { clamp } from "@/lib/utils";
@@ -41,7 +42,7 @@ export function PreviewTimeline({
 
   return (
     <div className="pointer-events-none absolute inset-x-8 bottom-7 z-30 flex justify-center">
-      <div className="pointer-events-auto w-full max-w-[920px] rounded-[1.9rem] border border-white/8 bg-[rgba(22,22,27,0.92)] px-6 py-5 shadow-[0_28px_70px_rgba(0,0,0,0.48)] backdrop-blur-2xl">
+      <div className="pointer-events-auto w-full max-w-[920px] rounded-lg border border-border bg-background/95 px-4 py-3 shadow-sm backdrop-blur-md">
         <div className="flex items-center gap-3">
           <TransportButton icon={Icons.prev} onClick={() => onDistanceChange(0)} />
           <TransportButton
@@ -68,7 +69,7 @@ export function PreviewTimeline({
           </div>
 
           <div className="ml-auto min-w-0 text-right">
-            <p className="text-xs uppercase tracking-[0.18em] text-white/32">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
               {activeSpan?.operationName ?? "Preview"}
             </p>
           </div>
@@ -115,16 +116,15 @@ export function PreviewTimeline({
           />
 
           {hoveredEvent ? (
-            <div
-              className="pointer-events-none absolute bottom-full z-40 mb-3 rounded-[1rem] border border-white/10 bg-[rgba(19,19,23,0.98)] px-3 py-2 text-xs shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
-              style={{ left: `${(hoveredEvent.distance / Math.max(totalDistance, 1)) * 100}%` }}
-            >
-              <p className="font-semibold text-white">
+            <div style={{ left: `${(hoveredEvent.distance / Math.max(totalDistance, 1)) * 100}%` }} className="pointer-events-none absolute bottom-full z-40 mb-3">
+              <Chip variant="soft" size="sm" className="rounded-md border border-border bg-background/95 px-2 py-1 shadow-sm">
+              <p className="font-semibold text-foreground">
                 {hoveredEvent.kind === "plunge" ? "Plunge" : "Retract"}
               </p>
-              <p className="text-white/55">
+              <p className="text-muted-foreground">
                 {hoveredEvent.operationName ?? "Unassigned"} • line {hoveredEvent.lineNumber}
               </p>
+              </Chip>
             </div>
           ) : null}
         </div>
@@ -143,16 +143,14 @@ function TransportButton({
   onClick: () => void;
 }) {
   return (
-    <button
-      className={
-        active
-          ? "inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.12] text-white"
-          : "inline-flex h-11 w-11 items-center justify-center rounded-full text-white/78 transition hover:bg-white/[0.06] hover:text-white"
-      }
-      onClick={onClick}
+    <Button
+      isIconOnly
+      size="sm"
+      variant={active ? "secondary" : "ghost"}
+      onPress={onClick}
     >
       <AppIcon icon={icon} className="h-5 w-5" />
-    </button>
+    </Button>
   );
 }
 

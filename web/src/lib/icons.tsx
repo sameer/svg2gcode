@@ -33,6 +33,7 @@ import FileArrowUpIcon from "@gravity-ui/icons/esm/FileArrowUp.js";
 import FolderIcon from "@gravity-ui/icons/esm/Folder.js";
 import GearIcon from "@gravity-ui/icons/esm/Gear.js";
 import HandIcon from "@gravity-ui/icons/esm/Hand.js";
+import HandPointUpIcon from "@gravity-ui/icons/esm/HandPointUp.js";
 import HouseIcon from "@gravity-ui/icons/esm/House.js";
 import LayersIcon from "@gravity-ui/icons/esm/Layers.js";
 import LayoutSplitColumnsIcon from "@gravity-ui/icons/esm/LayoutSplitColumns.js";
@@ -76,6 +77,7 @@ export const Icons = {
   code: CodeIcon,
   copy: CopyIcon,
   cube: CubeIcon,
+  cursor: HandPointUpIcon,
   depth: BarsPlayIcon,
   export: ArrowUpFromSquareIcon,
   eye: EyeIcon,

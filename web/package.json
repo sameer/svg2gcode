@@ -12,10 +12,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
     "@heroui/react": "^3.0.1",
     "@heroui/styles": "^3.0.1",
-    "@radix-ui/react-context-menu": "^2.2.16",
-    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "konva": "^10.2.3",
     "lucide-react": "^0.544.0",

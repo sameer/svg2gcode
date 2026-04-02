@@ -26,13 +26,13 @@ export function ViewportToolbar({
 }: ViewportToolbarProps) {
   if (activeTab === "prepare") {
     return (
-      <div className="flex min-h-12 shrink-0 items-center gap-2 border-b border-white/8 bg-white/[0.035] px-4 text-xs text-muted-foreground backdrop-blur-xl">
-        <Chip className="border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+      <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-border bg-content1 px-3 text-xs text-muted-foreground">
+        <Chip size="sm" variant="soft">
           {selectedCount} selected
         </Chip>
         {activeOperation && (
           <>
-            <Chip className="border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[10px] font-semibold text-foreground">
+            <Chip size="sm" variant="soft">
               <span className="flex items-center gap-1.5">
                 <span
                   className="inline-block h-2.5 w-2.5 rounded-full"
@@ -54,7 +54,7 @@ export function ViewportToolbar({
   }
 
   return (
-    <div className="flex min-h-12 shrink-0 items-center gap-2 border-b border-white/8 bg-white/[0.035] px-4 text-xs backdrop-blur-xl">
+    <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-border bg-content1 px-3 text-xs">
       <Stat label="Stock" value={`${formatMillimeters(materialWidth)} x ${formatMillimeters(materialHeight)}`} />
       <Stat label="Thickness" value={formatMillimeters(materialThickness)} />
       <Stat label="Tool" value={formatMillimeters(toolDiameter)} />
@@ -68,7 +68,7 @@ export function ViewportToolbar({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <Chip className="border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[10px] font-semibold text-foreground">
+    <Chip size="sm" variant="soft">
       <span className="mr-2 uppercase tracking-[0.2em] text-muted-foreground/70">{label}</span>
       <span>{value}</span>
     </Chip>

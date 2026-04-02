@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button";
+import { Button, Tabs } from "@heroui/react";
 import { AppIcon, Icons } from "@/lib/icons";
 import type { FrontendOperation, GenerateJobResponse } from "@/lib/types";
 import { cn, formatMillimeters } from "@/lib/utils";
@@ -27,15 +27,15 @@ export function PreviewInspector({
   const snapshot = generated?.preview_snapshot;
 
   return (
-    <div className="flex h-full flex-col bg-[linear-gradient(180deg,rgba(25,25,29,0.96),rgba(20,20,24,0.98))] text-white">
-      <div className="flex items-center justify-between px-5 py-7">
-        <div className="h-11 w-11 rounded-full bg-[radial-gradient(circle_at_35%_35%,#fff7cf,#ff9848_58%,#ff5225)] shadow-[0_10px_30px_rgba(255,122,60,0.24)]" />
-        <Button className="h-12 rounded-[1.25rem] px-6 text-lg">Share</Button>
+    <div className="flex h-full flex-col bg-background text-foreground">
+      <div className="flex items-center justify-between px-4 py-4">
+        <div className="h-9 w-9 rounded-full bg-primary/30" />
+        <Button size="sm">Share</Button>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-5 pb-6">
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-4">
         <Section title="Router bit">
-          <div className="flex rounded-[1.2rem] bg-white/[0.05]">
+          <div className="flex rounded-md border border-border bg-content1">
             <MetricCell icon={Icons.camera} value={`${snapshot?.tool_diameter ?? 6}mm`} />
             <MetricCell icon={Icons.positionY} value={`${snapshot?.material_height ?? 40}mm`} />
             <MetricCell icon={Icons.code} value="Flat" />
@@ -57,8 +57,8 @@ export function PreviewInspector({
               <button
                 key={swatch}
                 className={cn(
-                  "h-16 rounded-[1rem] border border-white/8",
-                  index === 0 && "ring-1 ring-white/10",
+                  "h-12 rounded-md border border-border",
+                  index === 0 && "ring-1 ring-primary/30",
                 )}
                 style={{
                   background:
@@ -82,8 +82,8 @@ export function PreviewInspector({
                 <button
                   key={operation.id}
                   className={cn(
-                    "flex w-full items-center gap-4 rounded-[1.25rem] px-4 py-4 text-left transition",
-                    isActive ? "bg-white/[0.1]" : "bg-white/[0.05] hover:bg-white/[0.07]",
+                    "flex w-full items-center gap-3 rounded-md border border-border px-3 py-2 text-left transition",
+                    isActive ? "bg-content3" : "bg-content1 hover:bg-content2",
                   )}
                   onClick={() => onOperationSelect(isActive ? null : operation.id)}
                 >
@@ -92,11 +92,11 @@ export function PreviewInspector({
                     style={{ backgroundColor: operation.color ?? "#67B8FF" }}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[1.05rem] font-medium text-white">
+                    <p className="text-sm font-medium text-foreground">
                       {formatMillimeters(operation.target_depth_mm)}
                     </p>
                   </div>
-                  <div className="border-l border-white/6 pl-4 text-right text-[1.05rem] text-white/42">
+                  <div className="border-l border-border pl-3 text-right text-xs text-muted-foreground">
                     {operation.assigned_element_ids.length} parts
                   </div>
                 </button>
@@ -106,18 +106,29 @@ export function PreviewInspector({
         </Section>
 
         <Section title="Camera" icon={Icons.camera}>
-          <div className="flex rounded-[1.2rem] bg-white/[0.05] p-1">
-            <CameraModeButton
-              active={cameraMode === "orthographic"}
-              label="Orthographic"
-              onClick={() => onCameraModeChange("orthographic")}
-            />
-            <CameraModeButton
-              active={cameraMode === "perspective"}
-              label="Perspective"
-              onClick={() => onCameraModeChange("perspective")}
-            />
-          </div>
+          <Tabs
+            className="w-full max-w-md"
+            selectedKey={cameraMode}
+            onSelectionChange={(key) => {
+              const next = String(key);
+              if (next === "orthographic" || next === "perspective") {
+                onCameraModeChange(next);
+              }
+            }}
+          >
+            <Tabs.ListContainer>
+              <Tabs.List aria-label="Camera mode">
+                <Tabs.Tab id="orthographic">
+                Orthographic
+                <Tabs.Indicator />
+              </Tabs.Tab>
+                <Tabs.Tab id="perspective">
+                Perspective
+                <Tabs.Indicator />
+              </Tabs.Tab>
+              </Tabs.List>
+            </Tabs.ListContainer>
+          </Tabs>
         </Section>
       </div>
     </div>
@@ -138,14 +149,11 @@ function Section({
   return (
     <section>
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-[1.15rem] font-medium text-white">{title}</h3>
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         {icon ? (
-          <button
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/64"
-            onClick={onIconClick}
-          >
+          <Button isIconOnly size="sm" variant="ghost" onPress={onIconClick}>
             <AppIcon icon={icon} className="h-4 w-4" />
-          </button>
+          </Button>
         ) : null}
       </div>
       {children}
@@ -161,8 +169,8 @@ function MetricCell({
   value: string;
 }) {
   return (
-    <div className="flex flex-1 items-center justify-center gap-2 py-4 text-lg text-white">
-      <AppIcon icon={icon} className="h-4 w-4 text-white/66" />
+    <div className="flex flex-1 items-center justify-center gap-2 py-2 text-sm text-foreground">
+      <AppIcon icon={icon} className="h-4 w-4 text-muted-foreground" />
       {value}
     </div>
   );
@@ -170,31 +178,9 @@ function MetricCell({
 
 function MetricPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex h-14 items-center rounded-[1.15rem] bg-white/[0.05] px-4">
-      <span className="mr-3 text-sm text-white/45">{label}</span>
-      <span className="text-[1.1rem] text-white">{value}</span>
+    <div className="flex h-9 items-center rounded-md border border-border bg-content1 px-3">
+      <span className="mr-2 text-xs text-muted-foreground">{label}</span>
+      <span className="text-sm text-foreground">{value}</span>
     </div>
-  );
-}
-
-function CameraModeButton({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={cn(
-        "h-12 flex-1 rounded-[1.1rem] text-lg font-medium transition",
-        active ? "bg-white/[0.16] text-white" : "text-white/55 hover:bg-white/[0.04] hover:text-white",
-      )}
-      onClick={onClick}
-    >
-      {label}
-    </button>
   );
 }

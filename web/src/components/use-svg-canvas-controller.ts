@@ -22,6 +22,7 @@ interface UseSvgCanvasControllerOptions {
   paddingValidationMessage: string | null;
   svgWidthMm: number;
   svgHeightMm: number;
+  panToolActive?: boolean;
   onSelectionTargetChange: (value: CanvasSelectionTarget) => void;
 }
 
@@ -35,6 +36,7 @@ export function useSvgCanvasController({
   paddingValidationMessage,
   svgWidthMm,
   svgHeightMm,
+  panToolActive = false,
   onSelectionTargetChange,
 }: UseSvgCanvasControllerOptions) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -231,7 +233,7 @@ export function useSvgCanvasController({
         return;
       }
 
-      const isPanGesture = event.button === 1 || (event.button === 0 && spacePressed);
+      const isPanGesture = event.button === 1 || (event.button === 0 && (spacePressed || panToolActive));
       if (!isPanGesture) {
         return;
       }
@@ -266,7 +268,7 @@ export function useSvgCanvasController({
       window.addEventListener("mousemove", handleMouseMove);
       window.addEventListener("mouseup", handleMouseUp);
     },
-    [pan.x, pan.y, preparedSvg, spacePressed],
+    [pan.x, pan.y, panToolActive, preparedSvg, spacePressed],
   );
 
   return {

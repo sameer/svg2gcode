@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Konva from "konva";
-import { Group, Layer, Line, Rect, Stage, Tag, Text, Transformer } from "react-konva";
+import { Button } from "@heroui/react";
+import { Group, Layer, Line, Rect, Stage, Transformer } from "react-konva";
+import { LocationArrowFill } from "@gravity-ui/icons";
 
 import { SvgHitLayer } from "@/components/svg-hit-layer";
 import { useSvgCanvasController } from "@/components/use-svg-canvas-controller";
-import { Input } from "@/components/ui/input";
 import { getCanvasGeometry } from "@/lib/editor-geometry";
-import { AppIcon, Icons } from "@/lib/icons";
+import { AppIcon, type AppIconComponent, Icons } from "@/lib/icons";
+import { MATERIAL_PRESETS, type MaterialPresetId } from "@/lib/material-presets";
 import type {
   CanvasSelectionTarget,
   DiveRootScope,
@@ -26,11 +28,13 @@ type MarqueeRect = {
   width: number;
   height: number;
 };
+type InteractionMode = "default" | "direct-pick" | "pan";
 
 interface SvgCanvasProps {
   preparedSvg: PreparedSvgDocument | null;
   operations: FrontendOperation[];
   selectedIds: string[];
+  hoveredIds?: string[];
   activeOperationId: string | null;
   selectionTarget: CanvasSelectionTarget;
   isDiveMode: boolean;
@@ -45,6 +49,7 @@ interface SvgCanvasProps {
   svgWidthMm: number;
   svgHeightMm: number;
   svgAspectLocked: boolean;
+  materialPreset: MaterialPresetId;
   onSelectionTargetChange: (value: CanvasSelectionTarget) => void;
   onSelectIds: (ids: string[], additive: boolean) => void;
   onSelectMaterial: () => void;
@@ -61,6 +66,7 @@ export function SvgCanvas({
   preparedSvg,
   operations,
   selectedIds,
+  hoveredIds = [],
   activeOperationId,
   selectionTarget,
   isDiveMode,
@@ -75,6 +81,7 @@ export function SvgCanvas({
   svgWidthMm,
   svgHeightMm,
   svgAspectLocked,
+  materialPreset,
   onSelectionTargetChange,
   onSelectIds,
   onSelectMaterial,
@@ -96,6 +103,10 @@ export function SvgCanvas({
   const [resizeOverlay, setResizeOverlay] = useState<ResizeOverlayState | null>(null);
   const [marqueeRect, setMarqueeRect] = useState<MarqueeRect | null>(null);
   const [marqueeHoverIds, setMarqueeHoverIds] = useState<string[]>([]);
+  const [actionHintTarget, setActionHintTarget] = useState<Exclude<CanvasSelectionTarget, null> | null>(null);
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>("default");
+  const materialTexture = MATERIAL_PRESETS[materialPreset].texture;
+  const textureImage = useImageAsset(materialTexture);
 
   const operationForId = useMemo(() => {
     const map = new Map<string, FrontendOperation>();
@@ -135,6 +146,7 @@ export function SvgCanvas({
     paddingValidationMessage,
     svgWidthMm,
     svgHeightMm,
+    panToolActive: interactionMode === "pan",
     onSelectionTargetChange,
   });
 
@@ -219,11 +231,33 @@ export function SvgCanvas({
     paddingMm,
   ]);
   const effectiveOverlayRect = useMemo(() => toViewportRect(effectiveSvgBox), [effectiveSvgBox, toViewportRect]);
+  const materialOverlayRect = useMemo(
+    () => toViewportRect(effectiveArtboardBox),
+    [effectiveArtboardBox, toViewportRect],
+  );
   const interactiveIds = useMemo(
     () => activeDiveRoot?.elementIds ?? preparedSvg?.selectable_element_ids ?? [],
     [activeDiveRoot, preparedSvg],
   );
+  const directPickEnabled = modifierDirectPick || interactionMode === "direct-pick";
+  const panToolActive = interactionMode === "pan";
   const shapePickingEnabled = true;
+  const previewHighlightedIds = useMemo(
+    () => Array.from(new Set([...marqueeHoverIds, ...hoveredIds])),
+    [hoveredIds, marqueeHoverIds],
+  );
+
+  const showActionHint = useCallback((target: Exclude<CanvasSelectionTarget, null>) => {
+    setActionHintTarget(target);
+  }, []);
+
+  useEffect(() => {
+    if (!actionHintTarget) {
+      return;
+    }
+    const timeout = window.setTimeout(() => setActionHintTarget(null), 2200);
+    return () => window.clearTimeout(timeout);
+  }, [actionHintTarget]);
 
   useEffect(() => {
     if (!isDiveMode) {
@@ -259,6 +293,9 @@ export function SvgCanvas({
 
   const handlePartClick = useCallback(
     (event: MouseEvent) => {
+      if (panToolActive) {
+        return;
+      }
       const target = event.target;
       if (!(target instanceof Element)) {
         return;
@@ -274,7 +311,7 @@ export function SvgCanvas({
       }
 
       event.stopPropagation();
-      if (isDiveMode || modifierDirectPick || event.metaKey || event.ctrlKey) {
+      if (isDiveMode || directPickEnabled || event.metaKey || event.ctrlKey) {
         // Don't call onSelectionTargetChange in dive mode — selectCanvasTarget resets isDiveMode
         if (!isDiveMode) {
           onSelectionTargetChange(null);
@@ -286,12 +323,12 @@ export function SvgCanvas({
       onSelectIds([], false);
       onSelectionTargetChange("svg");
     },
-    [isDiveMode, modifierDirectPick, onSelectIds, onSelectionTargetChange],
+    [directPickEnabled, isDiveMode, onSelectIds, onSelectionTargetChange, panToolActive],
   );
 
   const handlePartDoubleClick = useCallback(
     (event: MouseEvent) => {
-      if (modifierDirectPick) {
+      if (directPickEnabled || panToolActive) {
         return;
       }
       const target = event.target;
@@ -309,7 +346,7 @@ export function SvgCanvas({
         onEnterSvgDiveMode();
       }
     },
-    [isDiveMode, modifierDirectPick, onEnterSvgDiveMode, onExitSvgDiveMode],
+    [directPickEnabled, isDiveMode, onEnterSvgDiveMode, onExitSvgDiveMode, panToolActive],
   );
 
   // startMarquee: subscribes window mousemove/mouseup and draws the selection rectangle.
@@ -376,7 +413,7 @@ export function SvgCanvas({
 
   const handleStageMouseDown = useCallback(
     (event: Konva.KonvaEventObject<MouseEvent>) => {
-      if (spacePressed) {
+      if (spacePressed || panToolActive) {
         return;
       }
 
@@ -387,7 +424,7 @@ export function SvgCanvas({
 
       const pointer = stage.getPointerPosition();
       if (
-        isDiveMode &&
+        (isDiveMode || directPickEnabled) &&
         pointer &&
         effectiveOverlayRect &&
         isPointInsideRect(pointer, effectiveOverlayRect)
@@ -400,7 +437,16 @@ export function SvgCanvas({
       onSelectionTargetChange(null);
       onSelectIds([], false);
     },
-    [effectiveOverlayRect, isDiveMode, onSelectIds, onSelectionTargetChange, spacePressed, startMarquee],
+    [
+      directPickEnabled,
+      effectiveOverlayRect,
+      isDiveMode,
+      onSelectIds,
+      onSelectionTargetChange,
+      panToolActive,
+      spacePressed,
+      startMarquee,
+    ],
   );
 
   // Handles mousedown on SVG elements in the hit layer while in dive mode.
@@ -408,7 +454,7 @@ export function SvgCanvas({
   // route through the click handler to select the individual element.
   const handleHitLayerMouseDown = useCallback(
     (event: MouseEvent) => {
-      if (spacePressed) {
+      if (spacePressed || panToolActive) {
         return;
       }
       const viewport = viewportRef.current;
@@ -423,19 +469,24 @@ export function SvgCanvas({
       };
       startMarquee(origin, event.shiftKey, 5);
     },
-    [spacePressed, startMarquee, viewportRef],
+    [panToolActive, spacePressed, startMarquee, viewportRef],
   );
 
   const handleArtboardSelect = useCallback(() => {
+    if (panToolActive) {
+      return;
+    }
     onSelectMaterial();
-  }, [onSelectMaterial]);
+    showActionHint("material");
+  }, [onSelectMaterial, panToolActive, showActionHint]);
 
   const handleSvgSelect = useCallback(() => {
-    if (isDiveMode || modifierDirectPick) {
+    if (isDiveMode || directPickEnabled || panToolActive) {
       return;
     }
     onSelectionTargetChange("svg");
-  }, [isDiveMode, modifierDirectPick, onSelectionTargetChange]);
+    showActionHint("svg");
+  }, [directPickEnabled, isDiveMode, onSelectionTargetChange, panToolActive, showActionHint]);
 
   const handleSvgDragMove = useCallback(
     (event: Konva.KonvaEventObject<DragEvent>) => {
@@ -704,6 +755,39 @@ export function SvgCanvas({
       values: { width: box.width, height: box.height },
     };
   }, [effectiveArtboardBox, effectiveSvgBox, liveArtboardBox, liveSvgBox, resizeOverlay, selectionTarget, toViewportRect]);
+  const resizeOverlayCenter = useMemo(() => {
+    if (!resizeOverlay || resizeOverlay.target !== selectionTarget) {
+      return null;
+    }
+
+    const box =
+      selectionTarget === "material"
+        ? liveArtboardBox ?? effectiveArtboardBox
+        : liveSvgBox ?? effectiveSvgBox;
+    if (!box) {
+      return null;
+    }
+
+    const rect = toViewportRect(box);
+    if (!rect) {
+      return null;
+    }
+
+    return {
+      left: clamp(rect.left + rect.width / 2, 56, Math.max(56, viewportSize.width - 56)),
+      top: clamp(rect.top + rect.height / 2, 20, Math.max(20, viewportSize.height - 20)),
+    };
+  }, [
+    effectiveArtboardBox,
+    effectiveSvgBox,
+    liveArtboardBox,
+    liveSvgBox,
+    resizeOverlay,
+    selectionTarget,
+    toViewportRect,
+    viewportSize.height,
+    viewportSize.width,
+  ]);
 
   const topRulerTicks = useMemo(
     () => buildRulerTicks(viewportSize.width, pan.x, zoom, "x", materialHeight),
@@ -714,25 +798,38 @@ export function SvgCanvas({
     [materialHeight, pan.y, viewportSize.height, zoom],
   );
 
+  const artboardSelectionStroke = "#73bbff";
+  const svgSelectionStroke = "#73bbff";
+  const artboardFill = isDiveMode ? "rgba(106, 75, 51, 0.48)" : "#6a4b33";
+
   return (
     <div
       ref={viewportRef}
       className={cn(
-        "relative h-full w-full overflow-hidden bg-[#060914]",
-        isPanning ? "cursor-grabbing" : spacePressed ? "cursor-grab" : "cursor-default",
+        "relative h-full w-full overflow-hidden bg-background",
+        isPanning ? "cursor-grabbing" : spacePressed || panToolActive ? "cursor-grab" : "cursor-default",
       )}
       onMouseDown={handleViewportMouseDown}
       onWheel={handleWheel}
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(39,102,255,0.24),_rgba(7,11,24,0.92)_38%,_rgba(3,5,13,0.98)_100%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:32px_32px]" />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,_transparent_0%,_transparent_58%,_rgba(0,0,0,0.45)_100%)]" />
 
       {!preparedSvg || !effectiveGeometry || !svgMetrics || !viewportSize.width || !viewportSize.height ? (
-        <div className="relative flex h-full items-center justify-center">
-          <p className="max-w-sm rounded-[1.35rem] border border-white/10 bg-[#0b1020]/88 px-6 py-5 text-center text-sm leading-relaxed text-slate-300 shadow-[0_24px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
-            Drop an SVG into the studio to start assigning depths, sizing the material, and generating an NC program.
-          </p>
+        <div className="relative flex h-full items-center justify-center px-6">
+          <div className="max-w-sm rounded-[1.35rem] border border-white/10 bg-[#0b1020]/88 px-6 py-5 text-center shadow-[0_24px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
+            <p className="text-sm leading-relaxed text-slate-200">
+              Drag and drop an SVG onto the canvas, or use the button below to add one.
+            </p>
+            <Button
+              className="mt-4 h-10 w-full justify-center text-white"
+              size="sm"
+              variant="secondary"
+              onPress={onImportClick}
+            >
+              <AppIcon icon={Icons.fileUpload} className="h-4 w-4" />
+              Add files (SVG)
+            </Button>
+          </div>
         </div>
       ) : (
         <>
@@ -754,17 +851,31 @@ export function SvgCanvas({
                 y={effectiveArtboardBox.y}
                 width={effectiveArtboardBox.width}
                 height={effectiveArtboardBox.height}
-                fill="#101522"
-                shadowColor="rgba(2, 6, 23, 0.55)"
+                fill={artboardFill}
+                cornerRadius={2 / zoom}
+                shadowColor="rgba(29, 18, 10, 0.62)"
                 shadowBlur={32 / zoom}
                 shadowOffset={{ x: 0, y: 18 / zoom }}
-                stroke={selectionTarget === "material" ? "#2f95ff" : "rgba(148,163,184,0.38)"}
+                stroke={selectionTarget === "material" ? artboardSelectionStroke : "rgba(132, 94, 62, 0.55)"}
                 strokeWidth={selectionTarget === "material" ? 1.4 / zoom : 1 / zoom}
                 listening={!isDiveMode}
                 onMouseDown={handleArtboardSelect}
                 onMouseEnter={() => setHoverTarget("material")}
                 onMouseLeave={() => setHoverTarget((current) => (current === "material" ? null : current))}
               />
+              {textureImage ? (
+                <Rect
+                  x={effectiveArtboardBox.x}
+                  y={effectiveArtboardBox.y}
+                  width={effectiveArtboardBox.width}
+                  height={effectiveArtboardBox.height}
+                  fillPatternImage={textureImage}
+                  fillPatternRepeat="repeat"
+                  fillPatternScale={{ x: 0.11, y: 0.11 }}
+                  opacity={isDiveMode ? 0.35 : 0.55}
+                  listening={false}
+                />
+              ) : null}
               {(selectionTarget === "material" || hoverTarget === "material") ? (
                 <ObjectChrome
                   x={effectiveArtboardBox.x}
@@ -773,20 +884,18 @@ export function SvgCanvas({
                   height={effectiveArtboardBox.height}
                   zoom={zoom}
                   tone="artboard"
-                  label="Material"
-                  helper={selectionTarget === "material" ? undefined : "Click to edit"}
                   subtle={selectionTarget !== "material"}
                 />
               ) : null}
-              {paddingMm > 0 ? (
+              {paddingMm > 0 && selectionTarget === "material" ? (
                 <Rect
                   x={effectiveArtboardBox.x + paddingMm}
                   y={effectiveArtboardBox.y + paddingMm}
                   width={Math.max(0, effectiveArtboardBox.width - paddingMm * 2)}
                   height={Math.max(0, effectiveArtboardBox.height - paddingMm * 2)}
-                  stroke={paddingMessage ? "rgba(245,158,11,0.92)" : "rgba(47,149,255,0.42)"}
+                  stroke={paddingMessage ? "rgba(245,158,11,0.92)" : "rgba(115,187,255,0.45)"}
                   strokeWidth={1 / zoom}
-                  dash={[10 / zoom, 8 / zoom]}
+                  dash={[2 / zoom, 4 / zoom]}
                   listening={false}
                 />
               ) : null}
@@ -796,7 +905,14 @@ export function SvgCanvas({
                 y={effectiveSvgBox?.y ?? effectiveArtboardBox.y + effectiveGeometry.svgTopMm}
                 width={effectiveSvgBox?.width ?? effectiveGeometry.svgWidthMm}
                 height={effectiveSvgBox?.height ?? effectiveGeometry.svgHeightMm}
-                fill="rgba(16, 185, 129, 0.002)"
+                fill="transparent"
+                stroke={
+                  selectionTarget === "svg" || hoverTarget === "svg"
+                    ? "rgba(115,187,255,0.95)"
+                    : "rgba(115,187,255,0)"
+                }
+                strokeWidth={selectionTarget === "svg" ? 1.35 / zoom : 1 / zoom}
+                dash={selectionTarget === "svg" ? [6 / zoom, 4 / zoom] : undefined}
                 listening={!isDiveMode}
                 draggable={selectionTarget === "svg" && !isDiveMode}
                 onMouseDown={handleSvgSelect}
@@ -828,14 +944,6 @@ export function SvgCanvas({
                   height={effectiveSvgBox?.height ?? effectiveGeometry.svgHeightMm}
                   zoom={zoom}
                   tone="svg"
-                  label="SVG"
-                  helper={
-                    isDiveMode
-                      ? "Locked for part editing. Drag to marquee-select parts."
-                      : selectionTarget === "svg"
-                        ? "Double-click to edit parts"
-                        : "Click to edit"
-                  }
                   subtle={selectionTarget !== "svg" && !isDiveMode}
                 />
               ) : null}
@@ -854,12 +962,12 @@ export function SvgCanvas({
                   "bottom-center",
                   "bottom-right",
                 ]}
-                anchorFill={selectionTarget === "material" ? "#0ea5e9" : "#10b981"}
+                anchorFill={selectionTarget === "material" ? artboardSelectionStroke : svgSelectionStroke}
                 anchorStroke="#ffffff"
                 anchorStrokeWidth={1 / zoom}
                 anchorCornerRadius={0}
                 anchorSize={10 / zoom}
-                borderStroke={selectionTarget === "material" ? "#0ea5e9" : "#10b981"}
+                borderStroke={selectionTarget === "material" ? artboardSelectionStroke : svgSelectionStroke}
                 borderStrokeWidth={1.25 / zoom}
                 borderDash={[10 / zoom, 6 / zoom]}
                 boundBoxFunc={transformerBoundBox}
@@ -875,17 +983,17 @@ export function SvgCanvas({
               normalizedSvg={preparedSvg.normalized_svg}
               rect={effectiveOverlayRect}
               selectedIds={selectedIds}
-              previewSelectedIds={marqueeHoverIds}
+              previewSelectedIds={previewHighlightedIds}
               activeOperationId={activeOperationId}
               operationForId={operationForId}
               interactive={shapePickingEnabled}
-              interactiveIds={isDiveMode || modifierDirectPick ? interactiveIds : []}
+              interactiveIds={isDiveMode || directPickEnabled ? interactiveIds : []}
               onHostReady={(host) => {
                 hitLayerHostRef.current = host;
               }}
               onClick={handlePartClick}
               onDoubleClick={handlePartDoubleClick}
-              onMouseDown={isDiveMode ? handleHitLayerMouseDown : undefined}
+              onMouseDown={isDiveMode || directPickEnabled ? handleHitLayerMouseDown : undefined}
             />
           ) : null}
 
@@ -898,9 +1006,24 @@ export function SvgCanvas({
 
           <div className="pointer-events-none absolute inset-x-0 bottom-7 z-20 flex justify-center px-6">
             <div className="pointer-events-auto flex items-center gap-2 rounded-[1.75rem] border border-white/10 bg-[rgba(19,19,23,0.9)] px-4 py-3 text-white shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
-              <ToolbarButton icon={Icons.playCircle} />
-              <ToolbarButton icon={Icons.hand} />
-              <ToolbarButton icon={Icons.fit} onClick={fitView} />
+              <Button
+                isIconOnly
+                size="sm"
+                variant="ghost"
+                className={interactionMode === "direct-pick" ? "bg-white/[0.14] text-white" : "text-white/75"}
+                onPress={() => {
+                  setInteractionMode((current) => (current === "direct-pick" ? "default" : "direct-pick"));
+                }}
+              >
+                <LocationArrowFill className="h-5 w-5" />
+              </Button>
+              <ToolbarButton
+                icon={Icons.hand}
+                active={interactionMode === "pan"}
+                onClick={() => {
+                  setInteractionMode((current) => (current === "pan" ? "default" : "pan"));
+                }}
+              />
               <div className="ml-2 flex items-center gap-3 rounded-[1.2rem] bg-white/[0.05] px-4 py-3">
                 <button
                   className="text-white/72"
@@ -922,43 +1045,65 @@ export function SvgCanvas({
                   <AppIcon icon={Icons.plus} className="h-4 w-4" />
                 </button>
               </div>
-              <ToolbarButton icon={Icons.undo} disabled />
-              <ToolbarButton icon={Icons.redo} disabled />
+              <Button
+                size="sm"
+                variant="ghost"
+                className="min-w-12 px-3 font-medium uppercase tracking-[0.08em] text-white/80"
+                onPress={fitView}
+              >
+                Fit
+              </Button>
             </div>
           </div>
 
-          <div className="absolute bottom-28 right-7 z-20 w-[18rem] rounded-[1.7rem] border border-white/10 bg-[rgba(19,19,23,0.92)] p-3 text-white shadow-[0_28px_70px_rgba(0,0,0,0.48)] backdrop-blur-2xl">
-            <AssetButton icon={Icons.picture} label="Add photos or videos" disabled />
-            <AssetButton icon={Icons.cube} label="Add 3D objects" disabled />
-            <AssetButton icon={Icons.fileUpload} label="Add files (docs, txt...)" onClick={onImportClick} />
-          </div>
-
-          {resizeOverlayRect ? (
+          {resizeOverlayRect && resizeOverlayCenter ? (
             <div
-              className="absolute z-20 rounded-[1.15rem] border border-white/10 bg-[#0a1020]/94 p-3 shadow-[0_24px_70px_rgba(0,0,0,0.42)] backdrop-blur-xl"
+              className="absolute z-20 flex items-center gap-1"
               style={{
-                left: clamp(resizeOverlayRect.left, 12, Math.max(12, viewportSize.width - resizeOverlayRect.width - 12)),
-                top: Math.max(12, resizeOverlayRect.top),
-                width: resizeOverlayRect.width,
+                left: resizeOverlayCenter.left,
+                top: resizeOverlayCenter.top,
+                transform: "translate(-50%, -50%)",
               }}
               onClick={(event) => event.stopPropagation()}
             >
-              <div className={`grid gap-2 ${resizeOverlayRect.fields.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
-                {resizeOverlayRect.fields.map((field) => (
-                  <InlineDimensionInput
-                    key={field}
-                    label={field === "width" ? "W" : "H"}
-                    value={resizeOverlayRect.values[field]}
-                    onChange={(value) => {
-                      if (selectionTarget === "material") {
-                        onMaterialSizeChange?.(field, value);
-                      } else {
-                        onSvgDimensionChange?.(field, value);
-                      }
-                    }}
-                  />
-                ))}
-              </div>
+              {resizeOverlayRect.fields.map((field) => (
+                <InlineDimensionTag
+                  key={field}
+                  label={field === "width" ? "W" : "H"}
+                  value={resizeOverlayRect.values[field]}
+                  onChange={(value) => {
+                    if (selectionTarget === "material") {
+                      onMaterialSizeChange?.(field, value);
+                    } else {
+                      onSvgDimensionChange?.(field, value);
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {actionHintTarget === "svg" && !isDiveMode && effectiveOverlayRect ? (
+            <div
+              className="pointer-events-none absolute z-20 rounded-[8px] border border-[#2f95ff66] bg-[#0b1730]/95 px-2 py-1 text-xs text-[#b9dcff]"
+              style={{
+                left: effectiveOverlayRect.left + 6,
+                top: Math.max(8, effectiveOverlayRect.top - 30),
+              }}
+            >
+              Double-click to edit part
+            </div>
+          ) : null}
+
+          {actionHintTarget === "material" && materialOverlayRect ? (
+            <div
+              className="pointer-events-none absolute z-20 rounded-[8px] border border-[#2f95ff66] bg-[#0b1730]/95 px-2 py-1 text-xs text-[#b9dcff]"
+              style={{
+                left: materialOverlayRect.left + 6,
+                top: Math.max(8, materialOverlayRect.top - 30),
+              }}
+            >
+              Drag edges to resize material
             </div>
           ) : null}
 
@@ -982,51 +1127,25 @@ export function SvgCanvas({
 function ToolbarButton({
   icon,
   disabled = false,
+  active = false,
   onClick,
 }: {
-  icon: typeof Icons.playCircle;
+  icon: AppIconComponent;
   disabled?: boolean;
+  active?: boolean;
   onClick?: () => void;
 }) {
   return (
-    <button
-      className={cn(
-        "inline-flex h-12 w-12 items-center justify-center rounded-full text-white transition",
-        disabled ? "cursor-not-allowed text-white/22" : "hover:bg-white/[0.08]",
-      )}
-      disabled={disabled}
-      onClick={onClick}
+    <Button
+      isIconOnly
+      size="sm"
+      variant="ghost"
+      className={cn(active ? "bg-white/[0.14] text-white" : "text-white/75")}
+      isDisabled={disabled}
+      onPress={onClick}
     >
       <AppIcon icon={icon} className="h-5 w-5" />
-    </button>
-  );
-}
-
-function AssetButton({
-  icon,
-  label,
-  disabled = false,
-  onClick,
-}: {
-  icon: typeof Icons.picture;
-  label: string;
-  disabled?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      className={cn(
-        "mb-2 flex w-full items-center gap-3 rounded-[1.2rem] px-4 py-3 text-left text-[1.05rem] transition last:mb-0",
-        disabled
-          ? "cursor-not-allowed bg-white/[0.03] text-white/42"
-          : "bg-white/[0.06] text-white hover:bg-white/[0.1]",
-      )}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <AppIcon icon={icon} className="h-5 w-5" />
-      {label}
-    </button>
+    </Button>
   );
 }
 
@@ -1043,19 +1162,19 @@ function CanvasRulers({
 }) {
   return (
     <>
-      <div className="pointer-events-none absolute left-0 top-0 z-10 h-6 w-6 border-b border-r border-white/50 bg-slate-900/88" />
-      <div className="pointer-events-none absolute left-6 right-0 top-0 z-10 h-6 border-b border-white/15 bg-slate-900/88 text-[10px] text-slate-300">
+      <div className="pointer-events-none absolute left-0 top-0 z-10 h-6 w-6 border-b border-r border-[#2f2f38] bg-[#111116]/95" />
+      <div className="pointer-events-none absolute left-6 right-0 top-0 z-10 h-6 border-b border-[#2f2f38] bg-[#111116]/95 text-[10px] text-[#9ea0ad]">
         {topTicks.map((tick) => (
           <div key={`x-${tick.value}-${tick.position}`} className="absolute top-0 h-full" style={{ left: tick.position }}>
-            <div className={`w-px bg-white/35 ${tick.major ? "h-6" : "h-3"}`} />
+            <div className={`w-px bg-[#6f7180] ${tick.major ? "h-6" : "h-3"}`} />
             {tick.major ? <span className="absolute left-1 top-1">{tick.label}</span> : null}
           </div>
         ))}
       </div>
-      <div className="pointer-events-none absolute bottom-0 left-0 top-6 z-10 w-6 border-r border-white/15 bg-slate-900/88 text-[10px] text-slate-300">
+      <div className="pointer-events-none absolute bottom-0 left-0 top-6 z-10 w-6 border-r border-[#2f2f38] bg-[#111116]/95 text-[10px] text-[#9ea0ad]">
         {leftTicks.map((tick) => (
           <div key={`y-${tick.value}-${tick.position}`} className="absolute left-0 w-full" style={{ top: tick.position }}>
-            <div className={`h-px bg-white/35 ${tick.major ? "w-6" : "w-3"}`} />
+            <div className={`h-px bg-[#6f7180] ${tick.major ? "w-6" : "w-3"}`} />
             {tick.major ? (
               <span
                 className="absolute left-[3px] top-[2px] origin-top-left -rotate-90 whitespace-nowrap"
@@ -1079,8 +1198,6 @@ function ObjectChrome({
   height,
   zoom,
   tone,
-  label,
-  helper,
   subtle = false,
 }: {
   x: number;
@@ -1089,20 +1206,16 @@ function ObjectChrome({
   height: number;
   zoom: number;
   tone: "artboard" | "svg";
-  label: string;
-  helper?: string;
   subtle?: boolean;
 }) {
   const color =
     tone === "artboard"
       ? subtle
-        ? "rgba(69,159,255,0.55)"
-        : "rgba(47,149,255,0.98)"
+        ? "rgba(173,130,88,0.7)"
+        : "rgba(221,169,113,0.98)"
       : subtle
-        ? "rgba(52,211,153,0.6)"
-        : "rgba(16,185,129,0.98)";
-  const labelFill = tone === "artboard" ? "rgba(12,22,45,0.92)" : "rgba(8,34,28,0.92)";
-  const labelText = tone === "artboard" ? "#8ec8ff" : "#86efac";
+        ? "rgba(115,187,255,0.64)"
+        : "rgba(115,187,255,0.96)";
 
   return (
     <Group listening={false}>
@@ -1118,28 +1231,6 @@ function ObjectChrome({
         opacity={0.45}
       />
       <CornerBrackets x={x} y={y} width={width} height={height} zoom={zoom} color={color} />
-      <Group x={x} y={y - 28 / zoom}>
-        <Tag
-          fill={labelFill}
-          stroke={color}
-          strokeWidth={1 / zoom}
-          pointerDirection="none"
-          width={helper ? 118 / zoom : 70 / zoom}
-          height={22 / zoom}
-        />
-        <Text
-          x={8 / zoom}
-          y={4.5 / zoom}
-          fontSize={10 / zoom}
-          fontStyle="bold"
-          letterSpacing={1.8 / zoom}
-          text={label.toUpperCase()}
-          fill={labelText}
-        />
-        {helper ? (
-          <Text x={52 / zoom} y={4.8 / zoom} fontSize={10 / zoom} text={helper} fill="rgba(203,213,225,0.85)" />
-        ) : null}
-      </Group>
     </Group>
   );
 }
@@ -1175,7 +1266,7 @@ function CornerBrackets({
   );
 }
 
-function InlineDimensionInput({
+function InlineDimensionTag({
   label,
   value,
   onChange,
@@ -1185,20 +1276,29 @@ function InlineDimensionInput({
   onChange?: (value: number | null) => void;
 }) {
   const [editValue, setEditValue] = useState<string | null>(null);
-  const displayValue = editValue ?? value.toFixed(2);
+  const [isEditing, setIsEditing] = useState(false);
+  const displayValue = editValue ?? formatTagValue(value);
+  const inputValue = editValue ?? String(value);
 
   return (
-    <div className="grid gap-1">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</span>
-      <div className="relative">
-        <Input
+    <button
+      className="inline-flex h-5 items-center gap-1 rounded-[4px] bg-[#2f95ff] px-1.5 text-[10px] font-medium text-white"
+      onClick={(event) => {
+        event.stopPropagation();
+        setIsEditing(true);
+        setEditValue(String(value));
+      }}
+    >
+      <span className="opacity-85">{label}</span>
+      {isEditing ? (
+        <input
           type="text"
           inputMode="decimal"
-          className="h-9 rounded-[0.95rem] border-white/10 bg-white/[0.04] pr-9 text-xs text-foreground"
-          value={displayValue}
+          className="w-11 border-0 bg-transparent p-0 text-[10px] text-white outline-none"
+          value={inputValue}
+          autoFocus
           onFocus={(event) => {
-            setEditValue(value.toFixed(2));
-            requestAnimationFrame(() => event.target.select());
+            requestAnimationFrame(() => event.currentTarget.select());
           }}
           onChange={(event) => setEditValue(event.target.value)}
           onBlur={(event) => {
@@ -1212,22 +1312,28 @@ function InlineDimensionInput({
               }
             }
             setEditValue(null);
+            setIsEditing(false);
           }}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.currentTarget.blur();
             } else if (event.key === "Escape") {
               setEditValue(null);
+              setIsEditing(false);
               event.currentTarget.blur();
             }
           }}
+          onClick={(event) => event.stopPropagation()}
         />
-        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-500">
-          mm
-        </span>
-      </div>
-    </div>
+      ) : (
+        <span>{displayValue}</span>
+      )}
+    </button>
   );
+}
+
+function formatTagValue(value: number) {
+  return value.toFixed(2).replace(/\.?0+$/, "");
 }
 
 function roundMm(value: number) {
@@ -1332,6 +1438,38 @@ function isPointInsideRect(point: { x: number; y: number }, rect: { left: number
     point.y >= rect.top &&
     point.y <= rect.top + rect.height
   );
+}
+
+function useImageAsset(source: string | null) {
+  const [loaded, setLoaded] = useState<{ source: string; image: HTMLImageElement } | null>(null);
+
+  useEffect(() => {
+    if (!source) {
+      return;
+    }
+
+    let active = true;
+    const nextImage = new window.Image();
+    nextImage.crossOrigin = "anonymous";
+    nextImage.onload = () => {
+      if (active) {
+        setLoaded({ source, image: nextImage });
+      }
+    };
+    nextImage.onerror = () => {
+      // Ignore failures and keep previous loaded image fallback.
+    };
+    nextImage.src = source;
+
+    return () => {
+      active = false;
+    };
+  }, [source]);
+
+  if (!source) {
+    return null;
+  }
+  return loaded?.source === source ? loaded.image : null;
 }
 
 function collectIntersectingSvgIds(

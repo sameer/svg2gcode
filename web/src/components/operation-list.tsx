@@ -1,9 +1,6 @@
 import { Plus, Trash2 } from "lucide-react";
+import { Button, Chip, Input, Label } from "@heroui/react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import type { FillMode, FrontendOperation } from "@/lib/types";
 
 interface OperationListProps {
@@ -37,7 +34,7 @@ export function OperationList({
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Operations
         </span>
-        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={onAddOperation}>
+        <Button size="sm" variant="ghost" onPress={onAddOperation}>
           <Plus className="mr-1 h-3 w-3" />
           Add
         </Button>
@@ -51,11 +48,11 @@ export function OperationList({
             }`}
           >
             <div className="flex items-center justify-between gap-2">
-              <button className="flex items-center gap-2 text-left" onClick={() => onActivate(operation.id)}>
+              <Button className="justify-start p-0" size="sm" variant="ghost" onPress={() => onActivate(operation.id)}>
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: operation.color ?? "#2563eb" }} />
                 <span className="text-xs font-semibold">{operation.name}</span>
-              </button>
-              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => onDeleteOperation(operation.id)} disabled={operations.length === 1}>
+              </Button>
+              <Button isIconOnly size="sm" variant="ghost" onPress={() => onDeleteOperation(operation.id)} isDisabled={operations.length === 1}>
                 <Trash2 className="h-3 w-3" />
               </Button>
             </div>
@@ -103,8 +100,8 @@ export function OperationList({
               </div>
             </div>
             <div className="mt-2 flex items-center justify-between">
-              <Badge className="text-[10px] px-1.5 py-0">{operation.assigned_element_ids.length} parts</Badge>
-              <Button size="sm" variant="secondary" className="h-6 px-2 text-[10px]" onClick={() => onAssignSelected(operation.id)}>
+              <Chip size="sm" variant="soft">{operation.assigned_element_ids.length} parts</Chip>
+              <Button size="sm" variant="secondary" onPress={() => onAssignSelected(operation.id)}>
                 Assign {selectedCount > 0 ? `${selectedCount} selected` : "selection"}
               </Button>
             </div>

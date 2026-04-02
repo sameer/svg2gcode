@@ -1,9 +1,7 @@
 import { ChevronDown, ChevronRight, Sparkles } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { Button, Input, Label } from "@heroui/react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import type { AlignmentAction, FillMode, Settings } from "@/lib/types";
 
 interface SettingsPanelProps {
@@ -199,9 +197,9 @@ export function SettingsPanel({
                   <Button
                     key={action}
                     size="sm"
-                    variant="outline"
-                    disabled={!hasSvg || !!paddingValidationMessage}
-                    onClick={() => onAlign(action)}
+                    variant="secondary"
+                    isDisabled={!hasSvg || !!paddingValidationMessage}
+                    onPress={() => onAlign(action)}
                   >
                     {label}
                   </Button>
@@ -264,9 +262,9 @@ export function SettingsPanel({
               </div>
               <Button
                 size="sm"
-                variant="outline"
-                onClick={onResetAdvancedRecommendations}
-                disabled={advancedOverrideCount === 0}
+                variant="secondary"
+                onPress={onResetAdvancedRecommendations}
+                isDisabled={advancedOverrideCount === 0}
               >
                 Reset To Recommended
               </Button>

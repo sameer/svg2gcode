@@ -34,6 +34,7 @@ import type {
   Settings,
   TabId,
 } from "@/lib/types";
+import { MATERIAL_PRESETS, type MaterialPresetId } from "@/lib/material-presets";
 import { clamp } from "@/lib/utils";
 import { generateEngravingJob, loadDefaultSettings, prepareSvgDocument } from "@/lib/wasm";
 
@@ -43,11 +44,14 @@ function App() {
   const [preparedSvg, setPreparedSvg] = useState<PreparedSvgDocument | null>(null);
   const [elementAssignments, setElementAssignments] = useState<Record<string, ElementAssignment>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [hoveredLayerIds, setHoveredLayerIds] = useState<string[]>([]);
   const [generated, setGenerated] = useState<GenerateJobResponse | null>(null);
+  const [lastGeneratedInputSignature, setLastGeneratedInputSignature] = useState<string | null>(null);
   const [generatedOperationsSnapshot, setGeneratedOperationsSnapshot] = useState<FrontendOperation[]>([]);
   const [isReady, setIsReady] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPreviewBlockedNotice, setShowPreviewBlockedNotice] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("prepare");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("design");
   const [canvasSelectionTarget, setCanvasSelectionTarget] = useState<"material" | "svg" | null>(null);
@@ -59,6 +63,7 @@ function App() {
   const [paddingMm, setPaddingMm] = useState(0);
   const [svgSizeMm, setSvgSizeMm] = useState({ width: 100, height: 100, aspectLocked: true });
   const [projectName, setProjectName] = useState("3D Dog Character");
+  const [materialPreset, setMaterialPreset] = useState<MaterialPresetId>("Oak");
   const [previewActiveOperationId, setPreviewActiveOperationId] = useState<string | null>(null);
   const [previewCameraMode, setPreviewCameraMode] = useState<"orthographic" | "perspective">("orthographic");
   const [previewShowStock, setPreviewShowStock] = useState(true);
@@ -67,6 +72,7 @@ function App() {
   const [previewCurrentDistance, setPreviewCurrentDistance] = useState(0);
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const previewBlockedNoticeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     loadDefaultSettings()
@@ -100,6 +106,14 @@ function App() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (previewBlockedNoticeTimerRef.current !== null) {
+        window.clearTimeout(previewBlockedNoticeTimerRef.current);
+      }
     };
   }, []);
 
@@ -149,6 +163,24 @@ function App() {
     () => deriveOperationsFromAssignments(elementAssignments, allElementIds),
     [allElementIds, elementAssignments],
   );
+  const generationInput = useMemo(() => {
+    if (!preparedSvg || !settings || derivedOperations.length === 0 || !svgMetrics) {
+      return null;
+    }
+
+    const requestSettings = structuredClone(settings);
+    requestSettings.engraving.svg_width_override = null;
+
+    return {
+      normalizedSvg: resizeSvgDocument(preparedSvg.normalized_svg, svgMetrics, svgWidthMm, svgHeightMm),
+      settings: requestSettings,
+      operations: derivedOperations,
+    };
+  }, [derivedOperations, preparedSvg, settings, svgHeightMm, svgMetrics, svgWidthMm]);
+  const generationInputSignature = useMemo(
+    () => (generationInput ? JSON.stringify(generationInput) : null),
+    [generationInput],
+  );
   const inspectorContext = useMemo<InspectorContext>(() => {
     if (canvasSelectionTarget === "svg") {
       return {
@@ -191,6 +223,7 @@ function App() {
     setPreparedSvg(prepared);
     setProjectName(file.name.replace(/\.svg$/i, ""));
     setGenerated(null);
+    setLastGeneratedInputSignature(null);
     setGeneratedOperationsSnapshot([]);
     setPreviewActiveOperationId(null);
     setPreviewCurrentDistance(0);
@@ -203,6 +236,7 @@ function App() {
     setInspectorTab("design");
     setActiveTab("prepare");
     setPaddingMm(10);
+    setShowPreviewBlockedNotice(false);
     setError(null);
 
     if (importedMetrics) {
@@ -247,24 +281,23 @@ function App() {
   };
 
   const handleMakePath = async () => {
-    if (!preparedSvg || !settings || derivedOperations.length === 0 || !svgMetrics) {
+    if (!generationInput || !generationInputSignature) {
       return;
     }
 
+    setShowPreviewBlockedNotice(false);
     setIsGenerating(true);
     setError(null);
 
     try {
-      const requestSettings = structuredClone(settings);
-      requestSettings.engraving.svg_width_override = null;
-
       const result = await generateEngravingJob({
-        normalized_svg: resizeSvgDocument(preparedSvg.normalized_svg, svgMetrics, svgWidthMm, svgHeightMm),
-        settings: requestSettings,
-        operations: derivedOperations,
+        normalized_svg: generationInput.normalizedSvg,
+        settings: generationInput.settings,
+        operations: generationInput.operations,
       });
       setGenerated(result);
-      setGeneratedOperationsSnapshot(derivedOperations);
+      setGeneratedOperationsSnapshot(generationInput.operations);
+      setLastGeneratedInputSignature(generationInputSignature);
       setActiveTab("preview");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -483,6 +516,34 @@ function App() {
     });
   };
 
+  const handleMaterialPresetChange = (value: MaterialPresetId) => {
+    const preset = MATERIAL_PRESETS[value];
+    const maxStepdown = Number((preset.defaultDepthMm / preset.defaultPasses).toFixed(2));
+    const nextOverrides = {
+      ...advancedOverrides,
+      "engraving.max_stepdown": true,
+    };
+
+    setMaterialPreset(value);
+    setAdvancedOverrides(nextOverrides);
+    setSettings((current) => {
+      if (!current) {
+        return current;
+      }
+      return applyRecommendedSettings(
+        {
+          ...current,
+          engraving: {
+            ...current.engraving,
+            target_depth: preset.defaultDepthMm,
+            max_stepdown: maxStepdown,
+          },
+        },
+        nextOverrides,
+      );
+    });
+  };
+
   const resetAdvancedRecommendations = () => {
     setAdvancedOverrides({});
     setSettings((current) => (current ? applyRecommendedSettings(current, {}) : current));
@@ -645,6 +706,17 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
+  const notifyPreviewRequiresProcessing = () => {
+    setShowPreviewBlockedNotice(true);
+    if (previewBlockedNoticeTimerRef.current !== null) {
+      window.clearTimeout(previewBlockedNoticeTimerRef.current);
+    }
+    previewBlockedNoticeTimerRef.current = window.setTimeout(() => {
+      setShowPreviewBlockedNotice(false);
+      previewBlockedNoticeTimerRef.current = null;
+    }, 2200);
+  };
+
   const focusPreviewLine = (lineNumber: number) => {
     if (!parsedProgram) {
       return;
@@ -747,10 +819,16 @@ function App() {
   );
   const activePreviewLineNumber = previewSample?.segment?.lineNumber ?? previewNavigableLines.at(-1) ?? null;
   const projectSubtitle = "3D Design Project";
+  const hasGeneratedGcode = !!generated;
+  const hasOutdatedGcode = hasGeneratedGcode && generationInputSignature !== lastGeneratedInputSignature;
+  const isPreviewReady = hasGeneratedGcode && !hasOutdatedGcode;
+  const canProcessGcode = !!generationInput;
+  const processLabel = !hasGeneratedGcode ? "Make GCODE" : hasOutdatedGcode ? "Update GCODE" : "GCODE Ready";
+  const processDisabled = isGenerating || !isReady || !canProcessGcode || isPreviewReady;
+  const exportDisabled = !isPreviewReady || isGenerating;
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden bg-[#111113] text-foreground">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(88,110,255,0.08),_transparent_24%),radial-gradient(circle_at_50%_50%,rgba(255,128,84,0.04),transparent_38%)]" />
+    <div className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
 
       <input
         ref={fileInputRef}
@@ -766,51 +844,62 @@ function App() {
       />
 
       {error && activeTab === "prepare" ? (
-        <div className="absolute left-1/2 top-6 z-40 -translate-x-1/2 rounded-[1rem] border border-red-400/20 bg-red-500/10 px-4 py-2 text-xs text-red-100">
+        <div className="absolute left-1/2 top-4 z-40 -translate-x-1/2 rounded-md border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger-foreground">
           {error}
         </div>
       ) : null}
+      {showPreviewBlockedNotice ? (
+        <div className="absolute left-1/2 top-16 z-40 -translate-x-1/2 rounded-md border border-warning/30 bg-warning/15 px-3 py-2 text-xs text-warning-foreground">
+          Process first to preview GCODE
+        </div>
+      ) : null}
 
-      <div className="relative z-10 min-h-0 flex-1 p-3">
+      <div className="relative z-10 min-h-0 flex-1 p-0">
         {activeTab === "prepare" ? (
-          <PanelGroup direction="horizontal" className="h-full gap-4">
+          <PanelGroup direction="horizontal" className="h-full gap-0">
             <Panel defaultSize={20} minSize={16} maxSize={28}>
-              <div className="h-full overflow-hidden rounded-[1.9rem] border border-white/6 bg-[#19191d] shadow-[0_30px_80px_rgba(0,0,0,0.4)]">
+              <div className="h-full overflow-hidden bg-content1">
                 <LayerTree
                   projectName={projectName}
-                  projectSubtitle={projectSubtitle}
+                  onProjectNameChange={setProjectName}
                   tree={preparedSvg?.tree ?? null}
                   selectedIds={selectedIds}
                   selectionTarget={canvasSelectionTarget}
-                  isDiveMode={isDiveMode}
                   activeDiveRootId={activeDiveRoot?.id ?? null}
                   assignments={elementAssignments}
                   elementColors={elementColors}
                   onSelectIds={selectIds}
                   onSelectTarget={selectCanvasTarget}
                   onActivateDiveRoot={activateDiveRoot}
+                  onHoverIdsChange={setHoveredLayerIds}
                 />
               </div>
             </Panel>
-            <PanelResizeHandle className="mx-1 w-1 rounded-full bg-white/[0.04] transition-colors hover:bg-primary/30" />
+            <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-primary/30" />
             <Panel defaultSize={56} minSize={36}>
               <div
-                className="relative flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/6 bg-[linear-gradient(180deg,rgba(16,16,18,0.95),rgba(13,13,16,0.98))] shadow-[0_30px_80px_rgba(0,0,0,0.45)]"
+                className="relative flex h-full flex-col overflow-hidden bg-content1"
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => void handleFileDrop(event)}
               >
                 <TopBar
                   activeTab={activeTab}
-                  hasGenerated={!!generated}
-                  isBusy={isGenerating || !isReady}
+                  canPreview={isPreviewReady}
+                  isBusy={isGenerating}
+                  processLabel={processLabel}
+                  processDisabled={processDisabled}
+                  exportDisabled={exportDisabled}
                   onTabChange={setActiveTab}
-                  onExport={() => void handleMakePath()}
+                  onProcess={() => void handleMakePath()}
+                  onExport={downloadNc}
+                  onPreviewBlocked={notifyPreviewRequiresProcessing}
                 />
                 <div className="min-h-0 flex-1">
                   <SvgCanvas
                     preparedSvg={preparedSvg}
                     operations={derivedOperations}
                     selectedIds={selectedIds}
+                    hoveredIds={hoveredLayerIds}
                     activeOperationId={null}
                     selectionTarget={canvasSelectionTarget}
                     isDiveMode={isDiveMode}
@@ -825,6 +914,7 @@ function App() {
                     svgWidthMm={svgWidthMm}
                     svgHeightMm={svgHeightMm}
                     svgAspectLocked={svgSizeMm.aspectLocked}
+                    materialPreset={materialPreset}
                     onSelectionTargetChange={selectCanvasTarget}
                     onSelectIds={selectIds}
                     onSelectMaterial={selectMaterial}
@@ -839,21 +929,22 @@ function App() {
                 </div>
               </div>
             </Panel>
-            <PanelResizeHandle className="mx-1 w-1 rounded-full bg-white/[0.04] transition-colors hover:bg-primary/30" />
+            <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-primary/30" />
             <Panel defaultSize={26} minSize={18} maxSize={34}>
-              <div className="h-full overflow-hidden rounded-[1.9rem] border border-white/6 bg-[#19191d] shadow-[0_30px_80px_rgba(0,0,0,0.4)]">
+              <div className="h-full overflow-hidden bg-content1">
                 <StudioInspector
                   activeTab={inspectorTab}
                   onTabChange={handleInspectorTabChange}
                   materialContent={
                     <MaterialInspector
                       settings={settings}
+                      materialPreset={materialPreset}
                       recommendedAdvanced={recommendedAdvanced}
                       advancedOverrides={advancedOverrides}
                       onMaterialSizeChange={handleMaterialDimensionChange}
                       onNumberChange={handleSettingsNumberChange}
                       onToolShapeChange={handleToolShapeChange}
-                      onFillModeChange={handleFillModeChange}
+                      onMaterialPresetChange={handleMaterialPresetChange}
                       onResetAdvancedRecommendations={resetAdvancedRecommendations}
                     />
                   }
@@ -873,14 +964,15 @@ function App() {
                   onAlign={handleAlign}
                   onBatchDepthChange={changeBatchDepth}
                   onBatchFillModeChange={changeBatchFillMode}
+                  onDefaultFillModeChange={handleFillModeChange}
                 />
               </div>
             </Panel>
           </PanelGroup>
         ) : (
-          <PanelGroup direction="horizontal" className="h-full gap-4">
+          <PanelGroup direction="horizontal" className="h-full gap-0">
             <Panel defaultSize={20} minSize={16} maxSize={28}>
-              <div className="h-full overflow-hidden rounded-[1.9rem] border border-white/6 bg-[#19191d] shadow-[0_30px_80px_rgba(0,0,0,0.4)]">
+              <div className="h-full overflow-hidden bg-content1">
                 <PreviewSidebar
                   projectName={projectName}
                   projectSubtitle={projectSubtitle}
@@ -896,14 +988,20 @@ function App() {
                 />
               </div>
             </Panel>
-            <PanelResizeHandle className="mx-1 w-1 rounded-full bg-white/[0.04] transition-colors hover:bg-primary/30" />
+            <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-primary/30" />
             <Panel defaultSize={55} minSize={38}>
-              <div className="relative flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/6 bg-[linear-gradient(180deg,rgba(27,27,30,0.98),rgba(19,19,23,1))] shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
+              <div className="relative flex h-full flex-col overflow-hidden bg-content1">
                 <TopBar
                   activeTab={activeTab}
-                  hasGenerated={!!generated}
+                  canPreview={isPreviewReady}
+                  isBusy={isGenerating}
+                  processLabel={processLabel}
+                  processDisabled={processDisabled}
+                  exportDisabled={exportDisabled}
                   onTabChange={setActiveTab}
+                  onProcess={() => void handleMakePath()}
                   onExport={downloadNc}
+                  onPreviewBlocked={notifyPreviewRequiresProcessing}
                 />
                 <div className="min-h-0 flex-1">
                   <NcViewer
@@ -928,9 +1026,9 @@ function App() {
                 />
               </div>
             </Panel>
-            <PanelResizeHandle className="mx-1 w-1 rounded-full bg-white/[0.04] transition-colors hover:bg-primary/30" />
+            <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-primary/30" />
             <Panel defaultSize={25} minSize={18} maxSize={32}>
-              <div className="h-full overflow-hidden rounded-[1.9rem] border border-white/6 bg-[#19191d] shadow-[0_30px_80px_rgba(0,0,0,0.4)]">
+              <div className="h-full overflow-hidden bg-content1">
                 <PreviewInspector
                   generated={generated}
                   operations={previewOperations}

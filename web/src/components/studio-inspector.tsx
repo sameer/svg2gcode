@@ -1,9 +1,5 @@
 import { useCallback, useState } from "react";
-import { Chip } from "@heroui/react";
-
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Button, ButtonGroup, Chip, Input, Label, Tabs } from "@heroui/react";
 import { AppIcon, Icons } from "@/lib/icons";
 import type {
   AlignmentAction,
@@ -13,6 +9,7 @@ import type {
   InspectorTab,
   Settings,
 } from "@/lib/types";
+import { FILL_MODE_VISUALS } from "@/lib/material-presets";
 import { cn, formatMillimeters } from "@/lib/utils";
 
 interface StudioInspectorProps {
@@ -35,6 +32,7 @@ interface StudioInspectorProps {
   onAlign: (alignment: AlignmentAction) => void;
   onBatchDepthChange: (elementIds: string[], value: number) => void;
   onBatchFillModeChange: (elementIds: string[], value: FillMode | null) => void;
+  onDefaultFillModeChange: (value: FillMode) => void;
 }
 
 export function StudioInspector({
@@ -57,27 +55,39 @@ export function StudioInspector({
   onAlign,
   onBatchDepthChange,
   onBatchFillModeChange,
+  onDefaultFillModeChange,
 }: StudioInspectorProps) {
   return (
-    <div className="flex h-full flex-col bg-[linear-gradient(180deg,rgba(25,25,29,0.96),rgba(20,20,24,0.98))] text-white">
+    <div className="flex h-full flex-col bg-background text-foreground">
       <ShellHeader />
 
-      <div className="px-5 pb-5">
-        <div className="flex rounded-[1.35rem] bg-white/[0.06] p-1">
-          <InspectorTabButton
-            active={activeTab === "design"}
-            label="Design"
-            onClick={() => onTabChange("design")}
-          />
-          <InspectorTabButton
-            active={activeTab === "material"}
-            label="Material"
-            onClick={() => onTabChange("material")}
-          />
-        </div>
+      <div className="px-4 pb-4">
+        <Tabs
+          className="w-full max-w-md"
+          selectedKey={activeTab}
+          onSelectionChange={(key) => {
+            const next = String(key) as InspectorTab;
+            if (next === "design" || next === "material") {
+              onTabChange(next);
+            }
+          }}
+        >
+          <Tabs.ListContainer>
+            <Tabs.List aria-label="Inspector tabs">
+              <Tabs.Tab id="design">
+              Design
+              <Tabs.Indicator />
+            </Tabs.Tab>
+              <Tabs.Tab id="material">
+              Material
+              <Tabs.Indicator />
+            </Tabs.Tab>
+            </Tabs.List>
+          </Tabs.ListContainer>
+        </Tabs>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         {activeTab === "design" ? (
           <DesignTab
             context={context}
@@ -96,6 +106,7 @@ export function StudioInspector({
             onAlign={onAlign}
             onBatchDepthChange={onBatchDepthChange}
             onBatchFillModeChange={onBatchFillModeChange}
+            onDefaultFillModeChange={onDefaultFillModeChange}
           />
         ) : (
           materialContent
@@ -107,9 +118,9 @@ export function StudioInspector({
 
 function ShellHeader() {
   return (
-    <div className="flex items-center justify-between px-5 py-7">
-      <div className="h-11 w-11 rounded-full bg-[radial-gradient(circle_at_35%_35%,#fff7cf,#ff9848_58%,#ff5225)] shadow-[0_10px_30px_rgba(255,122,60,0.24)]" />
-      <Button className="h-12 rounded-[1.25rem] px-6 text-lg">Share</Button>
+    <div className="flex items-center justify-between px-4 py-4">
+      <div className="h-9 w-9 rounded-full bg-primary/30" />
+      <Button size="sm">Share</Button>
     </div>
   );
 }
@@ -131,6 +142,7 @@ function DesignTab({
   onAlign,
   onBatchDepthChange,
   onBatchFillModeChange,
+  onDefaultFillModeChange,
 }: Omit<StudioInspectorProps, "activeTab" | "onTabChange" | "materialContent">) {
   if (!settings) {
     return <div className="text-sm text-white/50">Loading inspector…</div>;
@@ -147,7 +159,7 @@ function DesignTab({
       : `${settings.engraving.target_depth} mm`;
 
   return (
-    <div className="space-y-7">
+    <div className="space-y-5">
       <div className="flex flex-wrap gap-2">
         <BadgePill accent={selectionCount > 0}>{selectionCount} selected</BadgePill>
         <BadgePill>{depthBadge}</BadgePill>
@@ -157,7 +169,7 @@ function DesignTab({
       <section className="space-y-4">
         <SectionHeading title="Position" />
         <div>
-          <p className="mb-3 text-sm text-white/70">Alignment</p>
+          <p className="mb-2 text-xs text-muted-foreground">Alignment</p>
           <div className="grid grid-cols-2 gap-3">
             <AlignmentCluster onAlign={onAlign} disabled={!!paddingValidationMessage} />
             <AlignmentCluster
@@ -166,36 +178,22 @@ function DesignTab({
               disabled={!!paddingValidationMessage}
             />
           </div>
-          <p className="mt-3 text-xs leading-relaxed text-white/36">
-            {paddingValidationMessage ?? "Common alignment controls are grouped here so you can position the artwork without bouncing between cards."}
-          </p>
-        </div>
-
-        <div>
-          <p className="mb-3 text-sm text-white/70">Rotation</p>
-          <div className="flex items-center rounded-[1.2rem] bg-white/[0.05]">
-            <DisabledIconButton icon={Icons.rotateLeft} />
-            <div className="flex h-14 min-w-0 flex-1 items-center justify-center border-x border-white/6 text-lg text-white/48">
-              0
-            </div>
-            <DisabledIconButton icon={Icons.rotateRight} />
-            <DisabledIconButton icon={Icons.reset} />
-          </div>
+          {paddingValidationMessage ? (
+            <p className="mt-2 text-xs text-amber-700">{paddingValidationMessage}</p>
+          ) : null}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <CompactField
+          <InsetLabelField
             label="Y"
             value={placementY}
             suffix="mm"
-            icon={Icons.positionY}
             onChange={(value) => onPlacementChange(placementX, value ?? placementY)}
           />
-          <CompactField
+          <InsetLabelField
             label="X"
             value={placementX}
             suffix="mm"
-            icon={Icons.positionX}
             onChange={(value) => onPlacementChange(value ?? placementX, placementY)}
           />
         </div>
@@ -204,26 +202,24 @@ function DesignTab({
       <section className="space-y-4">
         <SectionHeading title="Layout" />
         <div>
-          <p className="mb-3 text-sm text-white/70">Dimensions</p>
-          <div className="grid grid-cols-[1fr_1fr_auto] gap-3">
-            <CompactField
+          <p className="mb-3 text-sm text-muted-foreground">Dimensions</p>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-3">
+            <InsetLabelField
               label="W"
               value={svgWidthMm}
               suffix="mm"
-              icon={Icons.width}
               onChange={(value) => onSvgDimensionChange("width", value)}
             />
-            <CompactField
+            <InsetLabelField
               label="H"
               value={svgHeightMm}
               suffix="mm"
-              icon={Icons.positionY}
               onChange={(value) => onSvgDimensionChange("height", value)}
             />
             <button
               className={cn(
-                "inline-flex h-14 w-14 items-center justify-center rounded-[1.1rem] bg-white/[0.05] text-white transition",
-                svgAspectLocked ? "text-white" : "text-white/42",
+                "inline-flex h-8 w-8 items-center justify-center rounded-md border border-border transition",
+                svgAspectLocked ? "text-foreground" : "text-muted-foreground",
               )}
               onClick={() => onSvgAspectLockChange(!svgAspectLocked)}
             >
@@ -234,20 +230,37 @@ function DesignTab({
             </button>
           </div>
           <div className="mt-3 max-w-[12rem]">
-            <CompactField
+            <NumberField
               label="Padding"
               value={paddingMm}
-              suffix="mm"
-              icon={Icons.grid}
+              unit="mm"
               onChange={onPaddingChange}
             />
           </div>
         </div>
       </section>
 
+      <section className="space-y-4">
+        <SectionHeading title="Defaults" />
+        <div className="grid gap-1">
+          <Label className="text-xs text-muted-foreground">Fill type</Label>
+          <div className="flex flex-wrap gap-3">
+            {FILL_MODE_VISUALS.map((option) => (
+              <VisualModeOption
+                key={option.mode}
+                label={option.label}
+                previewClassName={option.previewClassName}
+                isSelected={settings.engraving.fill_mode === option.mode}
+                onClick={() => onDefaultFillModeChange(option.mode)}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
+
       {context.type === "none" ? (
-        <div className="rounded-[1.35rem] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm leading-relaxed text-white/42">
-          Select the SVG or one or more parts to edit cut depth, fill mode, and placement settings here.
+        <div className="rounded-md border border-dashed border-border bg-content1 px-3 py-3 text-sm text-muted-foreground">
+          Select one or more parts to edit cut settings.
         </div>
       ) : context.type === "selection" ? (
         <section className="space-y-4">
@@ -265,7 +278,7 @@ function DesignTab({
               }}
             />
             <FillModeField
-              label="Fill"
+              label="Part fill"
               value={context.fillMode}
               mixed={mixedFill}
               onChange={(value) => onBatchFillModeChange(context.elementIds, value)}
@@ -305,7 +318,7 @@ function ProfileGroupsSection({
       {groups.map((group) => (
         <div
           key={group.key}
-          className="rounded-[1.35rem] bg-white/[0.05] px-4 py-4"
+          className="rounded-md border border-border bg-content1 p-3"
         >
           <div className="flex items-center gap-3">
             <span
@@ -313,12 +326,12 @@ function ProfileGroupsSection({
               style={{ backgroundColor: group.fillMode === "Contour" ? "#67B8FF" : "#FF667A" }}
             />
             <div className="min-w-0 flex-1">
-              <p className="text-[1.05rem] font-medium text-white">
+              <p className="text-sm font-medium text-foreground">
                 {formatMillimeters(group.targetDepthMm)}
               </p>
-              <p className="text-sm text-white/36">{group.elementIds.length} parts</p>
+              <p className="text-xs text-muted-foreground">{group.elementIds.length} parts</p>
             </div>
-            <div className="text-sm text-white/42">{group.fillMode ?? "Default"}</div>
+            <div className="text-xs text-muted-foreground">{group.fillMode ?? "Default"}</div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <NumberField
@@ -332,7 +345,7 @@ function ProfileGroupsSection({
               }}
             />
             <FillModeField
-              label="Fill"
+              label="Part fill"
               value={group.fillMode}
               onChange={(value) => onFillModeChange(group.elementIds, value)}
             />
@@ -340,28 +353,6 @@ function ProfileGroupsSection({
         </div>
       ))}
     </div>
-  );
-}
-
-function InspectorTabButton({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={cn(
-        "h-12 flex-1 rounded-[1.15rem] text-lg font-medium transition",
-        active ? "bg-white/[0.16] text-white" : "text-white/55 hover:bg-white/[0.04] hover:text-white",
-      )}
-      onClick={onClick}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -374,8 +365,8 @@ function SectionHeading({
 }) {
   return (
     <div className="flex items-center justify-between">
-      <h3 className="text-[1.15rem] font-medium text-white">{title}</h3>
-      {actionLabel ? <button className="text-3xl leading-none text-white/72">{actionLabel}</button> : null}
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      {actionLabel ? <Button size="sm" variant="ghost">{actionLabel}</Button> : null}
     </div>
   );
 }
@@ -389,10 +380,9 @@ function BadgePill({
 }) {
   return (
     <Chip
-      className={cn(
-        "px-3 py-1 text-[0.95rem] font-medium",
-        accent ? "bg-primary text-white" : "bg-white/[0.06] text-white/72",
-      )}
+      size="sm"
+      color={accent ? "accent" : "default"}
+      variant={accent ? "primary" : "soft"}
     >
       {children}
     </Chip>
@@ -421,94 +411,18 @@ function AlignmentCluster({
       ];
 
   return (
-    <div className="flex rounded-[1.2rem] bg-white/[0.05] p-1">
+    <ButtonGroup size="sm" variant="secondary" isDisabled={disabled}>
       {actions.map(({ action, icon }, index) => (
-        <button
+        <Button
           key={action}
-          className={cn(
-            "inline-flex h-12 flex-1 items-center justify-center text-white transition hover:bg-white/[0.08]",
-            index > 0 && "border-l border-white/6",
-            disabled && "cursor-not-allowed text-white/22 hover:bg-transparent",
-          )}
-          disabled={disabled}
-          onClick={() => onAlign(action)}
+          isIconOnly
+          onPress={() => onAlign(action)}
         >
+          {index > 0 ? <ButtonGroup.Separator /> : null}
           <AppIcon icon={icon} className="h-5 w-5" />
-        </button>
+        </Button>
       ))}
-    </div>
-  );
-}
-
-function DisabledIconButton({ icon }: { icon: typeof Icons.rotateLeft }) {
-  return (
-    <button
-      className="inline-flex h-14 w-14 items-center justify-center text-white/26"
-      disabled
-    >
-      <AppIcon icon={icon} className="h-5 w-5" />
-    </button>
-  );
-}
-
-function CompactField({
-  label,
-  value,
-  suffix,
-  icon,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  suffix: string;
-  icon: typeof Icons.positionX;
-  onChange: (value: number | null) => void;
-}) {
-  const [editValue, setEditValue] = useState<string | null>(null);
-
-  const commit = useCallback(
-    (raw: string) => {
-      const parsed = Number.parseFloat(raw);
-      if (raw.trim() === "") {
-        onChange(null);
-      } else if (Number.isFinite(parsed)) {
-        onChange(parsed);
-      }
-      setEditValue(null);
-    },
-    [onChange],
-  );
-
-  const displayValue = editValue ?? value.toFixed(3).replace(/\.?0+$/, "");
-
-  return (
-    <div className="flex h-14 items-center rounded-[1.15rem] bg-white/[0.05]">
-      <div className="inline-flex min-w-[3.25rem] items-center justify-center gap-1 text-sm text-white/46">
-        <AppIcon icon={icon} className="h-4 w-4" />
-        {label}
-      </div>
-      <Input
-        type="text"
-        inputMode="decimal"
-        className="h-full border-0 bg-transparent px-0 text-[1.1rem] text-white focus-visible:ring-0"
-        value={displayValue}
-        onFocus={(event) => {
-          setEditValue(String(value));
-          requestAnimationFrame(() => event.target.select());
-        }}
-        onChange={(event) => setEditValue(event.target.value)}
-        onBlur={(event) => commit(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.currentTarget.blur();
-          } else if (event.key === "Escape") {
-            setEditValue(null);
-            event.currentTarget.blur();
-          }
-        }}
-      />
-      <div className="pr-4 text-[1.1rem] text-white/62">{suffix}</div>
-    </div>
+    </ButtonGroup>
   );
 }
 
@@ -526,10 +440,10 @@ function FillModeField({
   const selectValue = mixed ? "__mixed__" : value ?? "";
 
   return (
-    <div className="grid gap-1.5">
-      <Label className="text-xs text-white/45">{label}</Label>
+    <div className="grid min-w-0 w-full gap-1.5">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
       <select
-        className="h-12 rounded-[1rem] border border-white/8 bg-white/[0.04] px-3 text-sm text-white outline-none transition focus:border-primary/35"
+        className="h-9 min-w-0 w-full rounded-md border border-input bg-background px-2 text-sm"
         value={selectValue}
         onChange={(event) => {
           const nextValue = event.target.value;
@@ -545,6 +459,92 @@ function FillModeField({
         <option value="Contour">Contour</option>
       </select>
     </div>
+  );
+}
+
+function InsetLabelField({
+  label,
+  value,
+  suffix,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  suffix: string;
+  onChange: (value: number | null) => void;
+}) {
+  const [editValue, setEditValue] = useState<string | null>(null);
+
+  const commit = useCallback(
+    (raw: string) => {
+      const parsed = Number.parseFloat(raw);
+      if (raw.trim() === "") {
+        onChange(null);
+      } else if (Number.isFinite(parsed)) {
+        onChange(parsed);
+      }
+      setEditValue(null);
+    },
+    [onChange],
+  );
+
+  const displayValue = editValue ?? value.toFixed(2).replace(/\.?0+$/, "");
+
+  return (
+    <div className="flex h-9 w-full min-w-0 items-center rounded-md border border-border bg-content1 px-2">
+      <div className="inline-flex min-w-[1rem] shrink-0 items-center justify-center text-xs text-muted-foreground">
+        {label}
+      </div>
+      <Input
+        type="text"
+        inputMode="decimal"
+        className="h-full min-w-0 flex-1 border-0 bg-transparent px-0 text-sm"
+        value={displayValue}
+        onFocus={(event) => {
+          setEditValue(String(value));
+          requestAnimationFrame(() => event.target.select());
+        }}
+        onChange={(event) => setEditValue(event.target.value)}
+        onBlur={(event) => commit(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          } else if (event.key === "Escape") {
+            setEditValue(null);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+      <div className="shrink-0 pl-2 text-xs text-muted-foreground">{suffix}</div>
+    </div>
+  );
+}
+
+function VisualModeOption({
+  label,
+  previewClassName,
+  isSelected,
+  onClick,
+}: {
+  label: string;
+  previewClassName: string;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex min-w-[7.25rem] items-center gap-2 rounded-md border px-3 py-2 text-left text-xs transition",
+        isSelected
+          ? "border-primary bg-primary/12 text-foreground"
+          : "border-border bg-content1 text-muted-foreground hover:border-primary/45",
+      )}
+    >
+      <span className={cn("h-4 w-6 rounded-sm border border-border/70 bg-content2", previewClassName)} />
+      <span className="font-medium">{label}</span>
+    </button>
   );
 }
 
@@ -577,13 +577,13 @@ function NumberField({
   const displayValue = editValue ?? value.toFixed(2);
 
   return (
-    <div className="grid gap-1.5">
-      <Label className="text-xs text-white/45">{label}</Label>
-      <div className="relative">
+    <div className="grid min-w-0 w-full gap-1.5">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="relative min-w-0">
         <Input
           type="text"
           inputMode="decimal"
-          className="h-12 rounded-[1rem] border-white/8 bg-white/[0.04] pr-12 text-sm text-white"
+          className="h-9 min-w-0 w-full pr-10 text-sm"
           value={displayValue}
           onFocus={(event) => {
             setEditValue(value.toFixed(2));
@@ -600,7 +600,7 @@ function NumberField({
             }
           }}
         />
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
           {unit}
         </span>
       </div>
@@ -625,13 +625,13 @@ function MixedNumberField({
   const displayValue = editValue ?? (mixed ? "" : value != null ? value.toFixed(2) : "");
 
   return (
-    <div className="grid gap-1.5">
-      <Label className="text-xs text-white/45">{label}</Label>
-      <div className="relative">
+    <div className="grid min-w-0 w-full gap-1.5">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="relative min-w-0">
         <Input
           type="text"
           inputMode="decimal"
-          className="h-12 rounded-[1rem] border-white/8 bg-white/[0.04] pr-12 text-sm text-white"
+          className="h-9 min-w-0 w-full pr-10 text-sm"
           placeholder={mixed ? "Mixed" : "0.00"}
           value={displayValue}
           onFocus={(event) => {
@@ -660,7 +660,7 @@ function MixedNumberField({
             }
           }}
         />
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
           {unit}
         </span>
       </div>

@@ -1,14 +1,15 @@
 import { useCallback, useMemo, useState } from "react";
-import { Chip } from "@heroui/react";
-
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Button, Chip, Input, Label } from "@heroui/react";
 import { AppIcon, Icons } from "@/lib/icons";
-import type { FillMode, Settings } from "@/lib/types";
+import type { Settings } from "@/lib/types";
+import { MATERIAL_PRESET_LIST, type MaterialPresetId } from "@/lib/material-presets";
+import flatRouterBit from "@/assets/router bits/flat_router_bit.png";
+import roundRouterBit from "@/assets/router bits/round_router_bit.png";
+import vCarveBit from "@/assets/router bits/v_carve_bit.png";
 
 interface MaterialInspectorProps {
   settings: Settings | null;
+  materialPreset: MaterialPresetId;
   recommendedAdvanced: Record<string, number>;
   advancedOverrides: Record<string, boolean>;
   onMaterialSizeChange: (dimension: "width" | "height", value: number | null) => void;
@@ -18,28 +19,39 @@ interface MaterialInspectorProps {
     source: "basic" | "advanced",
   ) => void;
   onToolShapeChange: (value: "Flat" | "Ball" | "V") => void;
-  onFillModeChange: (value: FillMode) => void;
+  onMaterialPresetChange: (value: MaterialPresetId) => void;
   onResetAdvancedRecommendations: () => void;
 }
 
 export function MaterialInspector({
   settings,
+  materialPreset,
   recommendedAdvanced,
   advancedOverrides,
   onMaterialSizeChange,
   onNumberChange,
   onToolShapeChange,
-  onFillModeChange,
+  onMaterialPresetChange,
   onResetAdvancedRecommendations,
 }: MaterialInspectorProps) {
-  const [advancedOpen, setAdvancedOpen] = useState(true);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const advancedOverrideCount = useMemo(
     () => Object.values(advancedOverrides).filter(Boolean).length,
     [advancedOverrides],
   );
+  const recommendation = useCallback(
+    (path: string, digits: number, unit: string) => {
+      const value = recommendedAdvanced[path];
+      if (!Number.isFinite(value)) {
+        return undefined;
+      }
+      return `Rec ${value.toFixed(digits)} ${unit}`;
+    },
+    [recommendedAdvanced],
+  );
 
   if (!settings) {
-    return <div className="text-sm text-white/50">Loading settings…</div>;
+    return <div className="text-sm text-muted-foreground">Loading settings…</div>;
   }
 
   const depth = settings.engraving.target_depth ?? 1;
@@ -48,13 +60,10 @@ export function MaterialInspector({
   const mmPerPass = (depth / passes).toFixed(2);
 
   return (
-    <div className="space-y-6">
-      <section className="space-y-4">
-        <SectionHeader
-          title="Material"
-          description="Global machine and stock defaults live here so the design controls can stay focused on placement."
-        />
-        <div className="grid grid-cols-3 gap-3">
+    <div className="space-y-5">
+      <section className="space-y-3">
+        <SectionHeader title="Material" />
+        <div className="flex flex-wrap gap-2">
           <PillField
             label="W"
             value={settings.engraving.material_width}
@@ -74,58 +83,72 @@ export function MaterialInspector({
             onChange={(value) => onNumberChange("engraving.material_thickness", value, "basic")}
           />
         </div>
+        <div className="grid gap-1">
+          <Label className="text-xs text-muted-foreground">Preset</Label>
+          <div className="flex flex-wrap gap-3">
+            {MATERIAL_PRESET_LIST.map((preset) => (
+              <MaterialPresetOption
+                key={preset.id}
+                label={preset.label}
+                texture={preset.texture}
+                isSelected={materialPreset === preset.id}
+                onClick={() => onMaterialPresetChange(preset.id)}
+              />
+            ))}
+          </div>
+        </div>
       </section>
 
-      <section className="space-y-4">
+      <section className="space-y-3">
         <SectionHeader title="Router bit" />
-        <div className="flex rounded-[1.2rem] bg-white/[0.05]">
-          <MetricChip icon={Icons.camera} value={`${settings.engraving.tool_diameter}mm`} />
-          <MetricChip icon={Icons.positionY} value={`${settings.engraving.target_depth}mm`} />
-          <MetricChip icon={Icons.code} value={settings.engraving.tool_shape} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-wrap gap-3">
           <NumberField
-            label="Tool Diameter"
+            className="w-[10.5rem]"
+            label="Diameter"
             unit="mm"
             value={settings.engraving.tool_diameter}
             onChange={(value) => onNumberChange("engraving.tool_diameter", value, "basic")}
           />
-          <div className="grid gap-1.5">
-            <Label className="text-xs text-white/45">Tool Shape</Label>
-            <select
-              className="h-12 rounded-[1rem] border border-white/8 bg-white/[0.04] px-3 text-sm text-white outline-none transition focus:border-primary/35"
-              value={settings.engraving.tool_shape}
-              onChange={(event) => onToolShapeChange(event.target.value as "Flat" | "Ball" | "V")}
-            >
-              <option value="Flat">Flat</option>
-              <option value="Ball">Ball</option>
-              <option value="V">V</option>
-            </select>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <div className="grid gap-1">
+            <Label className="text-xs text-muted-foreground">Shape</Label>
+            <div className="flex gap-3">
+              <ToolShapeOption
+                shape="Flat"
+                image={flatRouterBit}
+                isSelected={settings.engraving.tool_shape === "Flat"}
+                onClick={() => onToolShapeChange("Flat")}
+              />
+              <ToolShapeOption
+                shape="Ball"
+                image={roundRouterBit}
+                isSelected={settings.engraving.tool_shape === "Ball"}
+                onClick={() => onToolShapeChange("Ball")}
+              />
+              <ToolShapeOption
+                shape="V"
+                image={vCarveBit}
+                isSelected={settings.engraving.tool_shape === "V"}
+                onClick={() => onToolShapeChange("V")}
+              />
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="space-y-4">
+      <section className="space-y-3">
         <SectionHeader title="Defaults" />
-        <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-wrap gap-3">
           <NumberField
-            label="Default Depth"
+            className="w-[10.5rem]"
+            label="Depth"
             unit="mm"
             value={settings.engraving.target_depth}
             onChange={(value) => onNumberChange("engraving.target_depth", value, "basic")}
           />
-          <div className="grid gap-1.5">
-            <Label className="text-xs text-white/45">Default Fill</Label>
-            <select
-              className="h-12 rounded-[1rem] border border-white/8 bg-white/[0.04] px-3 text-sm text-white outline-none transition focus:border-primary/35"
-              value={settings.engraving.fill_mode ?? "Pocket"}
-              onChange={(event) => onFillModeChange(event.target.value as FillMode)}
-            >
-              <option value="Pocket">Pocket</option>
-              <option value="Contour">Contour</option>
-            </select>
-          </div>
           <NumberField
+            className="w-[10.5rem]"
             label="Passes"
             unit="x"
             value={passes}
@@ -134,103 +157,103 @@ export function MaterialInspector({
               onNumberChange("engraving.max_stepdown", depth / nextPasses, "advanced");
             }}
           />
-          <div className="rounded-[1rem] border border-white/8 bg-white/[0.04] px-4 py-3">
-            <p className="text-xs text-white/45">Per pass</p>
-            <p className="mt-1 text-lg font-medium text-white">{mmPerPass}mm</p>
-          </div>
+          <ReadOnlyField className="w-[10.5rem]" label="Per pass" value={`${mmPerPass} mm`} />
         </div>
       </section>
 
-      <section className="rounded-[1.35rem] bg-white/[0.04] px-4 py-4">
+      <section className="rounded-md border border-border bg-content1 px-3 py-3">
         <button
           className="flex w-full items-center gap-3 text-left"
           onClick={() => setAdvancedOpen((value) => !value)}
         >
           <AppIcon
             icon={advancedOpen ? Icons.chevronDown : Icons.chevronRight}
-            className="h-4 w-4 text-white/50"
+            className="h-4 w-4 text-muted-foreground"
           />
           <div className="min-w-0 flex-1">
-            <p className="text-[1.05rem] font-medium text-white">Advanced</p>
-            <p className="text-sm text-white/38">Feeds, stepover, envelope, and machine output tuning.</p>
+            <p className="text-sm font-medium text-foreground">Advanced</p>
           </div>
           {advancedOverrideCount > 0 ? (
-            <Chip className="bg-amber-500/12 px-3 py-1 text-[11px] font-semibold text-amber-200">
+            <Chip size="sm" color="warning" variant="soft">
               {advancedOverrideCount} overrides
             </Chip>
           ) : null}
         </button>
 
         {advancedOpen ? (
-          <div className="space-y-5 pt-5">
-            <div className="flex items-start justify-between gap-4 rounded-[1.15rem] border border-white/8 bg-white/[0.03] px-4 py-4">
-              <div className="flex items-start gap-3">
-                <AppIcon icon={Icons.info} className="mt-0.5 h-4 w-4 text-primary" />
-                <div>
-                  <p className="text-sm font-medium text-white">Recommended values stay linked</p>
-                  <p className="text-xs leading-relaxed text-white/38">
-                    Editing an advanced field takes manual control until you reset it.
-                  </p>
-                </div>
-              </div>
+          <div className="space-y-3 pt-3">
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-content2 px-3 py-2">
+              <p className="text-xs text-muted-foreground">
+                {advancedOverrideCount > 0
+                  ? `${advancedOverrideCount} fields are manually set`
+                  : "Using recommended values"}
+              </p>
               <Button
                 size="sm"
-                variant="outline"
-                onClick={onResetAdvancedRecommendations}
-                disabled={advancedOverrideCount === 0}
+                variant="secondary"
+                onPress={onResetAdvancedRecommendations}
+                isDisabled={advancedOverrideCount === 0}
               >
                 Reset
               </Button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-wrap gap-3">
               <NumberField
+                className="w-[10.5rem]"
                 label="Max Stepdown"
                 unit="mm"
                 value={settings.engraving.max_stepdown}
-                helper={`Recommended ${recommendedAdvanced["engraving.max_stepdown"]?.toFixed(2)} mm`}
+                helper={recommendation("engraving.max_stepdown", 2, "mm")}
                 onChange={(value) => onNumberChange("engraving.max_stepdown", value, "advanced")}
               />
               <NumberField
+                className="w-[10.5rem]"
                 label="Stepover"
                 unit="mm"
                 value={settings.engraving.stepover}
-                helper={`Recommended ${recommendedAdvanced["engraving.stepover"]?.toFixed(2)} mm`}
+                helper={recommendation("engraving.stepover", 2, "mm")}
                 onChange={(value) => onNumberChange("engraving.stepover", value, "advanced")}
               />
               <NumberField
+                className="w-[10.5rem]"
                 label="Cut Feed"
                 unit="mm/min"
                 value={settings.engraving.cut_feedrate}
-                helper={`Recommended ${recommendedAdvanced["engraving.cut_feedrate"]?.toFixed(0)} mm/min`}
+                helper={recommendation("engraving.cut_feedrate", 0, "mm/min")}
                 onChange={(value) => onNumberChange("engraving.cut_feedrate", value, "advanced")}
               />
               <NumberField
+                className="w-[10.5rem]"
                 label="Plunge Feed"
                 unit="mm/min"
                 value={settings.engraving.plunge_feedrate}
-                helper={`Recommended ${recommendedAdvanced["engraving.plunge_feedrate"]?.toFixed(0)} mm/min`}
+                helper={recommendation("engraving.plunge_feedrate", 0, "mm/min")}
                 onChange={(value) => onNumberChange("engraving.plunge_feedrate", value, "advanced")}
               />
               <NumberField
+                className="w-[10.5rem]"
                 label="Travel Z"
                 unit="mm"
                 value={settings.machine.travel_z}
                 onChange={(value) => onNumberChange("machine.travel_z", value, "advanced")}
               />
               <NumberField
+                className="w-[10.5rem]"
                 label="Cut Z"
                 unit="mm"
                 value={settings.machine.cut_z}
                 onChange={(value) => onNumberChange("machine.cut_z", value, "advanced")}
               />
               <NumberField
+                className="w-[10.5rem]"
                 label="Machine Width"
                 unit="mm"
                 value={settings.engraving.machine_width}
                 onChange={(value) => onNumberChange("engraving.machine_width", value, "advanced")}
               />
               <NumberField
+                className="w-[10.5rem]"
                 label="Machine Height"
                 unit="mm"
                 value={settings.engraving.machine_height}
@@ -246,30 +269,31 @@ export function MaterialInspector({
 
 function SectionHeader({
   title,
-  description,
 }: {
   title: string;
-  description?: string;
 }) {
   return (
-    <div>
-      <p className="text-[1.15rem] font-medium text-white">{title}</p>
-      {description ? <p className="mt-1 text-sm leading-relaxed text-white/38">{description}</p> : null}
+    <div className="leading-none">
+      <p className="text-sm font-semibold text-foreground">{title}</p>
     </div>
   );
 }
 
-function MetricChip({
-  icon,
+function ReadOnlyField({
+  label,
   value,
+  className,
 }: {
-  icon: typeof Icons.camera;
+  label: string;
   value: string;
+  className?: string;
 }) {
   return (
-    <div className="flex flex-1 items-center justify-center gap-2 py-4 text-lg text-white">
-      <AppIcon icon={icon} className="h-4 w-4 text-white/66" />
-      {value}
+    <div className={`grid gap-1 ${className ?? "w-[10.5rem]"}`}>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="flex h-9 items-center rounded-md border border-border bg-content2 px-3 text-sm text-foreground">
+        {value}
+      </div>
     </div>
   );
 }
@@ -303,12 +327,12 @@ function PillField({
   const displayValue = editValue ?? String(value);
 
   return (
-    <div className="flex h-14 items-center rounded-[1.15rem] bg-white/[0.05]">
-      <div className="min-w-[3rem] px-4 text-sm text-white/46">{label}</div>
+    <div className="flex h-9 w-[7.75rem] items-center rounded-md border border-border bg-content1 px-2">
+      <div className="w-5 text-xs text-muted-foreground">{label}</div>
       <Input
         type="text"
         inputMode="decimal"
-        className="h-full border-0 bg-transparent px-0 text-[1.15rem] text-white focus-visible:ring-0"
+        className="h-full min-w-0 flex-1 border-0 bg-transparent px-0 text-sm"
         value={displayValue}
         onFocus={(event) => {
           setEditValue(String(value));
@@ -325,7 +349,7 @@ function PillField({
           }
         }}
       />
-      <div className="pr-4 text-[1.15rem] text-white/62">{unit}</div>
+      <div className="pl-1 text-xs text-muted-foreground">{unit}</div>
     </div>
   );
 }
@@ -336,12 +360,14 @@ function NumberField({
   value,
   helper,
   onChange,
+  className,
 }: {
   label: string;
   unit: string;
   value: number | null;
   helper?: string;
   onChange: (value: number | null) => void;
+  className?: string;
 }) {
   const [editValue, setEditValue] = useState<string | null>(null);
 
@@ -361,13 +387,13 @@ function NumberField({
   const displayValue = editValue ?? (value != null ? String(value) : "");
 
   return (
-    <div className="grid gap-1.5">
-      <Label className="text-xs text-white/45">{label}</Label>
+    <div className={`grid gap-1 ${className ?? "w-[10.5rem]"}`}>
+      <Label className="text-xs text-muted-foreground">{label}</Label>
       <div className="relative">
         <Input
           type="text"
           inputMode="decimal"
-          className="h-12 rounded-[1rem] border-white/8 bg-white/[0.04] pr-14 text-sm text-white placeholder:text-white/24"
+          className="h-9 w-full pr-10 text-sm"
           value={displayValue}
           onFocus={(event) => {
             setEditValue(value != null ? String(value) : "");
@@ -384,11 +410,82 @@ function NumberField({
             }
           }}
         />
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
           {unit}
         </span>
       </div>
-      {helper ? <p className="text-[11px] leading-relaxed text-white/34">{helper}</p> : null}
+      {helper ? <p className="text-[11px] text-muted-foreground">{helper}</p> : null}
     </div>
+  );
+}
+
+function ToolShapeOption({
+  shape,
+  image,
+  isSelected,
+  onClick,
+}: {
+  shape: "Flat" | "Ball" | "V";
+  image: string;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  const label = shape === "V" ? "V-Carve" : shape;
+  const topOffset = shape === "V" ? -26 : shape === "Ball" ? -24 : -22;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex flex-col items-center gap-1"
+    >
+      <div
+        className={`
+          relative h-10 w-10 overflow-hidden rounded-full border-2 transition-all
+          ${isSelected 
+            ? "border-primary ring-2 ring-primary ring-offset-1 ring-offset-background" 
+            : "border-border hover:border-muted-foreground"
+          }
+        `}
+      >
+        <img
+          src={image}
+          alt={label}
+          className="pointer-events-none absolute left-1/2 h-[84px] max-w-none -translate-x-1/2 object-contain"
+          style={{ top: `${topOffset}px` }}
+        />
+      </div>
+      <span className={`text-[10px] ${isSelected ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+        {label}
+      </span>
+    </button>
+  );
+}
+
+function MaterialPresetOption({
+  label,
+  texture,
+  isSelected,
+  onClick,
+}: {
+  label: string;
+  texture: string;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" onClick={onClick} className="flex flex-col items-center gap-1">
+      <div
+        className={`
+          relative h-12 w-12 overflow-hidden rounded-full border-2 transition-all
+          ${isSelected ? "border-primary ring-2 ring-primary ring-offset-1 ring-offset-background" : "border-border hover:border-muted-foreground"}
+        `}
+      >
+        <img src={texture} alt={label} className="h-full w-full object-cover" />
+      </div>
+      <span className={`text-[10px] ${isSelected ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+        {label}
+      </span>
+    </button>
   );
 }

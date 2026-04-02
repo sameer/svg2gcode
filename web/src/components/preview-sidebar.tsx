@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
+import { Alert, Button, Tag, TagGroup } from "@heroui/react";
 
 import { AppIcon, Icons } from "@/lib/icons";
 import type { FrontendOperation, GenerateJobResponse } from "@/lib/types";
@@ -56,8 +57,8 @@ export function PreviewSidebar({
 
   if (!generated) {
     return (
-      <div className="flex h-full flex-col bg-[linear-gradient(180deg,rgba(25,25,29,0.96),rgba(20,20,24,0.98))] px-5 py-5 text-white">
-        <div className="rounded-[1.35rem] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm leading-relaxed text-white/45">
+      <div className="flex h-full flex-col bg-background px-4 py-4">
+        <div className="rounded-md border border-dashed border-border bg-content1 px-3 py-3 text-sm text-muted-foreground">
           Generate a path from the Design workspace to open the 3D review panels.
         </div>
       </div>
@@ -65,36 +66,36 @@ export function PreviewSidebar({
   }
 
   return (
-    <div className="flex h-full flex-col bg-[linear-gradient(180deg,rgba(25,25,29,0.96),rgba(20,20,24,0.98))] text-white">
-      <div className="border-b border-white/6 px-5 py-5">
+    <div className="flex h-full flex-col bg-background text-foreground">
+      <div className="border-b border-border px-4 py-4">
         <div className="flex items-center justify-between">
-          <div className="text-[2.1rem] font-black tracking-[-0.08em] text-white/70">LOGO</div>
+          <div className="text-xl font-bold text-foreground">LOGO</div>
         </div>
-        <div className="mt-8">
+        <div className="mt-4">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-[2rem] font-semibold tracking-[-0.04em] text-white">
+            <h2 className="truncate text-lg font-semibold text-foreground">
               {projectName}
             </h2>
-            <AppIcon icon={Icons.chevronDown} className="h-4 w-4 text-white/70" />
+            <AppIcon icon={Icons.chevronDown} className="h-4 w-4 text-muted-foreground" />
           </div>
-          <p className="mt-1 text-base text-white/42">{projectSubtitle}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{projectSubtitle}</p>
         </div>
       </div>
 
-      <div className="flex items-center gap-3 px-5 py-5">
-        <div className="text-sm uppercase tracking-[0.18em] text-white/46">GCODE</div>
-        <div className="text-[1.05rem] text-white/52">
+      <div className="flex items-center gap-2 px-4 py-3">
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">GCODE</div>
+        <div className="text-sm text-muted-foreground">
           {activeLineNumber ?? 0} of {lines.length}
         </div>
-        <button className="ml-auto text-white/68" onClick={() => onStepLine(-1)}>
+        <Button className="ml-auto" isIconOnly size="sm" variant="ghost" onPress={() => onStepLine(-1)}>
           <AppIcon icon={Icons.chevronLeft} className="h-5 w-5" />
-        </button>
-        <button className="text-white/68" onClick={() => onStepLine(1)}>
+        </Button>
+        <Button isIconOnly size="sm" variant="ghost" onPress={() => onStepLine(1)}>
           <AppIcon icon={Icons.chevronRight} className="h-5 w-5" />
-        </button>
+        </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3">
         <div className="space-y-1 pb-5">
           {lines.map((line, index) => {
             const lineNumber = index + 1;
@@ -110,7 +111,7 @@ export function PreviewSidebar({
                 key={`${lineNumber}-${line}`}
                 ref={isActive ? activeLineRef : null}
                 className={cn(
-                  "flex w-full items-start gap-3 rounded-[1rem] px-3 py-2 text-left font-mono text-[0.98rem] transition",
+                  "flex w-full items-start gap-3 rounded-md px-2 py-1.5 text-left font-mono text-sm transition",
                   isActive ? "bg-[#CAFFC6] text-[#233125]" : "text-white/78 hover:bg-white/[0.04]",
                   isDimmed && "opacity-35",
                 )}
@@ -132,58 +133,57 @@ export function PreviewSidebar({
         </div>
       </div>
 
-      <div className="border-t border-white/6 px-5 py-5">
-        <p className="mb-4 text-[1.15rem] font-medium text-white/92">Warnings</p>
+      <div className="border-t border-border px-4 py-4">
+        <p className="mb-3 text-sm font-semibold text-foreground">Warnings</p>
         <div className="space-y-3">
           {generated.warnings.length > 0 ? (
             generated.warnings.map((warning) => (
-              <div
-                key={warning}
-                className="rounded-[1.35rem] bg-[#2b241a] px-4 py-4 text-[#f3c265]"
-              >
-                <div className="flex items-start gap-3">
-                  <AppIcon icon={Icons.warning} className="mt-1 h-4 w-4 shrink-0" />
-                  <div>
-                    <p className="text-[1.05rem] font-medium">Toolpath problem</p>
-                    <p className="mt-1 text-sm leading-relaxed text-[#d3b07a]">{warning}</p>
-                  </div>
-                </div>
-              </div>
+              <Alert key={warning} status="warning">
+                <Alert.Indicator />
+                <Alert.Content>
+                  <Alert.Title>Toolpath problem</Alert.Title>
+                  <Alert.Description>{warning}</Alert.Description>
+                </Alert.Content>
+              </Alert>
             ))
           ) : (
-            <div className="rounded-[1.35rem] bg-white/[0.04] px-4 py-4 text-sm text-white/42">
+            <div className="rounded-md border border-border bg-content1 px-3 py-3 text-sm text-muted-foreground">
               No warnings on the current program.
             </div>
           )}
 
           {error ? (
-            <div className="rounded-[1.35rem] bg-red-500/12 px-4 py-4 text-sm text-red-100">
-              {error}
-            </div>
+            <Alert status="danger">
+              <Alert.Indicator />
+              <Alert.Content>
+                <Alert.Title>Error</Alert.Title>
+                <Alert.Description>{error}</Alert.Description>
+              </Alert.Content>
+            </Alert>
           ) : null}
 
           {operations.length > 0 ? (
-            <div className="flex flex-wrap gap-2 pt-1">
+            <TagGroup aria-label="Operations" className="pt-1" selectionMode="single">
+              <TagGroup.List className="flex flex-wrap gap-2">
               {operations.map((operation) => {
                 const active = activeOperationId === operation.id;
                 return (
-                  <button
+                  <Tag
                     key={operation.id}
-                    className={cn(
-                      "inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm transition",
-                      active ? "bg-white/[0.12] text-white" : "bg-white/[0.05] text-white/55 hover:text-white",
-                    )}
-                    onClick={() => onOperationSelect(active ? null : operation.id)}
+                    id={operation.id}
+                    className={cn(active ? "bg-content3" : undefined)}
+                    onPress={() => onOperationSelect(active ? null : operation.id)}
                   >
                     <span
                       className="h-2.5 w-2.5 rounded-full"
                       style={{ backgroundColor: operation.color ?? "#67B8FF" }}
                     />
                     {operation.name}
-                  </button>
+                  </Tag>
                 );
               })}
-            </div>
+              </TagGroup.List>
+            </TagGroup>
           ) : null}
         </div>
       </div>

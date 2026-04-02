@@ -1,7 +1,14 @@
-import { useMemo, useState } from "react";
-import { Chip } from "@heroui/react";
-
-import { Input } from "@/components/ui/input";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Button, Chip, Description, Dropdown, Header, Input, Label, SearchField, Separator, Tag, TagGroup, Tabs } from "@heroui/react";
+import EllipsisVerticalIcon from "@gravity-ui/icons/esm/EllipsisVertical.js";
+import ChevronDownIcon from "@gravity-ui/icons/esm/ChevronDown.js";
+import ChevronRightIcon from "@gravity-ui/icons/esm/ChevronRight.js";
+import GeoIcon from "@gravity-ui/icons/esm/Geo.js";
+import Layers3DiagonalIcon from "@gravity-ui/icons/esm/Layers3Diagonal.js";
+import PencilIcon from "@gravity-ui/icons/esm/Pencil.js";
+import SquareArticleIcon from "@gravity-ui/icons/esm/SquareArticle.js";
+import SquarePlusIcon from "@gravity-ui/icons/esm/SquarePlus.js";
+import TrashBinIcon from "@gravity-ui/icons/esm/TrashBin.js";
 import { AppIcon, Icons } from "@/lib/icons";
 import type {
   CanvasSelectionTarget,
@@ -15,36 +22,52 @@ import { cn, formatMillimeters } from "@/lib/utils";
 interface LayerTreeProps {
   tree: SvgTreeNode | null;
   projectName: string;
-  projectSubtitle: string;
+  onProjectNameChange: (name: string) => void;
   selectedIds: string[];
   selectionTarget: CanvasSelectionTarget;
-  isDiveMode: boolean;
   activeDiveRootId: string | null;
   assignments: Record<string, ElementAssignment>;
   elementColors?: Map<string, string>;
   onSelectIds: (ids: string[], additive: boolean) => void;
   onSelectTarget: (target: CanvasSelectionTarget) => void;
   onActivateDiveRoot: (scope: DiveRootScope | null) => void;
+  onHoverIdsChange: (ids: string[]) => void;
 }
 
 export function LayerTree({
   tree,
   projectName,
-  projectSubtitle,
+  onProjectNameChange,
   selectedIds,
   selectionTarget,
-  isDiveMode,
   activeDiveRootId,
   assignments,
   elementColors,
   onSelectIds,
   onSelectTarget,
   onActivateDiveRoot,
+  onHoverIdsChange,
 }: LayerTreeProps) {
   const [mode, setMode] = useState<LayerGroupingMode>("structure");
   const [query, setQuery] = useState("");
   const [sidebarTab, setSidebarTab] = useState<"layers" | "library">("layers");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [collapsedStructureNodes, setCollapsedStructureNodes] = useState<Record<string, boolean>>({});
+  const [isEditingProjectName, setIsEditingProjectName] = useState(false);
+  const [projectNameDraft, setProjectNameDraft] = useState(projectName);
+  const projectNameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isEditingProjectName) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      projectNameInputRef.current?.focus();
+      projectNameInputRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isEditingProjectName]);
 
   const selectableNodes = useMemo(() => flattenSelectableNodes(tree), [tree]);
   const filteredNodes = useMemo(() => {
@@ -85,117 +108,192 @@ export function LayerTree({
 
   const selectedPartCount = selectionTarget === "svg" ? selectableNodes.length : selectedIds.length;
 
+  const commitProjectNameDraft = () => {
+    const normalized = projectNameDraft.trim();
+    if (normalized.length > 0 && normalized !== projectName) {
+      onProjectNameChange(normalized);
+    }
+    setProjectNameDraft((current) => (current.trim().length > 0 ? current.trim() : projectName));
+    setIsEditingProjectName(false);
+  };
+
+  const startEditingProjectName = () => {
+    setProjectNameDraft(projectName);
+    setIsEditingProjectName(true);
+  };
+
   return (
-    <div className="flex h-full flex-col bg-[linear-gradient(180deg,rgba(25,25,29,0.96),rgba(20,20,24,0.98))] text-white">
-      <div className="border-b border-white/6 px-5 py-5">
+    <div className="flex h-full flex-col bg-background text-foreground">
+      <div className="border-b border-border px-4 py-4">
         <div className="flex items-center justify-between">
           <div className="inline-flex items-center gap-3">
-            <div className="text-[2.1rem] font-black tracking-[-0.08em] text-white/70">LOGO</div>
+            <div className="text-xl font-bold text-foreground">Engrav Studio</div>
           </div>
-          <button className="inline-flex h-9 w-9 items-center justify-center rounded-[0.9rem] border border-white/8 bg-white/[0.03] text-white/85">
-            <AppIcon icon={Icons.grid} className="h-4 w-4" />
-          </button>
+          <Button isIconOnly size="sm" variant="secondary">
+            <AppIcon icon={Icons.pause} className="h-4 w-4" />
+          </Button>
         </div>
 
-        <div className="mt-8">
+        <div className="mt-4">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-[2rem] font-semibold tracking-[-0.04em] text-white">
-              {projectName}
-            </h2>
-            <AppIcon icon={Icons.chevronDown} className="h-4 w-4 text-white/70" />
+            {isEditingProjectName ? (
+              <Input
+                ref={projectNameInputRef}
+                aria-label="Project name"
+                className="max-w-[220px]"
+                value={projectNameDraft}
+                onChange={(event) => setProjectNameDraft(event.target.value)}
+                onBlur={commitProjectNameDraft}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    commitProjectNameDraft();
+                  }
+                  if (event.key === "Escape") {
+                    setProjectNameDraft(projectName);
+                    setIsEditingProjectName(false);
+                  }
+                }}
+              />
+            ) : (
+              <button
+                className="max-w-[220px] truncate rounded-md border border-border bg-content1 px-3 py-1.5 text-left text-lg font-semibold text-foreground transition hover:bg-content2"
+                onClick={startEditingProjectName}
+                title="Rename project"
+              >
+                {projectName}
+              </button>
+            )}
+            <Dropdown>
+              <Dropdown.Trigger>
+                <Button isIconOnly size="sm" variant="ghost" aria-label="Project menu">
+                  <EllipsisVerticalIcon className="h-4 w-4" />
+                </Button>
+              </Dropdown.Trigger>
+              <Dropdown.Popover>
+                <Dropdown.Menu
+                  aria-label="Project menu"
+                  onAction={(key) => {
+                    if (key === "rename-project") {
+                      startEditingProjectName();
+                      return;
+                    }
+                    console.log(`Selected: ${key}`);
+                  }}
+                >
+                  <Dropdown.Section>
+                    <Header>Actions</Header>
+                    <Dropdown.Item id="new-project" textValue="New project">
+                      <div className="flex h-8 items-start justify-center pt-px">
+                        <SquarePlusIcon className="size-4 shrink-0 text-muted-foreground" />
+                      </div>
+                      <div className="flex flex-col">
+                        <Label>New project</Label>
+                        <Description>Create a new project</Description>
+                      </div>
+                    </Dropdown.Item>
+                    <Dropdown.Item id="rename-project" textValue="Rename project">
+                      <div className="flex h-8 items-start justify-center pt-px">
+                        <PencilIcon className="size-4 shrink-0 text-muted-foreground" />
+                      </div>
+                      <div className="flex flex-col">
+                        <Label>Rename project</Label>
+                        <Description>Change this project name</Description>
+                      </div>
+                    </Dropdown.Item>
+                  </Dropdown.Section>
+                  <Separator />
+                  <Dropdown.Section>
+                    <Header>Danger zone</Header>
+                    <Dropdown.Item id="delete-project" textValue="Delete project" variant="danger">
+                      <div className="flex h-8 items-start justify-center pt-px">
+                        <TrashBinIcon className="size-4 shrink-0 text-danger" />
+                      </div>
+                      <div className="flex flex-col">
+                        <Label>Delete project</Label>
+                        <Description>Move project to trash</Description>
+                      </div>
+                    </Dropdown.Item>
+                  </Dropdown.Section>
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown>
           </div>
-          <p className="mt-1 text-base text-white/42">{projectSubtitle}</p>
         </div>
       </div>
 
-      <div className="px-5 py-5">
-        <div className="flex rounded-[1.35rem] bg-white/[0.06] p-1">
-          <SidebarTabButton
-            active={sidebarTab === "layers"}
-            icon={Icons.layers}
-            label="Layers"
-            onClick={() => setSidebarTab("layers")}
-          />
-          <SidebarTabButton
-            active={sidebarTab === "library"}
-            icon={Icons.library}
-            label="Library"
-            disabled
-            onClick={() => setSidebarTab("library")}
-          />
-        </div>
+      <div className="px-4 py-3">
+        <Tabs
+          className="w-full max-w-md"
+          selectedKey={sidebarTab}
+          onSelectionChange={(key) => {
+            const next = String(key) as "layers" | "library";
+            if (next === "layers" || next === "library") {
+              setSidebarTab(next);
+            }
+          }}
+        >
+          <Tabs.ListContainer>
+            <Tabs.List aria-label="Sidebar tabs">
+              <Tabs.Tab id="layers">
+              Layers
+              <Tabs.Indicator />
+            </Tabs.Tab>
+              <Tabs.Tab id="library" isDisabled>
+              Library
+              <Tabs.Indicator />
+            </Tabs.Tab>
+            </Tabs.List>
+          </Tabs.ListContainer>
+        </Tabs>
       </div>
 
       {sidebarTab === "library" ? (
-        <div className="px-5 pb-5 text-sm text-white/40">
-          <div className="rounded-[1.35rem] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5">
+        <div className="px-4 pb-4 text-sm text-muted-foreground">
+          <div className="rounded-md border border-dashed border-border bg-content1 px-3 py-3">
             Library items are part of the visual shell for now and will be wired once reusable assets exist in the editor.
           </div>
         </div>
       ) : (
         <>
-          <div className="px-5">
-            <div className="relative">
-              <AppIcon
-                icon={Icons.search}
-                className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/34"
-              />
-              <Input
-                className="h-12 rounded-[1.25rem] border-white/5 bg-white/[0.03] pl-11 text-sm text-white placeholder:text-white/28"
-                placeholder="Search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </div>
+          <div className="px-4 pt-4">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">Group by</p>
+            <TagGroup aria-label="Group layers by" selectionMode="single">
+              <TagGroup.List className="flex flex-wrap gap-2">
+                <Tag
+                  className={cn(mode === "structure" ? "bg-content3" : undefined)}
+                  id="group-structure"
+                  size="md"
+                  onPress={() => setMode("structure")}
+                >
+                  <SquareArticleIcon className="h-4 w-4" />
+                  Structure
+                </Tag>
+                <Tag
+                  className={cn(mode === "depth" ? "bg-content3" : undefined)}
+                  id="group-depth"
+                  size="md"
+                  onPress={() => setMode("depth")}
+                >
+                  <Layers3DiagonalIcon className="h-4 w-4" />
+                  Depth
+                </Tag>
+                <Tag
+                  className={cn(mode === "fill" ? "bg-content3" : undefined)}
+                  id="group-cut-type"
+                  size="md"
+                  onPress={() => setMode("fill")}
+                >
+                  <GeoIcon className="h-4 w-4" />
+                  Cut Type
+                </Tag>
+              </TagGroup.List>
+            </TagGroup>
           </div>
 
-          <div className="px-5 pt-7">
-            <p className="mb-3 text-sm font-medium text-white/86">Group by</p>
-            <div className="flex flex-wrap gap-2">
-              <GroupingChip
-                active={mode === "structure"}
-                icon={Icons.structure}
-                label="Structure"
-                onClick={() => setMode("structure")}
-              />
-              <GroupingChip
-                active={mode === "depth"}
-                icon={Icons.depth}
-                label="Depth"
-                onClick={() => setMode("depth")}
-              />
-              <GroupingChip
-                active={mode === "fill"}
-                icon={Icons.code}
-                label="Cut Type"
-                onClick={() => setMode("fill")}
-              />
-            </div>
-          </div>
-
-          <div className="px-5 pt-6">
-            <p className="text-[1.05rem] font-medium text-white/88">Layers</p>
-          </div>
-
-          <div className="border-b border-white/6 px-5 py-4">
-            <ObjectButton
-              icon={Icons.cube}
-              label="Material"
-              active={selectionTarget === "material"}
-              onClick={() => onSelectTarget("material")}
-            />
-            <ObjectButton
-              icon={Icons.canvas}
-              label="SVG"
-              active={selectionTarget === "svg" && !isDiveMode}
-              onClick={() => onSelectTarget("svg")}
-            />
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" onMouseLeave={() => onHoverIdsChange([])}>
             {!tree ? (
-              <div className="mx-1 rounded-[1.35rem] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm leading-relaxed text-white/45">
-                Import an SVG from the add-files menu to build the layer stack.
+              <div className="mx-1 rounded-md border border-dashed border-border bg-content1 px-3 py-3 text-sm text-muted-foreground">
+                Drag an SVG onto the canvas or use Add files (SVG) to build the layer stack.
               </div>
             ) : mode === "structure" ? (
               <div className="space-y-1">
@@ -209,6 +307,14 @@ export function LayerTree({
                   onSelectIds={onSelectIds}
                   onSelectTarget={onSelectTarget}
                   onActivateDiveRoot={onActivateDiveRoot}
+                  collapsedNodeMap={collapsedStructureNodes}
+                  onToggleCollapse={(nodeKey) =>
+                    setCollapsedStructureNodes((current) => ({
+                      ...current,
+                      [nodeKey]: !(current[nodeKey] ?? false),
+                    }))
+                  }
+                  onHoverIdsChange={onHoverIdsChange}
                 />
               </div>
             ) : (
@@ -216,9 +322,9 @@ export function LayerTree({
                 {groupedNodes.map((group) => {
                   const isCollapsed = collapsedGroups[group.key] ?? false;
                   return (
-                    <div key={group.key} className="rounded-[1.35rem] bg-white/[0.04] p-1">
+                    <div key={group.key} className="rounded-md border border-border bg-content1 p-1">
                       <button
-                        className="flex w-full items-center justify-between rounded-[1.1rem] px-3 py-3 text-left hover:bg-white/[0.05]"
+                        className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left hover:bg-content2"
                         onClick={() =>
                           setCollapsedGroups((current) => ({
                             ...current,
@@ -229,11 +335,11 @@ export function LayerTree({
                         <span className="inline-flex items-center gap-2">
                           <AppIcon
                             icon={isCollapsed ? Icons.chevronRight : Icons.chevronDown}
-                            className="h-4 w-4 text-white/48"
+                            className="h-4 w-4 text-muted-foreground"
                           />
-                          <span className="text-sm font-medium text-white">{group.label}</span>
+                          <span className="text-sm font-medium text-foreground">{group.label}</span>
                         </span>
-                        <Chip className="bg-white/[0.06] px-2 py-1 text-[11px] font-semibold text-white/56">
+                        <Chip size="sm" variant="soft">
                           {group.nodes.length}
                         </Chip>
                       </button>
@@ -248,6 +354,7 @@ export function LayerTree({
                               assignments={assignments}
                               elementColors={elementColors}
                               onSelectIds={onSelectIds}
+                              onHoverIdsChange={onHoverIdsChange}
                             />
                           ))}
                         </div>
@@ -259,17 +366,41 @@ export function LayerTree({
             )}
           </div>
 
-          <div className="border-t border-white/6 px-5 py-5">
-            <button className="flex w-full items-center justify-between rounded-[1.25rem] border border-white/8 bg-white/[0.03] px-4 py-3.5 text-left">
-              <span className="inline-flex items-center gap-3">
-                <AppIcon icon={Icons.search} className="h-5 w-5 text-white/58" />
-                <span className="text-[1.15rem] font-medium text-white">Search</span>
-              </span>
-              <span className="rounded-[0.85rem] border border-white/10 bg-white/[0.05] px-3 py-1 text-sm text-white/58">
-                ⌘ K
-              </span>
-            </button>
-            <p className="mt-3 text-xs text-white/30">
+          <div className="border-t border-border px-4 py-3">
+            <SearchField
+              aria-label="Search layers"
+              fullWidth
+              name="search-layers"
+            >
+              <SearchField.Group>
+                <SearchField.SearchIcon>
+                  <svg height="16" viewBox="0 0 16 16" width="16" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      clipRule="evenodd"
+                      d="M12.5 4c0 .174-.071.513-.885.888S9.538 5.5 8 5.5s-2.799-.237-3.615-.612C3.57 4.513 3.5 4.174 3.5 4s.071-.513.885-.888S6.462 2.5 8 2.5s2.799.237 3.615.612c.814.375.885.714.885.888m-1.448 2.66C10.158 6.888 9.115 7 8 7s-2.158-.113-3.052-.34l1.98 2.905c.21.308.322.672.322 1.044v3.37q.088.02.25.021c.422 0 .749-.14.95-.316c.185-.162.3-.38.3-.684v-2.39c0-.373.112-.737.322-1.045zM8 1c3.314 0 6 1 6 3a3.24 3.24 0 0 1-.563 1.826l-3.125 4.584a.35.35 0 0 0-.062.2V13c0 1.5-1.25 2.5-2.75 2.5s-1.75-1-1.75-1v-3.89a.35.35 0 0 0-.061-.2L2.563 5.826A3.24 3.24 0 0 1 2 4c0-2 2.686-3 6-3m-.88 12.936q-.015-.008-.013-.01z"
+                      fill="currentColor"
+                      fillRule="evenodd"
+                    />
+                  </svg>
+                </SearchField.SearchIcon>
+                <SearchField.Input
+                  placeholder="Search layers"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                <SearchField.ClearButton>
+                  <svg height="16" viewBox="0 0 16 16" width="16" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      clipRule="evenodd"
+                      d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14M6.53 5.47a.75.75 0 0 0-1.06 1.06L6.94 8L5.47 9.47a.75.75 0 1 0 1.06 1.06L8 9.06l1.47 1.47a.75.75 0 1 0 1.06-1.06L9.06 8l1.47-1.47a.75.75 0 0 0-1.06-1.06L8 6.94z"
+                      fill="currentColor"
+                      fillRule="evenodd"
+                    />
+                  </svg>
+                </SearchField.ClearButton>
+              </SearchField.Group>
+            </SearchField>
+            <p className="mt-2 text-xs text-muted-foreground">
               {selectedPartCount > 0 ? `${selectedPartCount} tracked parts in this workspace.` : "No active parts yet."}
             </p>
           </div>
@@ -279,59 +410,6 @@ export function LayerTree({
   );
 }
 
-function SidebarTabButton({
-  active,
-  disabled = false,
-  icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  disabled?: boolean;
-  icon: typeof Icons.layers;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={cn(
-        "inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-[1.15rem] text-lg font-medium transition",
-        active ? "bg-white/[0.16] text-white" : "text-white/50 hover:bg-white/[0.04] hover:text-white",
-        disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-white/50",
-      )}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <AppIcon icon={icon} className="h-4 w-4" />
-      {label}
-    </button>
-  );
-}
-
-function GroupingChip({
-  active,
-  icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  icon: typeof Icons.structure;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={cn(
-        "inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition",
-        active ? "bg-white/[0.12] text-white" : "bg-white/[0.05] text-white/60 hover:bg-white/[0.08] hover:text-white",
-      )}
-      onClick={onClick}
-    >
-      <AppIcon icon={icon} className="h-4 w-4" />
-      {label}
-    </button>
-  );
-}
 
 function StructureTree({
   node,
@@ -343,6 +421,9 @@ function StructureTree({
   onSelectIds,
   onSelectTarget,
   onActivateDiveRoot,
+  collapsedNodeMap,
+  onToggleCollapse,
+  onHoverIdsChange,
   depth = 0,
   path = "0",
 }: {
@@ -355,6 +436,9 @@ function StructureTree({
   onSelectIds: (ids: string[], additive: boolean) => void;
   onSelectTarget: (target: CanvasSelectionTarget) => void;
   onActivateDiveRoot: (scope: DiveRootScope | null) => void;
+  collapsedNodeMap: Record<string, boolean>;
+  onToggleCollapse: (nodeKey: string) => void;
+  onHoverIdsChange: (ids: string[]) => void;
   depth?: number;
   path?: string;
 }) {
@@ -376,6 +460,9 @@ function StructureTree({
         onSelectIds={onSelectIds}
         onSelectTarget={onSelectTarget}
         onActivateDiveRoot={onActivateDiveRoot}
+        collapsedNodeMap={collapsedNodeMap}
+        onToggleCollapse={onToggleCollapse}
+        onHoverIdsChange={onHoverIdsChange}
         depth={depth + 1}
         path={`${path}.${index}`}
       />
@@ -391,16 +478,21 @@ function StructureTree({
   const isActiveDiveRoot = activeDiveRootId === nodeKey;
   const assignment = node.id ? assignments[node.id] : null;
   const elementColor = node.id ? elementColors?.get(node.id) ?? null : null;
+  const hasChildren = children.length > 0;
+  const isCollapsed = collapsedNodeMap[nodeKey] ?? false;
+  const showCount = node.selectable_descendant_ids.length > 1;
 
   return (
     <div className="space-y-1">
       <button
         className={cn(
-          "flex w-full items-center justify-between rounded-[1.1rem] px-3 py-3 text-left transition hover:bg-white/[0.05]",
-          isSelected && "bg-white/[0.08]",
+          "flex w-full items-center justify-between rounded-md px-3 py-2 text-left transition hover:bg-content2",
+          isSelected && "bg-content3",
           isActiveDiveRoot && "ring-1 ring-primary/40",
         )}
         style={{ paddingLeft: `${12 + depth * 16}px` }}
+        onMouseEnter={() => onHoverIdsChange(node.selectable_descendant_ids)}
+        onMouseLeave={() => onHoverIdsChange([])}
         onClick={(event) => {
           if (node.tag_name === "svg") {
             onSelectTarget("svg");
@@ -423,28 +515,52 @@ function StructureTree({
         }}
       >
         <span className="flex min-w-0 items-center gap-2">
-          <AppIcon icon={Icons.cube} className="h-4 w-4 shrink-0 text-white/52" />
-          {elementColor ? (
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: elementColor }} />
+          {hasChildren ? (
+            <span
+              role="button"
+              tabIndex={0}
+              className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-content2"
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleCollapse(nodeKey);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onToggleCollapse(nodeKey);
+                }
+              }}
+              aria-label={isCollapsed ? "Expand layer" : "Collapse layer"}
+            >
+              {isCollapsed ? <ChevronRightIcon className="h-4 w-4" /> : <ChevronDownIcon className="h-4 w-4" />}
+            </span>
+          ) : (
+            <span className="inline-flex h-5 w-5 items-center justify-center">
+              <AppIcon icon={Icons.cube} className="h-4 w-4 shrink-0 text-muted-foreground" />
+            </span>
+          )}
+          {assignment ? (
+            <span
+              className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white"
+              style={{ backgroundColor: elementColor ?? "#374151" }}
+            >
+              {assignment.targetDepthMm}mm
+            </span>
           ) : null}
-          <span className="truncate text-[1.03rem] text-white">{node.label}</span>
+          <span className="truncate text-sm text-foreground">{node.label}</span>
         </span>
 
         <span className="flex items-center gap-2">
           {isActiveDiveRoot ? (
-            <span className="rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary">
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
               Dive
             </span>
           ) : null}
-          {assignment ? (
-            <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold text-[#2F95FF]">
-              {assignment.targetDepthMm}mm
-            </span>
-          ) : null}
-          <span className="text-xs text-white/32">{node.selectable_descendant_ids.length}</span>
+          {showCount ? <span className="text-xs text-muted-foreground">{node.selectable_descendant_ids.length}</span> : null}
         </span>
       </button>
-      {children}
+      {!isCollapsed ? children : null}
     </div>
   );
 }
@@ -455,12 +571,14 @@ function PartRow({
   assignments,
   elementColors,
   onSelectIds,
+  onHoverIdsChange,
 }: {
   node: SvgTreeNode;
   selectedIds: string[];
   assignments: Record<string, ElementAssignment>;
   elementColors?: Map<string, string>;
   onSelectIds: (ids: string[], additive: boolean) => void;
+  onHoverIdsChange: (ids: string[]) => void;
 }) {
   const isSelected = node.id ? selectedIds.includes(node.id) : false;
   const assignment = node.id ? assignments[node.id] : null;
@@ -469,9 +587,11 @@ function PartRow({
   return (
     <button
       className={cn(
-        "flex w-full items-center gap-3 rounded-[1.15rem] px-4 py-3 text-left transition hover:bg-white/[0.06]",
-        isSelected && "bg-white/[0.1]",
+        "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition hover:bg-content2",
+        isSelected && "bg-content3",
       )}
+      onMouseEnter={() => onHoverIdsChange(node.selectable_descendant_ids)}
+      onMouseLeave={() => onHoverIdsChange([])}
       onClick={(event) =>
         onSelectIds(
           node.selectable_descendant_ids.slice(0, 1),
@@ -479,49 +599,17 @@ function PartRow({
         )
       }
     >
-      <div className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/[0.04]">
-        <span className="h-4 w-1 rounded-full bg-[#FF667A]" />
-      </div>
+      {assignment ? (
+        <span
+          className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white"
+          style={{ backgroundColor: elementColor ?? "#374151" }}
+        >
+          {assignment.targetDepthMm}mm
+        </span>
+      ) : null}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[1.05rem] font-medium text-white">{node.label}</p>
+        <p className="truncate text-sm font-medium text-foreground">{node.label}</p>
       </div>
-      <span className="rounded-full bg-white/[0.05] px-2.5 py-1 text-[11px] font-semibold text-[#2F95FF]">
-        {assignment ? `${assignment.targetDepthMm}mm` : "Unset"}
-      </span>
-      <span className="inline-flex h-7 w-7 items-center justify-center rounded-[0.8rem] border border-white/8 bg-white/[0.03] text-white/56">
-        <AppIcon icon={Icons.plusCircle} className="h-4 w-4" />
-      </span>
-      {elementColor ? <span className="hidden rounded-full px-2 py-1 text-[11px]" style={{ color: elementColor }} /> : null}
-    </button>
-  );
-}
-
-function ObjectButton({
-  icon,
-  label,
-  active,
-  onClick,
-}: {
-  icon: typeof Icons.cube;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={cn(
-        "mb-2 flex w-full items-center justify-between rounded-[1.1rem] border px-3 py-3 text-left transition",
-        active
-          ? "border-primary/30 bg-primary/12 text-white"
-          : "border-white/8 bg-white/[0.03] text-white/58 hover:bg-white/[0.05] hover:text-white",
-      )}
-      onClick={onClick}
-    >
-      <span className="inline-flex items-center gap-2 text-sm font-medium">
-        <AppIcon icon={icon} className="h-4 w-4" />
-        {label}
-      </span>
-      <span className="text-[11px] uppercase tracking-[0.16em] text-white/28">Object</span>
     </button>
   );
 }
