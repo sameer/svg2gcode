@@ -10,9 +10,11 @@ import vCarveBit from "@/assets/router bits/v_carve_bit.png";
 interface MaterialInspectorProps {
   settings: Settings | null;
   materialPreset: MaterialPresetId;
+  paddingMm: number;
   recommendedAdvanced: Record<string, number>;
   advancedOverrides: Record<string, boolean>;
   onMaterialSizeChange: (dimension: "width" | "height", value: number | null) => void;
+  onPaddingChange: (value: number | null) => void;
   onNumberChange: (
     path: string,
     value: number | null,
@@ -26,9 +28,11 @@ interface MaterialInspectorProps {
 export function MaterialInspector({
   settings,
   materialPreset,
+  paddingMm,
   recommendedAdvanced,
   advancedOverrides,
   onMaterialSizeChange,
+  onPaddingChange,
   onNumberChange,
   onToolShapeChange,
   onMaterialPresetChange,
@@ -138,14 +142,14 @@ export function MaterialInspector({
       </section>
 
       <section className="space-y-3">
-        <SectionHeader title="Defaults" />
+        <SectionHeader title="Placement" />
         <div className="flex flex-wrap gap-3">
           <NumberField
             className="w-[10.5rem]"
-            label="Depth"
+            label="Padding"
             unit="mm"
-            value={settings.engraving.target_depth}
-            onChange={(value) => onNumberChange("engraving.target_depth", value, "basic")}
+            value={paddingMm}
+            onChange={onPaddingChange}
           />
           <NumberField
             className="w-[10.5rem]"
@@ -431,7 +435,6 @@ function ToolShapeOption({
   onClick: () => void;
 }) {
   const label = shape === "V" ? "V-Carve" : shape;
-  const topOffset = shape === "V" ? -26 : shape === "Ball" ? -24 : -22;
 
   return (
     <button
@@ -451,8 +454,8 @@ function ToolShapeOption({
         <img
           src={image}
           alt={label}
-          className="pointer-events-none absolute left-1/2 h-[84px] max-w-none -translate-x-1/2 object-contain"
-          style={{ top: `${topOffset}px` }}
+          className="pointer-events-none absolute left-1/2 h-[64px] max-w-none -translate-x-1/2 object-contain"
+          style={{ top: "2px" }}
         />
       </div>
       <span className={`text-[10px] ${isSelected ? "font-medium text-foreground" : "text-muted-foreground"}`}>

@@ -11,7 +11,6 @@ import { StudioInspector } from "@/components/studio-inspector";
 import { SvgCanvas } from "@/components/svg-canvas";
 import { TopBar } from "@/components/top-bar";
 import { parseGcodeProgram, sampleProgramAtDistance } from "@/components/viewer/parse-gcode";
-import { colorForOperation } from "@/lib/colors";
 import { buildElementColorMap } from "@/lib/color-detection";
 import {
   clampPlacementToArtboard,
@@ -21,7 +20,9 @@ import {
   parseSvgDocumentMetrics,
   type SvgDocumentMetrics,
 } from "@/lib/editor-geometry";
+import { deriveOperationsFromProfileGroups, groupAssignmentsForIds } from "@/lib/profile-groups";
 import type {
+  AssignmentProfileGroup,
   DesignSelectionSnapshot,
   DiveRootScope,
   ElementAssignment,
@@ -60,6 +61,9 @@ function App() {
   const [lastDesignSelection, setLastDesignSelection] = useState<DesignSelectionSnapshot | null>(null);
   const [modifierDirectPick, setModifierDirectPick] = useState(false);
   const [elementColors, setElementColors] = useState<Map<string, string>>(new Map());
+  const [designActiveProfileKey, setDesignActiveProfileKey] = useState<string | null>(null);
+  const [recentNewProfileKey, setRecentNewProfileKey] = useState<string | null>(null);
+  const [showOperationOutlines, setShowOperationOutlines] = useState(true);
   const [paddingMm, setPaddingMm] = useState(0);
   const [svgSizeMm, setSvgSizeMm] = useState({ width: 100, height: 100, aspectLocked: true });
   const [projectName, setProjectName] = useState("3D Dog Character");
@@ -77,7 +81,18 @@ function App() {
   useEffect(() => {
     loadDefaultSettings()
       .then((defaults) => {
-        setSettings(applyRecommendedSettings(defaults, {}));
+        setSettings(
+          applyRecommendedSettings(
+            {
+              ...defaults,
+              engraving: {
+                ...defaults.engraving,
+                target_depth: 5,
+              },
+            },
+            {},
+          ),
+        );
         setAdvancedOverrides({});
         setIsReady(true);
       })
@@ -159,10 +174,25 @@ function App() {
         : null,
     [preparedSvg],
   );
-  const derivedOperations = useMemo(
-    () => deriveOperationsFromAssignments(elementAssignments, allElementIds),
+  const allProfileGroups = useMemo<AssignmentProfileGroup[]>(
+    () => groupAssignmentsForIds(elementAssignments, allElementIds),
     [allElementIds, elementAssignments],
   );
+  const derivedOperations = useMemo(
+    () => deriveOperationsFromProfileGroups(allProfileGroups),
+    [allProfileGroups],
+  );
+
+  useEffect(() => {
+    if (designActiveProfileKey && !allProfileGroups.some((group) => group.key === designActiveProfileKey)) {
+      setDesignActiveProfileKey(null);
+    }
+  }, [allProfileGroups, designActiveProfileKey]);
+  useEffect(() => {
+    if (recentNewProfileKey && !allProfileGroups.some((group) => group.key === recentNewProfileKey)) {
+      setRecentNewProfileKey(null);
+    }
+  }, [allProfileGroups, recentNewProfileKey]);
   const generationInput = useMemo(() => {
     if (!preparedSvg || !settings || derivedOperations.length === 0 || !svgMetrics) {
       return null;
@@ -186,7 +216,7 @@ function App() {
       return {
         type: "svg",
         elementIds: allElementIds,
-        profileGroups: groupAssignmentsForIds(elementAssignments, allElementIds),
+        profileGroups: allProfileGroups,
       };
     }
 
@@ -203,13 +233,15 @@ function App() {
     return {
       type: "selection",
       elementIds: selectedIds,
-      profileGroups: groupAssignmentsForIds(elementAssignments, selectedIds),
+      profileGroups: allProfileGroups.filter((group) =>
+        group.elementIds.some((elementId) => selectedIds.includes(elementId)),
+      ),
       mixedDepth: uniqueDepths.size > 1,
       mixedFillMode: uniqueFills.size > 1,
       targetDepthMm: uniqueDepths.size === 1 ? selectedAssignments[0]?.targetDepthMm ?? null : null,
       fillMode: uniqueFills.size === 1 ? selectedAssignments[0]?.fillMode ?? null : null,
     };
-  }, [allElementIds, canvasSelectionTarget, elementAssignments, selectedIds]);
+  }, [allElementIds, allProfileGroups, canvasSelectionTarget, elementAssignments, selectedIds]);
 
   const handleSvgImport = async (file: File) => {
     if (!file.type.includes("svg") && !file.name.toLowerCase().endsWith(".svg")) {
@@ -236,6 +268,9 @@ function App() {
     setInspectorTab("design");
     setActiveTab("prepare");
     setPaddingMm(10);
+    setDesignActiveProfileKey(null);
+    setRecentNewProfileKey(null);
+    setShowOperationOutlines(true);
     setShowPreviewBlockedNotice(false);
     setError(null);
 
@@ -265,14 +300,15 @@ function App() {
       };
     });
 
-    const defaultDepth = settings?.engraving.target_depth ?? 1;
+    const defaultDepth = settings?.engraving.target_depth ?? 5;
+    const defaultFillMode = settings?.engraving.fill_mode ?? "Pocket";
     const nextAssignments = Object.fromEntries(
       prepared.selectable_element_ids.map((elementId) => [
         elementId,
         {
           elementId,
           targetDepthMm: defaultDepth,
-          fillMode: null,
+          fillMode: defaultFillMode,
         } satisfies ElementAssignment,
       ]),
     );
@@ -498,24 +534,6 @@ function App() {
     });
   };
 
-  const handleFillModeChange = (value: FillMode) => {
-    setSettings((current) => {
-      if (!current) {
-        return current;
-      }
-      return applyRecommendedSettings(
-        {
-          ...current,
-          engraving: {
-            ...current.engraving,
-            fill_mode: value,
-          },
-        },
-        advancedOverrides,
-      );
-    });
-  };
-
   const handleMaterialPresetChange = (value: MaterialPresetId) => {
     const preset = MATERIAL_PRESETS[value];
     const maxStepdown = Number((preset.defaultDepthMm / preset.defaultPasses).toFixed(2));
@@ -552,6 +570,8 @@ function App() {
   const selectIds = (ids: string[], additive: boolean) => {
     setInspectorTab("design");
     setCanvasSelectionTarget(null);
+    setDesignActiveProfileKey(null);
+    setRecentNewProfileKey(null);
     setSelectedIds((current) => {
       if (!additive) {
         return ids;
@@ -608,6 +628,8 @@ function App() {
     rememberCurrentDesignSelection();
     setSelectedIds([]);
     setCanvasSelectionTarget("material");
+    setDesignActiveProfileKey(null);
+    setRecentNewProfileKey(null);
     setIsDiveMode(false);
     setActiveDiveRoot(null);
     setInspectorTab("material");
@@ -621,6 +643,8 @@ function App() {
 
     setSelectedIds([]);
     setCanvasSelectionTarget(target);
+    setDesignActiveProfileKey(null);
+    setRecentNewProfileKey(null);
     setIsDiveMode(false);
     setActiveDiveRoot(null);
     setInspectorTab("design");
@@ -629,6 +653,8 @@ function App() {
   const activateDiveRoot = (scope: DiveRootScope | null) => {
     setInspectorTab("design");
     setCanvasSelectionTarget(null);
+    setDesignActiveProfileKey(null);
+    setRecentNewProfileKey(null);
     setSelectedIds([]);
     setIsDiveMode(!!scope);
     setActiveDiveRoot(scope);
@@ -685,11 +711,68 @@ function App() {
     if (!Number.isFinite(value)) {
       return;
     }
-    updateAssignmentsForIds(elementIds, { targetDepthMm: value });
+    const targetIds =
+      selectedIds.length > 0
+        ? elementIds.filter((elementId) => selectedIds.includes(elementId))
+        : elementIds;
+    if (targetIds.length === 0) {
+      return;
+    }
+    const referenceAssignment = elementAssignments[targetIds[0]];
+    const priorGroupSize = referenceAssignment
+      ? Object.values(elementAssignments).filter(
+          (assignment) =>
+            assignment.targetDepthMm === referenceAssignment.targetDepthMm &&
+            assignment.fillMode === referenceAssignment.fillMode,
+        ).length
+      : 0;
+    const nextProfileKey = referenceAssignment
+      ? `${value}::${referenceAssignment.fillMode ?? "default"}`
+      : null;
+    updateAssignmentsForIds(targetIds, { targetDepthMm: value });
+    setRecentNewProfileKey(
+      referenceAssignment && priorGroupSize > targetIds.length && nextProfileKey ? nextProfileKey : null,
+    );
   };
 
-  const changeBatchFillMode = (elementIds: string[], value: FillMode | null) => {
-    updateAssignmentsForIds(elementIds, { fillMode: value });
+  const changeBatchFillMode = (elementIds: string[], value: FillMode) => {
+    const targetIds =
+      selectedIds.length > 0
+        ? elementIds.filter((elementId) => selectedIds.includes(elementId))
+        : elementIds;
+    if (targetIds.length === 0) {
+      return;
+    }
+    const referenceAssignment = elementAssignments[targetIds[0]];
+    const priorGroupSize = referenceAssignment
+      ? Object.values(elementAssignments).filter(
+          (assignment) =>
+            assignment.targetDepthMm === referenceAssignment.targetDepthMm &&
+            assignment.fillMode === referenceAssignment.fillMode,
+        ).length
+      : 0;
+    const nextProfileKey = referenceAssignment
+      ? `${referenceAssignment.targetDepthMm}::${value}`
+      : null;
+    updateAssignmentsForIds(targetIds, { fillMode: value });
+    setRecentNewProfileKey(
+      referenceAssignment && priorGroupSize > targetIds.length && nextProfileKey ? nextProfileKey : null,
+    );
+  };
+
+  const handleProfilePreview = (profileKey: string | null) => {
+    setInspectorTab("design");
+    setCanvasSelectionTarget(null);
+    setDesignActiveProfileKey(profileKey);
+    setRecentNewProfileKey(null);
+  };
+
+  const handleProfileSelect = (elementIds: string[]) => {
+    setInspectorTab("design");
+    setCanvasSelectionTarget(null);
+    setDesignActiveProfileKey(null);
+    setRecentNewProfileKey(null);
+    setSelectedIds(elementIds);
   };
 
   const downloadNc = () => {
@@ -901,10 +984,12 @@ function App() {
                     selectedIds={selectedIds}
                     hoveredIds={hoveredLayerIds}
                     activeOperationId={null}
+                    activeProfileKey={designActiveProfileKey}
                     selectionTarget={canvasSelectionTarget}
                     isDiveMode={isDiveMode}
                     activeDiveRoot={activeDiveRoot}
                     modifierDirectPick={modifierDirectPick}
+                    showOperationOutlines={showOperationOutlines}
                     materialWidth={settings?.engraving.material_width ?? 300}
                     materialHeight={settings?.engraving.material_height ?? 300}
                     placementX={settings?.engraving.placement_x ?? 0}
@@ -925,6 +1010,7 @@ function App() {
                     onPlacementChange={handlePlacementChange}
                     onSvgDimensionChange={handleSvgDimensionChange}
                     onSvgSizeChange={handleSvgSizeChange}
+                    onShowOperationOutlinesChange={setShowOperationOutlines}
                   />
                 </div>
               </div>
@@ -939,9 +1025,11 @@ function App() {
                     <MaterialInspector
                       settings={settings}
                       materialPreset={materialPreset}
+                      paddingMm={paddingMm}
                       recommendedAdvanced={recommendedAdvanced}
                       advancedOverrides={advancedOverrides}
                       onMaterialSizeChange={handleMaterialDimensionChange}
+                      onPaddingChange={handlePaddingChange}
                       onNumberChange={handleSettingsNumberChange}
                       onToolShapeChange={handleToolShapeChange}
                       onMaterialPresetChange={handleMaterialPresetChange}
@@ -949,22 +1037,25 @@ function App() {
                     />
                   }
                   context={inspectorContext}
+                  allProfileGroups={allProfileGroups}
+                  activeProfileKey={designActiveProfileKey}
+                  recentNewProfileKey={recentNewProfileKey}
                   settings={settings}
                   svgWidthMm={svgWidthMm}
                   svgHeightMm={svgHeightMm}
                   svgAspectLocked={svgSizeMm.aspectLocked}
                   placementX={settings?.engraving.placement_x ?? 0}
                   placementY={settings?.engraving.placement_y ?? 0}
-                  paddingMm={paddingMm}
                   paddingValidationMessage={paddingValidationMessage}
                   onSvgDimensionChange={handleSvgDimensionChange}
                   onSvgAspectLockChange={handleSvgAspectLockChange}
                   onPlacementChange={handlePlacementChange}
-                  onPaddingChange={handlePaddingChange}
                   onAlign={handleAlign}
                   onBatchDepthChange={changeBatchDepth}
                   onBatchFillModeChange={changeBatchFillMode}
-                  onDefaultFillModeChange={handleFillModeChange}
+                  onProfilePreview={handleProfilePreview}
+                  onProfilePreviewClear={() => handleProfilePreview(null)}
+                  onProfileSelect={handleProfileSelect}
                 />
               </div>
             </Panel>
@@ -1130,60 +1221,6 @@ function applyRecommendedSettings(
   return next;
 }
 
-function groupAssignmentsForIds(
-  assignments: Record<string, ElementAssignment>,
-  elementIds: string[],
-) {
-  const groups = new Map<string, { targetDepthMm: number; fillMode: FillMode | null; elementIds: string[] }>();
-
-  for (const elementId of elementIds) {
-    const assignment = assignments[elementId];
-    if (!assignment) {
-      continue;
-    }
-
-    const key = `${assignment.targetDepthMm}::${assignment.fillMode ?? "default"}`;
-    const existing = groups.get(key);
-    if (existing) {
-      existing.elementIds.push(elementId);
-    } else {
-      groups.set(key, {
-        targetDepthMm: assignment.targetDepthMm,
-        fillMode: assignment.fillMode,
-        elementIds: [elementId],
-      });
-    }
-  }
-
-  return Array.from(groups.entries())
-    .map(([key, group]) => ({
-      key,
-      targetDepthMm: group.targetDepthMm,
-      fillMode: group.fillMode,
-      elementIds: group.elementIds,
-    }))
-    .sort((left, right) => {
-      if (left.targetDepthMm !== right.targetDepthMm) {
-        return left.targetDepthMm - right.targetDepthMm;
-      }
-      return (left.fillMode ?? "").localeCompare(right.fillMode ?? "");
-    });
-}
-
-function deriveOperationsFromAssignments(
-  assignments: Record<string, ElementAssignment>,
-  elementIds: string[],
-) {
-  return groupAssignmentsForIds(assignments, elementIds).map((group, index) => ({
-    id: `profile-${group.key}`,
-    name: `${formatDepthLabel(group.targetDepthMm)}${group.fillMode ? ` · ${group.fillMode}` : ""}`,
-    target_depth_mm: group.targetDepthMm,
-    assigned_element_ids: group.elementIds,
-    color: colorForOperation(index),
-    fill_mode: group.fillMode,
-  }));
-}
-
 function resizeSvgDocument(
   normalizedSvg: string,
   svgMetrics: SvgDocumentMetrics,
@@ -1206,8 +1243,4 @@ function resizeSvgDocument(
 
 function roundMm(value: number) {
   return Math.round(value * 100) / 100;
-}
-
-function formatDepthLabel(value: number) {
-  return `${roundMm(value)}mm`;
 }

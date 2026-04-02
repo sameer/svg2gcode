@@ -36,10 +36,12 @@ interface SvgCanvasProps {
   selectedIds: string[];
   hoveredIds?: string[];
   activeOperationId: string | null;
+  activeProfileKey: string | null;
   selectionTarget: CanvasSelectionTarget;
   isDiveMode: boolean;
   activeDiveRoot: DiveRootScope | null;
   modifierDirectPick: boolean;
+  showOperationOutlines: boolean;
   materialWidth?: number;
   materialHeight?: number;
   placementX?: number;
@@ -60,6 +62,7 @@ interface SvgCanvasProps {
   onPlacementChange?: (x: number, y: number) => void;
   onSvgDimensionChange?: (dimension: "width" | "height", value: number | null) => void;
   onSvgSizeChange?: (width: number | null, height: number | null) => void;
+  onShowOperationOutlinesChange?: (value: boolean) => void;
 }
 
 export function SvgCanvas({
@@ -68,10 +71,12 @@ export function SvgCanvas({
   selectedIds,
   hoveredIds = [],
   activeOperationId,
+  activeProfileKey,
   selectionTarget,
   isDiveMode,
   activeDiveRoot,
   modifierDirectPick,
+  showOperationOutlines,
   materialWidth = 300,
   materialHeight = 300,
   placementX = 0,
@@ -92,6 +97,7 @@ export function SvgCanvas({
   onPlacementChange,
   onSvgDimensionChange,
   onSvgSizeChange,
+  onShowOperationOutlinesChange,
 }: SvgCanvasProps) {
   const stageRef = useRef<Konva.Stage | null>(null);
   const artboardRef = useRef<Konva.Rect | null>(null);
@@ -985,7 +991,9 @@ export function SvgCanvas({
               selectedIds={selectedIds}
               previewSelectedIds={previewHighlightedIds}
               activeOperationId={activeOperationId}
+              activeProfileKey={activeProfileKey}
               operationForId={operationForId}
+              showOperationOutlines={showOperationOutlines}
               interactive={shapePickingEnabled}
               interactiveIds={isDiveMode || directPickEnabled ? interactiveIds : []}
               onHostReady={(host) => {
@@ -1023,6 +1031,11 @@ export function SvgCanvas({
                 onClick={() => {
                   setInteractionMode((current) => (current === "pan" ? "default" : "pan"));
                 }}
+              />
+              <ToolbarButton
+                icon={showOperationOutlines ? Icons.eye : Icons.eyeOff}
+                active={showOperationOutlines}
+                onClick={() => onShowOperationOutlinesChange?.(!showOperationOutlines)}
               />
               <div className="ml-2 flex items-center gap-3 rounded-[1.2rem] bg-white/[0.05] px-4 py-3">
                 <button

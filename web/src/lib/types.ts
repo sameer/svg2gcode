@@ -97,6 +97,7 @@ export interface AssignmentProfileGroup {
   targetDepthMm: number;
   fillMode: FillMode | null;
   elementIds: string[];
+  color: string;
 }
 
 export interface DiveRootScope {
