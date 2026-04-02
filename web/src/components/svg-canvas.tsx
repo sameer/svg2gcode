@@ -331,13 +331,12 @@ export function SvgCanvas({
 
   const handleArtObjectDragStart = useCallback(
     (artObjectId: string) => {
-      const node = artObjectRectRefs.current[artObjectId];
       const box = artObjectBoxes[artObjectId];
-      if (!node || !box) {
+      if (!box) {
         return;
       }
-
-      syncRectNode(node, box);
+      // Don't call syncRectNode here — it would change node.position() after Konva
+      // has already recorded the drag-start offset, causing a jump on first move.
       setLiveArtObjectBox({ artObjectId, box });
     },
     [artObjectBoxes],
@@ -350,25 +349,20 @@ export function SvgCanvas({
         return;
       }
 
-      const box = normalizeRectNode(node);
-      const nextX = clamp(box.x, 0, Math.max(0, materialWidth - box.width));
-      const nextY = clamp(box.y, 0, Math.max(0, materialHeight - box.height));
-      const nextBox = {
-        x: nextX,
-        y: nextY,
-        width: box.width,
-        height: box.height,
-      };
-
-      syncRectNode(node, nextBox);
-      setLiveArtObjectBox({ artObjectId, box: nextBox });
-      onArtObjectPlacementChange?.(
-        artObjectId,
-        roundMm(nextX),
-        roundMm(materialHeight - nextY - nextBox.height),
-      );
+      // Read position only — do NOT call syncRectNode/normalizeRectNode here.
+      // Writing node.position() or node.scale() during an active Konva drag
+      // corrupts the internal drag-offset tracking and causes the drag to release.
+      // dragBoundFunc already handles all clamping before this event fires.
+      // Also do NOT call onArtObjectPlacementChange here: that would update artObjects
+      // state → re-render → Rect gets new committed x/y props → React-Konva calls
+      // node.x()/node.y() → overwrites Konva drag position → drag drops.
+      const x = node.x();
+      const y = node.y();
+      const width = node.width();
+      const height = node.height();
+      setLiveArtObjectBox({ artObjectId, box: { x, y, width, height } });
     },
-    [materialHeight, materialWidth, onArtObjectPlacementChange],
+    [],
   );
 
   const handleArtObjectDragEnd = useCallback(
@@ -612,7 +606,15 @@ export function SvgCanvas({
               ) : null}
 
               {artObjects.map((artObject) => {
-                const box = artObjectBoxes[artObject.id];
+                // Use committed artObject coordinates (not liveArtObjectBox) for the
+                // Konva Rect's x/y props.  If we used liveArtObjectBox here, every
+                // setLiveArtObjectBox call during drag would trigger a React-Konva
+                // reconciliation that writes node.x()/node.y(), overwriting Konva's
+                // internal drag offset and causing the drag to drop after a few px.
+                const rectX = artObject.placementX;
+                const rectY = materialHeight - artObject.placementY - artObject.heightMm;
+                const rectW = artObject.widthMm;
+                const rectH = artObject.heightMm;
                 const selected = selectedArtObjectId === artObject.id;
                 return (
                   <Group key={artObject.id}>
@@ -620,10 +622,10 @@ export function SvgCanvas({
                       ref={(node) => {
                         artObjectRectRefs.current[artObject.id] = node;
                       }}
-                      x={box.x}
-                      y={box.y}
-                      width={box.width}
-                      height={box.height}
+                      x={rectX}
+                      y={rectY}
+                      width={rectW}
+                      height={rectH}
                       fill="transparent"
                       stroke={selected || hoverTarget === "art-object" ? "rgba(115,187,255,0.95)" : "rgba(115,187,255,0.32)"}
                       strokeWidth={selected ? 1.35 / zoom : 1 / zoom}
@@ -640,8 +642,8 @@ export function SvgCanvas({
                         const localX = (pos.x - pan.x) / zoom;
                         const localY = (pos.y - pan.y) / zoom;
                         return {
-                          x: clamp(localX, 0, Math.max(0, materialWidth - box.width)) * zoom + pan.x,
-                          y: clamp(localY, 0, Math.max(0, materialHeight - box.height)) * zoom + pan.y,
+                          x: clamp(localX, 0, Math.max(0, materialWidth - rectW)) * zoom + pan.x,
+                          y: clamp(localY, 0, Math.max(0, materialHeight - rectH)) * zoom + pan.y,
                         };
                       }}
                     />
