@@ -441,35 +441,6 @@ function App() {
     );
   };
 
-  const handleArtObjectDimensionChange = (
-    artObjectId: string,
-    dimension: "width" | "height",
-    value: number | null,
-  ) => {
-    if (!settings) {
-      return;
-    }
-
-    setArtObjects((current) =>
-      current.map((artObject) => {
-        if (artObject.id !== artObjectId) {
-          return artObject;
-        }
-
-        const next = resizeArtObjectWithAspect(
-          artObject,
-          dimension === "width" ? value : null,
-          dimension === "height" ? value : null,
-          settings,
-        );
-        return {
-          ...artObject,
-          ...next,
-        };
-      }),
-    );
-  };
-
   const handleArtObjectSizeChange = (artObjectId: string, width: number | null, height: number | null) => {
     if (!settings) {
       return;
@@ -1024,7 +995,6 @@ function App() {
                     onImportClick={() => fileInputRef.current?.click()}
                     onMaterialSizeChange={handleMaterialDimensionChange}
                     onArtObjectPlacementChange={handleArtObjectPlacementChange}
-                    onArtObjectDimensionChange={handleArtObjectDimensionChange}
                     onArtObjectSizeChange={handleArtObjectSizeChange}
                     onShowOperationOutlinesChange={setShowOperationOutlines}
                   />

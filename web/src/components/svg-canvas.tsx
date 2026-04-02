@@ -45,7 +45,6 @@ interface SvgCanvasProps {
   onImportClick?: () => void;
   onMaterialSizeChange?: (dimension: "width" | "height", value: number | null) => void;
   onArtObjectPlacementChange?: (artObjectId: string, x: number, y: number) => void;
-  onArtObjectDimensionChange?: (artObjectId: string, dimension: "width" | "height", value: number | null) => void;
   onArtObjectSizeChange?: (artObjectId: string, width: number | null, height: number | null) => void;
   onShowOperationOutlinesChange?: (value: boolean) => void;
 }
@@ -74,7 +73,6 @@ export function SvgCanvas({
   onImportClick,
   onMaterialSizeChange,
   onArtObjectPlacementChange,
-  onArtObjectDimensionChange,
   onArtObjectSizeChange,
   onShowOperationOutlinesChange,
 }: SvgCanvasProps) {
@@ -105,6 +103,7 @@ export function SvgCanvas({
     spacePressed,
     toViewportRect,
     setHoverTarget,
+    setPan,
     fitView,
     zoomAtPoint,
     handleWheel,
@@ -279,7 +278,7 @@ export function SvgCanvas({
         });
         setMarqueeRect(currentRect);
         setMarqueeHoverIds(
-          collectIntersectingSvgIds(hitLayerHostRefs.current[artObjectId], currentRect),
+          collectIntersectingSvgIds(hitLayerHostRefs.current[artObjectId], viewport, currentRect),
         );
       };
 
@@ -288,7 +287,7 @@ export function SvgCanvas({
         window.removeEventListener("mouseup", handleMouseUp);
         const didDrag = currentRect.width >= minDragPx || currentRect.height >= minDragPx;
         const intersectingIds = didDrag
-          ? collectIntersectingSvgIds(hitLayerHostRefs.current[artObjectId], currentRect)
+          ? collectIntersectingSvgIds(hitLayerHostRefs.current[artObjectId], viewportRef.current, currentRect)
           : [];
         setMarqueeRect(null);
         setMarqueeHoverIds([]);
@@ -330,18 +329,68 @@ export function SvgCanvas({
     [panToolActive, spacePressed, startMarquee, viewportRef],
   );
 
-  const handleArtObjectDragEnd = useCallback(
-    (artObjectId: string, event: Konva.KonvaEventObject<DragEvent>) => {
-      const artObject = artObjects.find((candidate) => candidate.id === artObjectId);
-      if (!artObject) {
+  const handleArtObjectDragStart = useCallback(
+    (artObjectId: string) => {
+      const node = artObjectRectRefs.current[artObjectId];
+      const box = artObjectBoxes[artObjectId];
+      if (!node || !box) {
         return;
       }
-      const nextX = clamp(event.target.x(), 0, Math.max(0, materialWidth - artObject.widthMm));
-      const nextY = clamp(event.target.y(), 0, Math.max(0, materialHeight - artObject.heightMm));
-      setLiveArtObjectBox(null);
-      onArtObjectPlacementChange?.(artObjectId, roundMm(nextX), roundMm(materialHeight - nextY - artObject.heightMm));
+
+      syncRectNode(node, box);
+      setLiveArtObjectBox({ artObjectId, box });
     },
-    [artObjects, materialHeight, materialWidth, onArtObjectPlacementChange],
+    [artObjectBoxes],
+  );
+
+  const handleArtObjectDragMove = useCallback(
+    (artObjectId: string) => {
+      const node = artObjectRectRefs.current[artObjectId];
+      if (!node) {
+        return;
+      }
+
+      const box = normalizeRectNode(node);
+      const nextX = clamp(box.x, 0, Math.max(0, materialWidth - box.width));
+      const nextY = clamp(box.y, 0, Math.max(0, materialHeight - box.height));
+      const nextBox = {
+        x: nextX,
+        y: nextY,
+        width: box.width,
+        height: box.height,
+      };
+
+      syncRectNode(node, nextBox);
+      setLiveArtObjectBox({ artObjectId, box: nextBox });
+      onArtObjectPlacementChange?.(
+        artObjectId,
+        roundMm(nextX),
+        roundMm(materialHeight - nextY - nextBox.height),
+      );
+    },
+    [materialHeight, materialWidth, onArtObjectPlacementChange],
+  );
+
+  const handleArtObjectDragEnd = useCallback(
+    (artObjectId: string) => {
+      const node = artObjectRectRefs.current[artObjectId];
+      if (!node) {
+        return;
+      }
+
+      const box = normalizeRectNode(node);
+      const nextX = clamp(box.x, 0, Math.max(0, materialWidth - box.width));
+      const nextY = clamp(box.y, 0, Math.max(0, materialHeight - box.height));
+      syncRectNode(node, {
+        x: nextX,
+        y: nextY,
+        width: box.width,
+        height: box.height,
+      });
+      setLiveArtObjectBox(null);
+      onArtObjectPlacementChange?.(artObjectId, roundMm(nextX), roundMm(materialHeight - nextY - box.height));
+    },
+    [materialHeight, materialWidth, onArtObjectPlacementChange],
   );
 
   const handleTransformEnd = useCallback(() => {
@@ -355,6 +404,10 @@ export function SvgCanvas({
       const normalized = normalizeRectNode(artboardRef.current);
       syncRectNode(artboardRef.current, { x: 0, y: 0, width: normalized.width, height: normalized.height });
       setLiveMaterialBox({ x: 0, y: 0, width: normalized.width, height: normalized.height });
+      setPan((current) => ({
+        x: current.x + normalized.x * zoom,
+        y: current.y + normalized.y * zoom,
+      }));
       onMaterialSizeChange?.("width", roundMm(normalized.width));
       onMaterialSizeChange?.("height", roundMm(normalized.height));
       return;
@@ -369,12 +422,7 @@ export function SvgCanvas({
       return;
     }
 
-    const artObject = artObjects.find((candidate) => candidate.id === selectedArtObjectId);
-    if (!artObject) {
-      return;
-    }
     const normalized = normalizeRectNode(rectNode);
-    syncRectNode(rectNode, normalized);
     setLiveArtObjectBox(null);
     onArtObjectPlacementChange?.(
       selectedArtObjectId,
@@ -382,18 +430,15 @@ export function SvgCanvas({
       roundMm(materialHeight - normalized.y - normalized.height),
     );
     onArtObjectSizeChange?.(selectedArtObjectId, roundMm(normalized.width), roundMm(normalized.height));
-    if (artObject.aspectLocked) {
-      onArtObjectDimensionChange?.(selectedArtObjectId, "width", roundMm(normalized.width));
-    }
   }, [
-    artObjects,
     materialHeight,
-    onArtObjectDimensionChange,
     onArtObjectPlacementChange,
     onArtObjectSizeChange,
     onMaterialSizeChange,
     selectedArtObjectId,
     selection.type,
+    setPan,
+    zoom,
   ]);
 
   const transformerBoundBox = useCallback(
@@ -401,15 +446,20 @@ export function SvgCanvas({
       oldBox: { x: number; y: number; width: number; height: number; rotation: number },
       newBox: { x: number; y: number; width: number; height: number; rotation: number },
     ) => {
+      // boundBoxFunc receives/returns absolute screen pixel coordinates.
+      // Convert to mm for constraint math, then convert the result back to pixels.
+      const toMm = (px: number) => px / zoom;
+      const toPx = (mm: number) => mm * zoom;
+      const toMmX = (px: number) => (px - pan.x) / zoom;
+      const toMmY = (px: number) => (px - pan.y) / zoom;
+      const toPxX = (mm: number) => mm * zoom + pan.x;
+      const toPxY = (mm: number) => mm * zoom + pan.y;
+
       if (selection.type === "material") {
-        const minWidth = Math.max(1, paddingMm * 2 + 1);
-        const minHeight = Math.max(1, paddingMm * 2 + 1);
         return {
           ...newBox,
-          x: 0,
-          y: 0,
-          width: Math.max(newBox.width, minWidth),
-          height: Math.max(newBox.height, minHeight),
+          width: Math.max(newBox.width, toPx(paddingMm * 2 + 1)),
+          height: Math.max(newBox.height, toPx(paddingMm * 2 + 1)),
           rotation: 0,
         };
       }
@@ -418,14 +468,14 @@ export function SvgCanvas({
         return oldBox;
       }
 
-      const oldWidthMm = Math.max(1, oldBox.width);
-      const oldHeightMm = Math.max(1, oldBox.height);
-      const widthMm = Math.max(1, newBox.width);
-      const heightMm = Math.max(1, newBox.height);
+      const oldWidthMm = Math.max(1, toMm(Math.abs(oldBox.width)));
+      const oldHeightMm = Math.max(1, toMm(Math.abs(oldBox.height)));
+      const widthMm = Math.max(1, toMm(Math.abs(newBox.width)));
+      const heightMm = Math.max(1, toMm(Math.abs(newBox.height)));
       const anchoredLeft = Math.abs(newBox.x - oldBox.x) > 0.5;
       const anchoredTop = Math.abs(newBox.y - oldBox.y) > 0.5;
-      const oldXMm = oldBox.x;
-      const oldYMm = oldBox.y;
+      const oldXMm = toMmX(oldBox.x);
+      const oldYMm = toMmY(oldBox.y);
 
       if (selectedArtObject.aspectLocked) {
         const dominant = Math.max(widthMm / oldWidthMm, heightMm / oldHeightMm);
@@ -448,10 +498,10 @@ export function SvgCanvas({
           Math.max(0, maxYMm),
         );
         return {
-          x: nextXMm,
-          y: nextYMm,
-          width: nextWidth,
-          height: nextHeight,
+          x: toPxX(nextXMm),
+          y: toPxY(nextYMm),
+          width: toPx(nextWidth),
+          height: toPx(nextHeight),
           rotation: 0,
         };
       }
@@ -472,14 +522,14 @@ export function SvgCanvas({
       );
 
       return {
-        x: nextXMm,
-        y: nextYMm,
-        width: nextWidthMm,
-        height: nextHeightMm,
+        x: toPxX(nextXMm),
+        y: toPxY(nextYMm),
+        width: toPx(nextWidthMm),
+        height: toPx(nextHeightMm),
         rotation: 0,
       };
     },
-    [materialHeight, materialWidth, paddingMm, selectedArtObject, selection.type],
+    [materialHeight, materialWidth, paddingMm, pan, selectedArtObject, selection.type, zoom],
   );
 
   return (
@@ -583,24 +633,17 @@ export function SvgCanvas({
                       onDblClick={() => (isDiveMode && selected ? onExitSvgDiveMode() : onEnterSvgDiveMode(artObject.id))}
                       onMouseEnter={() => setHoverTarget("art-object")}
                       onMouseLeave={() => setHoverTarget((current) => (current === "art-object" ? null : current))}
-                      onDragMove={(event) => {
-                        const nextX = clamp(event.target.x(), 0, Math.max(0, materialWidth - box.width));
-                        const nextY = clamp(event.target.y(), 0, Math.max(0, materialHeight - box.height));
-                        setLiveArtObjectBox({
-                          artObjectId: artObject.id,
-                          box: {
-                            x: nextX,
-                            y: nextY,
-                            width: box.width,
-                            height: box.height,
-                          },
-                        });
+                      onDragStart={() => handleArtObjectDragStart(artObject.id)}
+                      onDragMove={() => handleArtObjectDragMove(artObject.id)}
+                      onDragEnd={() => handleArtObjectDragEnd(artObject.id)}
+                      dragBoundFunc={(pos) => {
+                        const localX = (pos.x - pan.x) / zoom;
+                        const localY = (pos.y - pan.y) / zoom;
+                        return {
+                          x: clamp(localX, 0, Math.max(0, materialWidth - box.width)) * zoom + pan.x,
+                          y: clamp(localY, 0, Math.max(0, materialHeight - box.height)) * zoom + pan.y,
+                        };
                       }}
-                      onDragEnd={(event) => handleArtObjectDragEnd(artObject.id, event)}
-                      dragBoundFunc={(pos) => ({
-                        x: clamp(pos.x, 0, Math.max(0, materialWidth - box.width)),
-                        y: clamp(pos.y, 0, Math.max(0, materialHeight - box.height)),
-                      })}
                     />
                   </Group>
                 );
@@ -782,14 +825,14 @@ function ToolbarButton({
 function normalizeRectNode(node: Konva.Rect): CanvasBox {
   const scaleX = node.scaleX();
   const scaleY = node.scaleY();
-  const width = Math.max(1, node.width() * scaleX);
-  const height = Math.max(1, node.height() * scaleY);
-  return {
+  const box = {
     x: node.x(),
     y: node.y(),
-    width,
-    height,
+    width: Math.max(1, node.width() * Math.abs(scaleX)),
+    height: Math.max(1, node.height() * Math.abs(scaleY)),
   };
+  syncRectNode(node, box);
+  return box;
 }
 
 function syncRectNode(node: Konva.Rect, box: CanvasBox) {
@@ -813,10 +856,22 @@ function normalizeMarquee(origin: { x: number; y: number }, point: { x: number; 
   };
 }
 
-function collectIntersectingSvgIds(host: HTMLDivElement | null | undefined, rect: MarqueeRect) {
-  if (!host) {
+function collectIntersectingSvgIds(
+  host: HTMLDivElement | null | undefined,
+  viewport: HTMLDivElement | null | undefined,
+  rect: MarqueeRect,
+) {
+  if (!host || !viewport) {
     return [];
   }
+
+  const viewportBounds = viewport.getBoundingClientRect();
+  const selectionRect = {
+    left: viewportBounds.left + rect.left,
+    top: viewportBounds.top + rect.top,
+    right: viewportBounds.left + rect.left + rect.width,
+    bottom: viewportBounds.top + rect.top + rect.height,
+  };
 
   const ids: string[] = [];
   for (const element of host.querySelectorAll<SVGGraphicsElement>("[data-s2g-id]")) {
@@ -826,10 +881,10 @@ function collectIntersectingSvgIds(host: HTMLDivElement | null | undefined, rect
     }
     const bounds = element.getBoundingClientRect();
     const intersects =
-      bounds.right >= rect.left &&
-      bounds.left <= rect.left + rect.width &&
-      bounds.bottom >= rect.top &&
-      bounds.top <= rect.top + rect.height;
+      bounds.right >= selectionRect.left &&
+      bounds.left <= selectionRect.right &&
+      bounds.bottom >= selectionRect.top &&
+      bounds.top <= selectionRect.bottom;
     if (intersects) {
       ids.push(id);
     }
