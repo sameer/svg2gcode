@@ -1,6 +1,9 @@
-import { Button, ButtonGroup, Chip, Input, Label, Tabs } from "@heroui/react";
+import { useCallback, useState } from "react";
+import { ChevronDown } from "@gravity-ui/icons";
+import { Button, ButtonGroup, Chip, Dropdown, Input, Label, Tabs } from "@heroui/react";
 
 import { AppIcon, Icons } from "@/lib/icons";
+import { FILL_MODE_VISUALS } from "@/lib/material-presets";
 import type {
   AlignmentAction,
   ArtObject,
@@ -53,6 +56,9 @@ export function StudioInspector({
   onProfilePreviewClear,
   onProfileSelect,
 }: StudioInspectorProps) {
+  const selectionCount = context.type === "none" ? 0 : context.elementIds.length;
+  const selectionActive = context.type === "selection";
+
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
       <div className="flex items-center justify-between px-4 py-4">
@@ -146,14 +152,20 @@ export function StudioInspector({
               <SectionHeading
                 title="Cut depths"
                 rightContent={
-                  <Chip size="sm" variant={context.type === "selection" ? "primary" : "soft"}>
-                    {context.type === "selection" ? `${context.elementIds.length} selected` : `${allProfileGroups.length} groups`}
-                  </Chip>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {selectionActive ? (
+                      <BadgePill accent>
+                        <span className="text-xs">Editing {selectionCount} selected</span>
+                      </BadgePill>
+                    ) : (
+                      <BadgePill>{`${allProfileGroups.length} groups`}</BadgePill>
+                    )}
+                  </div>
                 }
               />
               <ProfileGroupsSection
                 groups={context.type === "selection" ? context.profileGroups : allProfileGroups}
-                selectionActive={context.type === "selection"}
+                selectionActive={selectionActive}
                 activeProfileKey={activeProfileKey}
                 onPreview={onProfilePreview}
                 onPreviewClear={onProfilePreviewClear}
@@ -200,31 +212,61 @@ function ProfileGroupsSection({
 
   return (
     <div className="space-y-3">
-      {groups.map((group) => (
-        <div
-          key={group.key}
-          className={cn("rounded-md border border-border bg-content1 p-3", activeProfileKey === group.key && "ring-1 ring-primary/30")}
-        >
+      {groups.map((group) => {
+        const cardAccent = accentColor(group.color, activeProfileKey === group.key ? 0.08 : 0);
+        const borderAccent = accentColor(group.color, activeProfileKey === group.key ? 0.45 : 0);
+
+        return (
+          <div
+            role="button"
+            tabIndex={0}
+            key={group.key}
+            className="w-full cursor-pointer rounded-md border bg-content1 p-2.5 text-left transition duration-150 hover:bg-white/[0.03]"
+            style={{
+              backgroundColor: cardAccent ?? undefined,
+              borderColor: borderAccent ?? undefined,
+              boxShadow:
+                activeProfileKey === group.key
+                  ? `0 0 0 1px ${accentColor(group.color, 0.18)}`
+                  : undefined,
+            }}
+            onClick={() => {
+              if (activeProfileKey === group.key) {
+                onPreviewClear();
+              } else {
+                onPreview(group.key);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                if (activeProfileKey === group.key) {
+                  onPreviewClear();
+                } else {
+                  onPreview(group.key);
+                }
+              }
+            }}
+          >
           <div className="flex items-center gap-2.5">
             <span className="h-4 w-4 rounded-[4px]" style={{ backgroundColor: group.color }} />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium leading-none text-foreground">{formatMillimeters(group.targetDepthMm)}</p>
               <p className="mt-1 text-xs leading-none text-muted-foreground">{group.elementIds.length} parts</p>
             </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              onPress={() => (activeProfileKey === group.key ? onPreviewClear() : onPreview(group.key))}
-            >
-              {activeProfileKey === group.key ? "Hide" : "Preview"}
-            </Button>
             {!selectionActive ? (
-              <Button size="sm" variant="ghost" onPress={() => onSelect(group.elementIds)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 min-w-0 border border-white/12 bg-white/[0.06] px-2.5 text-xs font-medium text-white hover:bg-white/[0.12]"
+                onClick={(event) => event.stopPropagation()}
+                onPress={() => onSelect(group.elementIds)}
+              >
                 Select
               </Button>
             ) : null}
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2.5">
+          <div className="mt-3 grid grid-cols-2 gap-2.5" onClick={(event) => event.stopPropagation()}>
             <NumberField
               label="Depth"
               unit="mm"
@@ -238,13 +280,35 @@ function ProfileGroupsSection({
             <FillModeField
               label="Part fill"
               value={group.fillMode}
+              mixed={selectionActive && group.fillMode == null}
               onChange={(value) => onFillModeChange(group.elementIds, value)}
             />
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
+}
+
+function accentColor(hex: string, alpha: number) {
+  if (alpha <= 0) {
+    return null;
+  }
+
+  const normalized = hex.replace("#", "");
+  const expanded =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((char) => `${char}${char}`)
+          .join("")
+      : normalized;
+
+  const r = Number.parseInt(expanded.slice(0, 2), 16);
+  const g = Number.parseInt(expanded.slice(2, 4), 16);
+  const b = Number.parseInt(expanded.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 function SectionHeading({ title, rightContent }: { title: string; rightContent?: React.ReactNode }) {
@@ -253,6 +317,20 @@ function SectionHeading({ title, rightContent }: { title: string; rightContent?:
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       <div>{rightContent}</div>
     </div>
+  );
+}
+
+function BadgePill({
+  children,
+  accent = false,
+}: {
+  children: React.ReactNode;
+  accent?: boolean;
+}) {
+  return (
+    <Chip size="sm" color={accent ? "accent" : "default"} variant={accent ? "primary" : "soft"}>
+      {children}
+    </Chip>
   );
 }
 
@@ -292,23 +370,25 @@ function AlignmentCluster({
 function FillModeField({
   label,
   value,
+  mixed = false,
   onChange,
 }: {
   label: string;
   value: FillMode | null;
+  mixed?: boolean;
   onChange: (value: FillMode) => void;
 }) {
+  const selectValue = mixed ? "__mixed__" : value ?? "Pocket";
+
   return (
     <div className="grid min-w-0 w-full gap-1.5">
       <Label className="text-xs text-muted-foreground">{label}</Label>
-      <select
-        className="h-10 rounded-md border border-border bg-content2 px-3 text-sm text-foreground"
-        value={value ?? "Pocket"}
-        onChange={(event) => onChange(event.target.value as FillMode)}
-      >
-        <option value="Pocket">Pocket</option>
-        <option value="Contour">Contour</option>
-      </select>
+      <FillModeDropdown
+        value={value}
+        mixed={mixed}
+        onChange={onChange}
+        selectValue={selectValue}
+      />
     </div>
   );
 }
@@ -324,16 +404,119 @@ function InsetLabelField({
   suffix?: string;
   onChange: (value: number | null) => void;
 }) {
+  const [editValue, setEditValue] = useState<string | null>(null);
+
+  const commit = useCallback(
+    (raw: string) => {
+      const parsed = Number.parseFloat(raw);
+      if (raw.trim() === "") {
+        onChange(null);
+      } else if (Number.isFinite(parsed)) {
+        onChange(parsed);
+      }
+      setEditValue(null);
+    },
+    [onChange],
+  );
+
+  const displayValue = editValue ?? value.toFixed(2).replace(/\.?0+$/, "");
+
   return (
-    <div className="grid gap-1">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
+    <div className="flex h-9 w-full min-w-0 items-center rounded-md border border-border bg-content1 px-2">
+      <div className="inline-flex min-w-[1rem] shrink-0 items-center justify-center text-xs text-muted-foreground">
+        {label}
+      </div>
       <Input
-        type="number"
-        value={String(value)}
-        onChange={(event) => onChange(Number.isFinite(Number(event.target.value)) ? Number(event.target.value) : null)}
+        type="text"
+        inputMode="decimal"
+        className="h-full min-w-0 flex-1 border-0 bg-transparent px-0 text-sm"
+        value={displayValue}
+        onFocus={(event) => {
+          setEditValue(String(value));
+          requestAnimationFrame(() => event.target.select());
+        }}
+        onChange={(event) => setEditValue(event.target.value)}
+        onBlur={(event) => commit(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          } else if (event.key === "Escape") {
+            setEditValue(null);
+            event.currentTarget.blur();
+          }
+        }}
       />
-      {suffix ? <span className="text-xs text-muted-foreground">{suffix}</span> : null}
+      {suffix ? <div className="shrink-0 pl-2 text-xs text-muted-foreground">{suffix}</div> : null}
     </div>
+  );
+}
+
+function FillModeDropdown({
+  value,
+  mixed,
+  selectValue,
+  onChange,
+}: {
+  value: FillMode | null;
+  mixed: boolean;
+  selectValue: string;
+  onChange: (value: FillMode) => void;
+}) {
+  const selectedOption = mixed
+    ? null
+    : FILL_MODE_VISUALS.find((option) => option.mode === (value ?? "Pocket")) ?? null;
+
+  return (
+    <Dropdown>
+      <Dropdown.Trigger>
+        <Button
+          variant="ghost"
+          className="h-8 w-full justify-between rounded-md border border-input bg-background px-3 text-sm text-foreground"
+        >
+          <span className="flex items-center gap-2">
+            {mixed ? (
+              <span className="text-sm text-muted-foreground">Mixed</span>
+            ) : selectedOption ? (
+              <>
+                <span
+                  className={cn("h-4 w-6 rounded-sm border border-border/70 bg-content2", selectedOption.previewClassName)}
+                />
+                <span>{selectedOption.label}</span>
+              </>
+            ) : (
+              <span className="text-sm text-muted-foreground">Pocket</span>
+            )}
+          </span>
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        </Button>
+      </Dropdown.Trigger>
+      <Dropdown.Popover>
+        <Dropdown.Menu
+          aria-label="Fill mode"
+          selectedKeys={new Set([selectValue])}
+          selectionMode="single"
+          onAction={(key) => {
+            const nextValue = String(key);
+            if (nextValue === "__mixed__") {
+              return;
+            }
+            onChange(nextValue as FillMode);
+          }}
+        >
+          {mixed ? <Dropdown.Item id="__mixed__">Mixed</Dropdown.Item> : null}
+          {FILL_MODE_VISUALS.map((option) => (
+            <Dropdown.Item key={option.mode} id={option.mode} textValue={option.label}>
+              <span className="flex items-center gap-2">
+                <span
+                  className={cn("h-4 w-6 rounded-sm border border-border/70 bg-content2", option.previewClassName)}
+                />
+                <span>{option.label}</span>
+              </span>
+            </Dropdown.Item>
+          ))}
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown>
   );
 }
 
@@ -348,18 +531,51 @@ function NumberField({
   value: number | null;
   onChange: (value: number | null) => void;
 }) {
+  const [editValue, setEditValue] = useState<string | null>(null);
+
+  const commit = useCallback(
+    (raw: string) => {
+      const parsed = Number.parseFloat(raw);
+      if (raw.trim() === "") {
+        onChange(null);
+      } else if (Number.isFinite(parsed)) {
+        onChange(parsed);
+      }
+      setEditValue(null);
+    },
+    [onChange],
+  );
+
+  const displayValue = editValue ?? (value == null ? "" : value.toFixed(2));
+
   return (
-    <div className="grid gap-1">
+    <div className="grid min-w-0 w-full gap-1.5">
       <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Input
-        type="number"
-        value={value == null ? "" : String(value)}
-        onChange={(event) => {
-          const parsed = Number(event.target.value);
-          onChange(Number.isFinite(parsed) ? parsed : null);
-        }}
-      />
-      <span className="text-xs text-muted-foreground">{unit}</span>
+      <div className="relative min-w-0">
+        <Input
+          type="text"
+          inputMode="decimal"
+          className="h-8 min-w-0 w-full pr-10 text-sm"
+          value={displayValue}
+          onFocus={(event) => {
+            setEditValue(value == null ? "" : value.toFixed(2));
+            requestAnimationFrame(() => event.target.select());
+          }}
+          onChange={(event) => setEditValue(event.target.value)}
+          onBlur={(event) => commit(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.currentTarget.blur();
+            } else if (event.key === "Escape") {
+              setEditValue(null);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+          {unit}
+        </span>
+      </div>
     </div>
   );
 }

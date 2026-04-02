@@ -196,6 +196,27 @@ function App() {
       };
     }
 
+    if (selection.type === "art-objects") {
+      const elementIds = artObjects
+        .filter((artObject) => selection.artObjectIds.includes(artObject.id))
+        .flatMap((artObject) => getArtObjectElementIds(artObject));
+      const selectedAssignments = elementIds
+        .map((id) => mergedAssignments[id])
+        .filter((assignment): assignment is ElementAssignment => Boolean(assignment));
+      const uniqueDepths = new Set(selectedAssignments.map((assignment) => assignment.targetDepthMm));
+      const uniqueFills = new Set(selectedAssignments.map((assignment) => assignment.fillMode ?? "__default__"));
+
+      return {
+        type: "selection",
+        elementIds,
+        profileGroups: groupAssignmentsForIds(mergedAssignments, elementIds),
+        mixedDepth: uniqueDepths.size > 1,
+        mixedFillMode: uniqueFills.size > 1,
+        targetDepthMm: uniqueDepths.size === 1 ? selectedAssignments[0]?.targetDepthMm ?? null : null,
+        fillMode: uniqueFills.size === 1 ? selectedAssignments[0]?.fillMode ?? null : null,
+      };
+    }
+
     if (activeArtObject) {
       return {
         type: "art-object",
@@ -206,7 +227,7 @@ function App() {
     }
 
     return { type: "none" };
-  }, [activeArtObject, activeArtObjectElementIds, activeArtObjectProfileGroups, mergedAssignments, selection]);
+  }, [activeArtObject, activeArtObjectElementIds, activeArtObjectProfileGroups, artObjects, mergedAssignments, selection]);
 
   const generationInput = useMemo(() => {
     if (!settings || artObjects.length === 0 || derivedOperations.length === 0) {
@@ -630,6 +651,53 @@ function App() {
     setInspectorTab("design");
   };
 
+  const selectArtObjects = (artObjectIds: string[], additive: boolean) => {
+    const uniqueIds = Array.from(new Set(artObjectIds));
+    setInspectorTab("design");
+    setDesignActiveProfileKey(null);
+    setIsDiveMode(false);
+    setActiveDiveRoot(null);
+    setSelection((current) => {
+      if (!additive) {
+        if (uniqueIds.length === 0) {
+          return { type: "none" };
+        }
+        if (uniqueIds.length === 1) {
+          return { type: "art-object", artObjectId: uniqueIds[0] };
+        }
+        return { type: "art-objects", artObjectIds: uniqueIds };
+      }
+
+      const next = new Set<string>();
+      if (current.type === "art-object") {
+        next.add(current.artObjectId);
+      } else if (current.type === "art-objects") {
+        for (const artObjectId of current.artObjectIds) {
+          next.add(artObjectId);
+        }
+      } else if (current.type === "elements") {
+        next.add(current.artObjectId);
+      }
+
+      for (const artObjectId of uniqueIds) {
+        if (next.has(artObjectId)) {
+          next.delete(artObjectId);
+        } else {
+          next.add(artObjectId);
+        }
+      }
+
+      const nextIds = Array.from(next);
+      if (nextIds.length === 0) {
+        return { type: "none" };
+      }
+      if (nextIds.length === 1) {
+        return { type: "art-object", artObjectId: nextIds[0] };
+      }
+      return { type: "art-objects", artObjectIds: nextIds };
+    });
+  };
+
   const selectIds = (artObjectId: string, ids: string[], additive: boolean) => {
     setInspectorTab("design");
     setDesignActiveProfileKey(null);
@@ -988,8 +1056,9 @@ function App() {
                         setDesignActiveProfileKey(null);
                       }
                     }}
-                    onSelectIds={selectIds}
-                    onSelectMaterial={selectMaterial}
+                  onSelectIds={selectIds}
+                  onSelectArtObjects={selectArtObjects}
+                  onSelectMaterial={selectMaterial}
                     onEnterSvgDiveMode={enterSvgDiveMode}
                     onExitSvgDiveMode={exitSvgDiveMode}
                     onImportClick={() => fileInputRef.current?.click()}

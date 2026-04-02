@@ -164,6 +164,13 @@ export function useSvgCanvasController({
     [pan.x, pan.y, zoom],
   );
 
+  const setAbsoluteZoom = useCallback(
+    (nextZoom: number) => {
+      zoomAtPoint(nextZoom);
+    },
+    [zoomAtPoint],
+  );
+
   const handleWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       if (!hasContent) {
@@ -234,6 +241,7 @@ export function useSvgCanvasController({
     setPan,
     fitView,
     zoomAtPoint,
+    setAbsoluteZoom,
     handleWheel,
     handleViewportMouseDown,
   };

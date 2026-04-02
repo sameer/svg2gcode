@@ -16,6 +16,7 @@ interface LayerTreeProps {
   activeDiveRootId: string | null;
   onSelectMaterial: () => void;
   onSelectArtObject: (artObjectId: string) => void;
+  onSelectArtObjects?: (artObjectIds: string[], additive: boolean) => void;
   onSelectIds: (artObjectId: string, ids: string[], additive: boolean) => void;
   onActivateDiveRoot: (scope: DiveRootScope | null) => void;
   onHoverIdsChange: (ids: string[]) => void;
@@ -30,6 +31,7 @@ export function LayerTree({
   activeDiveRootId,
   onSelectMaterial,
   onSelectArtObject,
+  onSelectArtObjects,
   onSelectIds,
   onActivateDiveRoot,
   onHoverIdsChange,
@@ -91,7 +93,8 @@ export function LayerTree({
             {filteredArtObjects.map((artObject) => {
               const tree = cloneTreeWithCompositeIds(artObject.preparedSvg.tree, artObject.id);
               const selected =
-                selection.type === "art-object" && selection.artObjectId === artObject.id;
+                (selection.type === "art-object" && selection.artObjectId === artObject.id) ||
+                (selection.type === "art-objects" && selection.artObjectIds.includes(artObject.id));
               const selectionCount =
                 selection.type === "elements" && selection.artObjectId === artObject.id
                   ? selection.elementIds.length
@@ -105,7 +108,13 @@ export function LayerTree({
                       "flex w-full items-center justify-between rounded-lg px-3 py-3 text-left transition hover:bg-content2",
                       selected && "bg-content3",
                     )}
-                    onClick={() => onSelectArtObject(artObject.id)}
+                    onClick={(event) => {
+                      if (onSelectArtObjects && (event.metaKey || event.ctrlKey || event.shiftKey)) {
+                        onSelectArtObjects([artObject.id], true);
+                        return;
+                      }
+                      onSelectArtObject(artObject.id);
+                    }}
                   >
                     <span className="flex min-w-0 items-center gap-2">
                       <span
@@ -143,6 +152,7 @@ export function LayerTree({
                         selection={selection}
                         activeDiveRootId={activeDiveRootId}
                         onSelectArtObject={onSelectArtObject}
+                        onSelectArtObjects={onSelectArtObjects}
                         onSelectIds={onSelectIds}
                         onActivateDiveRoot={onActivateDiveRoot}
                         onHoverIdsChange={onHoverIdsChange}
@@ -166,6 +176,7 @@ function TreeNode({
   selection,
   activeDiveRootId,
   onSelectArtObject,
+  onSelectArtObjects,
   onSelectIds,
   onActivateDiveRoot,
   onHoverIdsChange,
@@ -177,6 +188,7 @@ function TreeNode({
   selection: EditorSelection;
   activeDiveRootId: string | null;
   onSelectArtObject: (artObjectId: string) => void;
+  onSelectArtObjects?: (artObjectIds: string[], additive: boolean) => void;
   onSelectIds: (artObjectId: string, ids: string[], additive: boolean) => void;
   onActivateDiveRoot: (scope: DiveRootScope | null) => void;
   onHoverIdsChange: (ids: string[]) => void;
@@ -209,7 +221,9 @@ function TreeNode({
   }
 
   const isSelected =
-    (selection.type === "art-object" && selection.artObjectId === artObject.id && node.tag_name === "svg") ||
+    ((((selection.type === "art-object" && selection.artObjectId === artObject.id) ||
+      (selection.type === "art-objects" && selection.artObjectIds.includes(artObject.id))) &&
+      node.tag_name === "svg")) ||
     (selection.type === "elements" && node.id != null && selection.elementIds.includes(node.id));
   const isActiveDiveRoot = activeDiveRootId === `${artObject.id}:${node.id ?? node.label}`;
   const color = node.id ? localElementColor(artObject, node.id) : null;
@@ -223,6 +237,10 @@ function TreeNode({
         onMouseLeave={() => onHoverIdsChange([])}
         onClick={(event) => {
           if (node.tag_name === "svg") {
+            if (onSelectArtObjects && (event.metaKey || event.ctrlKey || event.shiftKey)) {
+              onSelectArtObjects([artObject.id], true);
+              return;
+            }
             onSelectArtObject(artObject.id);
             return;
           }

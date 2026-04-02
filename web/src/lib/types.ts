@@ -139,6 +139,10 @@ export type EditorSelection =
       artObjectId: string;
     }
   | {
+      type: "art-objects";
+      artObjectIds: string[];
+    }
+  | {
       type: "elements";
       artObjectId: string;
       elementIds: string[];

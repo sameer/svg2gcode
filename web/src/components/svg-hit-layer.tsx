@@ -66,12 +66,13 @@ function applyElementPresentation(element: SVGElement, state: PresentationState)
   const isActive = activeOperationId ? operation?.id === activeOperationId : true;
   const isInteractive = interactive && (!interactiveIdSet || interactiveIdSet.has(id));
   const operationColor = operation?.color ?? "#ef4444";
+  const fallbackOutline = "#8ea0b8";
   const woodTone = showOperationOutlines
     ? {
-        fill: "rgba(92, 58, 34, 0.26)",
-        stroke: "rgba(121, 73, 43, 0.98)",
-        highlightStroke: "rgba(88, 52, 29, 1)",
-        glow: "rgba(68, 39, 19, 0.42)",
+        fill: "rgba(255, 255, 255, 0.035)",
+        stroke: "rgba(142, 160, 184, 0.8)",
+        highlightStroke: "rgba(226, 235, 248, 0.95)",
+        glow: "rgba(103, 184, 255, 0.2)",
       }
     : {
         fill: "rgba(86, 53, 31, 0.16)",
@@ -82,50 +83,69 @@ function applyElementPresentation(element: SVGElement, state: PresentationState)
   const mappedTone = {
     stroke: rgba(operationColor, showOperationOutlines ? 0.98 : 0.92),
     strongStroke: rgba(operationColor, 1),
-    fill: rgba(operationColor, showOperationOutlines ? 0.18 : 0.1),
-    strongFill: rgba(operationColor, showOperationOutlines ? 0.24 : 0.14),
-    glow: rgba(operationColor, showOperationOutlines ? 0.34 : 0.24),
+    fill: rgba(operationColor, showOperationOutlines ? 0.055 : 0.1),
+    strongFill: rgba(operationColor, showOperationOutlines ? 0.11 : 0.14),
+    glow: rgba(operationColor, showOperationOutlines ? 0.3 : 0.24),
+  };
+  const outlineTone = {
+    stroke: operation ? mappedTone.stroke : rgba(fallbackOutline, 0.78),
+    strongStroke: operation ? mappedTone.strongStroke : rgba(fallbackOutline, 0.96),
+    fill: operation ? mappedTone.fill : "rgba(190, 204, 224, 0.03)",
+    strongFill: operation ? mappedTone.strongFill : "rgba(190, 204, 224, 0.08)",
+    glow: operation ? mappedTone.glow : "rgba(103, 184, 255, 0.18)",
   };
 
   element.style.pointerEvents = isInteractive ? "auto" : "none";
   element.style.cursor = isInteractive ? "pointer" : "default";
   element.style.transition =
     "opacity 120ms ease, filter 120ms ease, stroke-width 120ms ease, stroke 120ms ease";
-  element.style.opacity = isActive && (!interactiveIdSet || interactiveIdSet.has(id)) ? "1" : "0.22";
+  element.style.opacity = showOperationOutlines
+    ? (!interactiveIdSet || interactiveIdSet.has(id) ? "1" : "0.5")
+    : isActive && (!interactiveIdSet || interactiveIdSet.has(id))
+      ? "1"
+      : "0.22";
 
   const isHighlighted = !isSelected && (isPreviewSelected || isProfilePreviewed || (editMode && isHovered && isInteractive));
-  const showMappedStroke = isSelected || isHighlighted || svgSelected;
-  element.style.fill = woodTone.fill;
+  const baseTone = showOperationOutlines ? outlineTone : mappedTone;
+  const showMappedStroke = showOperationOutlines || isSelected || isHighlighted || svgSelected;
+  element.style.fill = showOperationOutlines ? baseTone.fill : woodTone.fill;
   element.style.strokeLinecap = "round";
   element.style.strokeLinejoin = "round";
   if (isSelected) {
-    element.style.stroke = mappedTone.strongStroke;
+    element.style.stroke = baseTone.strongStroke;
     element.style.strokeWidth = editMode ? (showOperationOutlines ? "2.3" : "2") : "1.8";
-    element.style.fill = editMode ? mappedTone.strongFill : woodTone.fill;
+    element.style.fill = showOperationOutlines ? baseTone.strongFill : editMode ? mappedTone.strongFill : woodTone.fill;
     element.style.vectorEffect = "non-scaling-stroke";
   } else if (isHighlighted) {
-    element.style.stroke = mappedTone.stroke;
+    element.style.stroke = baseTone.stroke;
     element.style.strokeWidth = editMode ? (showOperationOutlines ? "2" : "1.7") : "1.45";
-    element.style.fill = editMode || isProfilePreviewed ? mappedTone.fill : woodTone.fill;
+    element.style.fill = showOperationOutlines
+      ? editMode || isProfilePreviewed
+        ? baseTone.strongFill
+        : baseTone.fill
+      : editMode || isProfilePreviewed
+        ? mappedTone.fill
+        : woodTone.fill;
     element.style.vectorEffect = "non-scaling-stroke";
   } else if (svgSelected) {
-    element.style.stroke = mappedTone.stroke;
+    element.style.stroke = baseTone.stroke;
     element.style.strokeWidth = showOperationOutlines ? "1.5" : "1.15";
-    element.style.fill = woodTone.fill;
+    element.style.fill = showOperationOutlines ? baseTone.fill : woodTone.fill;
     element.style.vectorEffect = "non-scaling-stroke";
   } else {
-    element.style.stroke = woodTone.stroke;
-    element.style.strokeWidth = showOperationOutlines ? "1.35" : "0.7";
+    element.style.stroke = showOperationOutlines ? baseTone.stroke : woodTone.stroke;
+    element.style.strokeWidth = showOperationOutlines ? "1.45" : "0.7";
+    element.style.fill = showOperationOutlines ? baseTone.fill : woodTone.fill;
     element.style.vectorEffect = "non-scaling-stroke";
   }
 
   if (showMappedStroke) {
     element.style.filter =
-      `drop-shadow(0 1px 0 rgba(255,255,255,0.07)) drop-shadow(0 -1px 1px rgba(55,33,18,0.34)) drop-shadow(0 1.2px 1.6px rgba(61,36,19,0.18)) drop-shadow(0 0 0.32rem ${mappedTone.glow})`;
+      `drop-shadow(0 1px 0 rgba(255,255,255,0.07)) drop-shadow(0 -1px 1px rgba(36,46,60,0.22)) drop-shadow(0 1.2px 1.6px rgba(22,30,44,0.16)) drop-shadow(0 0 0.32rem ${baseTone.glow})`;
   } else {
     element.style.filter =
       showOperationOutlines
-        ? "drop-shadow(0 1px 0 rgba(255,255,255,0.05)) drop-shadow(0 -1.6px 1.2px rgba(49,29,16,0.34)) drop-shadow(0 1.6px 1.8px rgba(65,39,21,0.2))"
+        ? "drop-shadow(0 1px 0 rgba(255,255,255,0.04)) drop-shadow(0 -1.4px 1.1px rgba(28,38,51,0.18)) drop-shadow(0 1.6px 1.8px rgba(17,24,39,0.1))"
         : "drop-shadow(0 0.5px 0 rgba(255,255,255,0.04)) drop-shadow(0 -1.2px 0.9px rgba(40,24,13,0.24)) drop-shadow(0 1px 1.4px rgba(60,36,20,0.14))";
   }
 }
@@ -249,10 +269,14 @@ export function SvgHitLayer({
     rootSvg.setAttribute("preserveAspectRatio", "none");
     rootSvg.classList.add("h-full", "w-full");
     rootSvg.style.display = "block";
-    rootSvg.style.pointerEvents = interactive ? "auto" : "none";
+    rootSvg.style.pointerEvents = "none";
     rootSvg.style.overflow = "visible";
-    rootSvg.style.opacity = editMode ? "0.96" : "0.82";
-    rootSvg.style.filter = editMode ? "saturate(1.02) contrast(1.04)" : "saturate(0.9) contrast(0.97)";
+    rootSvg.style.opacity = editMode ? "0.96" : showOperationOutlines ? "0.98" : "0.82";
+    rootSvg.style.filter = showOperationOutlines
+      ? "saturate(1.08) contrast(1.03)"
+      : editMode
+        ? "saturate(1.02) contrast(1.04)"
+        : "saturate(0.9) contrast(0.97)";
 
     const handleClick = (event: MouseEvent) => {
       onClickRef.current(event);
@@ -292,20 +316,20 @@ export function SvgHitLayer({
       applyElementPresentation(selectable, presentationStateRef.current);
     };
 
-    rootSvg.addEventListener("click", handleClick);
-    rootSvg.addEventListener("dblclick", handleDoubleClick);
-    rootSvg.addEventListener("mousedown", handleMouseDown);
-    rootSvg.addEventListener("mouseover", handleMouseOver);
-    rootSvg.addEventListener("mouseout", handleMouseOut);
+    host.addEventListener("click", handleClick);
+    host.addEventListener("dblclick", handleDoubleClick);
+    host.addEventListener("mousedown", handleMouseDown);
+    host.addEventListener("mouseover", handleMouseOver);
+    host.addEventListener("mouseout", handleMouseOut);
 
     return () => {
-      rootSvg.removeEventListener("click", handleClick);
-      rootSvg.removeEventListener("dblclick", handleDoubleClick);
-      rootSvg.removeEventListener("mousedown", handleMouseDown);
-      rootSvg.removeEventListener("mouseover", handleMouseOver);
-      rootSvg.removeEventListener("mouseout", handleMouseOut);
+      host.removeEventListener("click", handleClick);
+      host.removeEventListener("dblclick", handleDoubleClick);
+      host.removeEventListener("mousedown", handleMouseDown);
+      host.removeEventListener("mouseover", handleMouseOver);
+      host.removeEventListener("mouseout", handleMouseOut);
     };
-  }, [editMode, interactive, normalizedSvg]);
+  }, [editMode, interactive, normalizedSvg, showOperationOutlines]);
 
   // Effect 2: Presentation updates — runs when selection/operation state changes.
   // Queries existing DOM nodes and updates their styles without touching innerHTML.
@@ -318,9 +342,13 @@ export function SvgHitLayer({
     if (!rootSvg) {
       return;
     }
-    rootSvg.style.opacity = editMode ? "0.96" : "0.82";
-    rootSvg.style.filter = editMode ? "saturate(1.02) contrast(1.04)" : "saturate(0.9) contrast(0.97)";
-    rootSvg.style.pointerEvents = interactive ? "auto" : "none";
+    rootSvg.style.opacity = editMode ? "0.96" : showOperationOutlines ? "0.98" : "0.82";
+    rootSvg.style.filter = showOperationOutlines
+      ? "saturate(1.08) contrast(1.03)"
+      : editMode
+        ? "saturate(1.02) contrast(1.04)"
+        : "saturate(0.9) contrast(0.97)";
+    rootSvg.style.pointerEvents = "none";
     const state: PresentationState = {
       selectedIds,
       previewSelectedIdSet,
