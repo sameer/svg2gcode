@@ -1,13 +1,5 @@
-import type { AlignmentAction } from "@/lib/types";
+import type { AlignmentAction, SvgDocumentMetrics } from "@/lib/types";
 import { clamp } from "@/lib/utils";
-
-export interface SvgDocumentMetrics {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  aspectRatio: number;
-}
 
 export interface CanvasGeometry {
   svgWidthMm: number;

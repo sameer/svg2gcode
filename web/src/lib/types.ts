@@ -77,6 +77,20 @@ export interface PreparedSvgDocument {
   selectable_element_ids: string[];
 }
 
+export interface ArtObject {
+  id: string;
+  name: string;
+  preparedSvg: PreparedSvgDocument;
+  svgMetrics: SvgDocumentMetrics;
+  placementX: number;
+  placementY: number;
+  widthMm: number;
+  heightMm: number;
+  aspectLocked: boolean;
+  elementAssignments: Record<string, ElementAssignment>;
+  elementColors: Map<string, string>;
+}
+
 export interface FrontendOperation {
   id: string;
   name: string;
@@ -104,18 +118,41 @@ export interface DiveRootScope {
   id: string;
   label: string;
   elementIds: string[];
+  artObjectId: string;
 }
 
 export interface DesignSelectionSnapshot {
-  selectionTarget: Exclude<CanvasSelectionTarget, "material">;
-  selectedIds: string[];
+  selection: EditorSelection;
   isDiveMode: boolean;
   activeDiveRoot: DiveRootScope | null;
 }
 
+export type EditorSelection =
+  | {
+      type: "none";
+    }
+  | {
+      type: "material";
+    }
+  | {
+      type: "art-object";
+      artObjectId: string;
+    }
+  | {
+      type: "elements";
+      artObjectId: string;
+      elementIds: string[];
+    };
+
 export type InspectorContext =
   | {
       type: "none";
+    }
+  | {
+      type: "art-object";
+      artObjectId: string;
+      elementIds: string[];
+      profileGroups: AssignmentProfileGroup[];
     }
   | {
       type: "svg";
@@ -175,6 +212,14 @@ export interface CanvasEditorState {
     x: number;
     y: number;
   };
-  selection: CanvasSelectionTarget;
+  selection: EditorSelection;
   paddingMm: number;
+}
+
+export interface SvgDocumentMetrics {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  aspectRatio: number;
 }

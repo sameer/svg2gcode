@@ -16,6 +16,8 @@ interface SvgHitLayerProps {
   activeProfileKey: string | null;
   operationForId: Map<string, FrontendOperation>;
   showOperationOutlines: boolean;
+  svgSelected: boolean;
+  editMode: boolean;
   interactiveIds?: string[] | null;
   interactive?: boolean;
   onHostReady?: (host: HTMLDivElement | null) => void;
@@ -31,6 +33,8 @@ type PresentationState = {
   activeProfileKey: string | null;
   operationForId: Map<string, FrontendOperation>;
   showOperationOutlines: boolean;
+  svgSelected: boolean;
+  editMode: boolean;
   interactive: boolean;
   interactiveIdSet: Set<string> | null;
 };
@@ -48,6 +52,8 @@ function applyElementPresentation(element: SVGElement, state: PresentationState)
     activeProfileKey,
     operationForId,
     showOperationOutlines,
+    svgSelected,
+    editMode,
     interactive,
     interactiveIdSet,
   } = state;
@@ -59,6 +65,7 @@ function applyElementPresentation(element: SVGElement, state: PresentationState)
   const isProfilePreviewed = !!activeProfileKey && activeProfileKey === operationProfileKey;
   const isActive = activeOperationId ? operation?.id === activeOperationId : true;
   const isInteractive = interactive && (!interactiveIdSet || interactiveIdSet.has(id));
+  const operationColor = operation?.color ?? "#ef4444";
   const woodTone = showOperationOutlines
     ? {
         fill: "rgba(92, 58, 34, 0.26)",
@@ -72,6 +79,13 @@ function applyElementPresentation(element: SVGElement, state: PresentationState)
         highlightStroke: "rgba(98, 60, 34, 0.82)",
         glow: "rgba(62, 37, 18, 0.24)",
       };
+  const mappedTone = {
+    stroke: rgba(operationColor, showOperationOutlines ? 0.98 : 0.92),
+    strongStroke: rgba(operationColor, 1),
+    fill: rgba(operationColor, showOperationOutlines ? 0.18 : 0.1),
+    strongFill: rgba(operationColor, showOperationOutlines ? 0.24 : 0.14),
+    glow: rgba(operationColor, showOperationOutlines ? 0.34 : 0.24),
+  };
 
   element.style.pointerEvents = isInteractive ? "auto" : "none";
   element.style.cursor = isInteractive ? "pointer" : "default";
@@ -79,17 +93,25 @@ function applyElementPresentation(element: SVGElement, state: PresentationState)
     "opacity 120ms ease, filter 120ms ease, stroke-width 120ms ease, stroke 120ms ease";
   element.style.opacity = isActive && (!interactiveIdSet || interactiveIdSet.has(id)) ? "1" : "0.22";
 
-  const isHighlighted = !isSelected && (isPreviewSelected || isProfilePreviewed || (isHovered && isInteractive));
+  const isHighlighted = !isSelected && (isPreviewSelected || isProfilePreviewed || (editMode && isHovered && isInteractive));
+  const showMappedStroke = isSelected || isHighlighted || svgSelected;
   element.style.fill = woodTone.fill;
   element.style.strokeLinecap = "round";
   element.style.strokeLinejoin = "round";
   if (isSelected) {
-    element.style.stroke = woodTone.highlightStroke;
-    element.style.strokeWidth = showOperationOutlines ? "2.4" : "1.8";
+    element.style.stroke = mappedTone.strongStroke;
+    element.style.strokeWidth = editMode ? (showOperationOutlines ? "2.3" : "2") : "1.8";
+    element.style.fill = editMode ? mappedTone.strongFill : woodTone.fill;
     element.style.vectorEffect = "non-scaling-stroke";
   } else if (isHighlighted) {
-    element.style.stroke = woodTone.highlightStroke;
-    element.style.strokeWidth = showOperationOutlines ? (isProfilePreviewed ? "2.2" : "2") : "1.55";
+    element.style.stroke = mappedTone.stroke;
+    element.style.strokeWidth = editMode ? (showOperationOutlines ? "2" : "1.7") : "1.45";
+    element.style.fill = editMode || isProfilePreviewed ? mappedTone.fill : woodTone.fill;
+    element.style.vectorEffect = "non-scaling-stroke";
+  } else if (svgSelected) {
+    element.style.stroke = mappedTone.stroke;
+    element.style.strokeWidth = showOperationOutlines ? "1.5" : "1.15";
+    element.style.fill = woodTone.fill;
     element.style.vectorEffect = "non-scaling-stroke";
   } else {
     element.style.stroke = woodTone.stroke;
@@ -97,9 +119,9 @@ function applyElementPresentation(element: SVGElement, state: PresentationState)
     element.style.vectorEffect = "non-scaling-stroke";
   }
 
-  if (isHighlighted || isSelected) {
+  if (showMappedStroke) {
     element.style.filter =
-      `drop-shadow(0 1px 0 rgba(255,255,255,0.07)) drop-shadow(0 -1px 1px rgba(55,33,18,0.44)) drop-shadow(0 1.6px 1.8px rgba(61,36,19,0.28)) drop-shadow(0 0 0.42rem ${woodTone.glow})`;
+      `drop-shadow(0 1px 0 rgba(255,255,255,0.07)) drop-shadow(0 -1px 1px rgba(55,33,18,0.34)) drop-shadow(0 1.2px 1.6px rgba(61,36,19,0.18)) drop-shadow(0 0 0.32rem ${mappedTone.glow})`;
   } else {
     element.style.filter =
       showOperationOutlines
@@ -117,6 +139,8 @@ export function SvgHitLayer({
   activeProfileKey,
   operationForId,
   showOperationOutlines,
+  svgSelected,
+  editMode,
   interactiveIds,
   interactive = true,
   onHostReady,
@@ -151,6 +175,8 @@ export function SvgHitLayer({
     activeProfileKey,
     operationForId,
     showOperationOutlines,
+    svgSelected,
+    editMode,
     interactive,
     interactiveIdSet,
   });
@@ -182,12 +208,15 @@ export function SvgHitLayer({
       activeProfileKey,
       operationForId,
       showOperationOutlines,
+      svgSelected,
+      editMode,
       interactive,
       interactiveIdSet,
     };
   }, [
     activeOperationId,
     activeProfileKey,
+    editMode,
     interactive,
     interactiveIdSet,
     onClick,
@@ -197,6 +226,7 @@ export function SvgHitLayer({
     previewSelectedIdSet,
     selectedIds,
     showOperationOutlines,
+    svgSelected,
   ]);
 
   // Effect 1: DOM injection — only re-runs when normalizedSvg changes.
@@ -219,10 +249,10 @@ export function SvgHitLayer({
     rootSvg.setAttribute("preserveAspectRatio", "none");
     rootSvg.classList.add("h-full", "w-full");
     rootSvg.style.display = "block";
-    rootSvg.style.pointerEvents = "none";
+    rootSvg.style.pointerEvents = interactive ? "auto" : "none";
     rootSvg.style.overflow = "visible";
-    rootSvg.style.opacity = "0.76";
-    rootSvg.style.filter = "saturate(0.86) contrast(0.95)";
+    rootSvg.style.opacity = editMode ? "0.96" : "0.82";
+    rootSvg.style.filter = editMode ? "saturate(1.02) contrast(1.04)" : "saturate(0.9) contrast(0.97)";
 
     const handleClick = (event: MouseEvent) => {
       onClickRef.current(event);
@@ -275,7 +305,7 @@ export function SvgHitLayer({
       rootSvg.removeEventListener("mouseover", handleMouseOver);
       rootSvg.removeEventListener("mouseout", handleMouseOut);
     };
-  }, [normalizedSvg]);
+  }, [editMode, interactive, normalizedSvg]);
 
   // Effect 2: Presentation updates — runs when selection/operation state changes.
   // Queries existing DOM nodes and updates their styles without touching innerHTML.
@@ -288,6 +318,9 @@ export function SvgHitLayer({
     if (!rootSvg) {
       return;
     }
+    rootSvg.style.opacity = editMode ? "0.96" : "0.82";
+    rootSvg.style.filter = editMode ? "saturate(1.02) contrast(1.04)" : "saturate(0.9) contrast(0.97)";
+    rootSvg.style.pointerEvents = interactive ? "auto" : "none";
     const state: PresentationState = {
       selectedIds,
       previewSelectedIdSet,
@@ -295,6 +328,8 @@ export function SvgHitLayer({
       activeProfileKey,
       operationForId,
       showOperationOutlines,
+      svgSelected,
+      editMode,
       interactive,
       interactiveIdSet,
     };
@@ -308,6 +343,8 @@ export function SvgHitLayer({
     activeProfileKey,
     operationForId,
     showOperationOutlines,
+    svgSelected,
+    editMode,
     interactive,
     interactiveIdSet,
     normalizedSvg,
@@ -327,8 +364,24 @@ export function SvgHitLayer({
       <div
         ref={hostRef}
         className="h-full w-full"
-        style={{ pointerEvents: "none" }}
+        style={{ pointerEvents: interactive ? "auto" : "none" }}
       />
     </div>
   );
+}
+
+function rgba(hex: string, alpha: number) {
+  const normalized = hex.replace("#", "");
+  const expanded =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((char) => `${char}${char}`)
+          .join("")
+      : normalized;
+
+  const r = Number.parseInt(expanded.slice(0, 2), 16);
+  const g = Number.parseInt(expanded.slice(2, 4), 16);
+  const b = Number.parseInt(expanded.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }

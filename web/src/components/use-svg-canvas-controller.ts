@@ -1,11 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import {
-  getCanvasGeometry,
-  getPaddingValidationMessage,
-  parseSvgDocumentMetrics,
-} from "@/lib/editor-geometry";
-import type { CanvasSelectionTarget, PreparedSvgDocument } from "@/lib/types";
+import type { EditorSelection } from "@/lib/types";
 import { clamp } from "@/lib/utils";
 
 const FIT_MARGIN_PX = 72;
@@ -13,62 +8,32 @@ const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 12;
 
 interface UseSvgCanvasControllerOptions {
-  preparedSvg: PreparedSvgDocument | null;
+  hasContent: boolean;
+  fitToken: string;
   materialWidth: number;
   materialHeight: number;
-  placementX: number;
-  placementY: number;
-  paddingMm: number;
-  paddingValidationMessage: string | null;
-  svgWidthMm: number;
-  svgHeightMm: number;
   panToolActive?: boolean;
-  onSelectionTargetChange: (value: CanvasSelectionTarget) => void;
+  onSelectionChange: (value: EditorSelection) => void;
 }
 
 export function useSvgCanvasController({
-  preparedSvg,
+  hasContent,
+  fitToken,
   materialWidth,
   materialHeight,
-  placementX,
-  placementY,
-  paddingMm,
-  paddingValidationMessage,
-  svgWidthMm,
-  svgHeightMm,
   panToolActive = false,
-  onSelectionTargetChange,
+  onSelectionChange,
 }: UseSvgCanvasControllerOptions) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const panSessionRef = useRef<{ x: number; y: number; startPanX: number; startPanY: number } | null>(null);
-  const fitTokenRef = useRef<string | null>(null);
-  const fitViewportRef = useRef<string>("");
+  const fitKeyRef = useRef<string>("");
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [hoverTarget, setHoverTarget] = useState<CanvasSelectionTarget>(null);
+  const [hoverTarget, setHoverTarget] = useState<"material" | "art-object" | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [spacePressed, setSpacePressed] = useState(false);
 
-  const svgMetrics = useMemo(
-    () => (preparedSvg ? parseSvgDocumentMetrics(preparedSvg.normalized_svg) : null),
-    [preparedSvg],
-  );
-  const geometry = useMemo(() => {
-    if (!svgMetrics) {
-      return null;
-    }
-
-    return getCanvasGeometry({
-      artboardWidthMm: materialWidth,
-      artboardHeightMm: materialHeight,
-      placementX,
-      placementY,
-      paddingMm,
-      svgWidthMm,
-      svgHeightMm,
-    });
-  }, [materialHeight, materialWidth, paddingMm, placementX, placementY, svgHeightMm, svgMetrics, svgWidthMm]);
   const toViewportRect = useCallback(
     (box: { x: number; y: number; width: number; height: number } | null) => {
       if (!box) {
@@ -84,19 +49,6 @@ export function useSvgCanvasController({
     },
     [pan.x, pan.y, zoom],
   );
-  const overlayRect = useMemo(() => {
-    if (!geometry) {
-      return null;
-    }
-
-    return toViewportRect({
-      x: geometry.svgLeftMm,
-      y: geometry.svgTopMm,
-      width: geometry.svgWidthMm,
-      height: geometry.svgHeightMm,
-    });
-  }, [geometry, toViewportRect]);
-  const paddingMessage = paddingValidationMessage ?? (geometry ? getPaddingValidationMessage(geometry, paddingMm) : null);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -165,24 +117,22 @@ export function useSvgCanvasController({
   }, [materialHeight, materialWidth, viewportSize.height, viewportSize.width]);
 
   useEffect(() => {
-    if (!preparedSvg || !viewportSize.width || !viewportSize.height) {
+    if (!hasContent || !viewportSize.width || !viewportSize.height) {
       return;
     }
 
-    const nextToken = preparedSvg.normalized_svg;
-    const nextViewportKey = `${viewportSize.width}x${viewportSize.height}`;
-    if (fitTokenRef.current === nextToken && fitViewportRef.current === nextViewportKey) {
+    const nextKey = `${fitToken}::${viewportSize.width}x${viewportSize.height}`;
+    if (fitKeyRef.current === nextKey) {
       return;
     }
 
-    fitTokenRef.current = nextToken;
-    fitViewportRef.current = nextViewportKey;
+    fitKeyRef.current = nextKey;
     const frameId = window.requestAnimationFrame(() => {
       fitView();
-      onSelectionTargetChange(null);
+      onSelectionChange({ type: "none" });
     });
     return () => window.cancelAnimationFrame(frameId);
-  }, [fitView, onSelectionTargetChange, preparedSvg, viewportSize.height, viewportSize.width]);
+  }, [fitToken, fitView, hasContent, onSelectionChange, viewportSize.height, viewportSize.width]);
 
   const zoomAtPoint = useCallback(
     (nextZoom: number, anchorClientPoint?: { x: number; y: number }) => {
@@ -216,7 +166,7 @@ export function useSvgCanvasController({
 
   const handleWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
-      if (!preparedSvg) {
+      if (!hasContent) {
         return;
       }
 
@@ -224,12 +174,12 @@ export function useSvgCanvasController({
       const multiplier = event.deltaY < 0 ? 1.12 : 0.9;
       zoomAtPoint(zoom * multiplier, { x: event.clientX, y: event.clientY });
     },
-    [preparedSvg, zoom, zoomAtPoint],
+    [hasContent, zoom, zoomAtPoint],
   );
 
   const handleViewportMouseDown = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
-      if (!preparedSvg) {
+      if (!hasContent) {
         return;
       }
 
@@ -259,8 +209,8 @@ export function useSvgCanvasController({
       };
 
       const handleMouseUp = () => {
-        panSessionRef.current = null;
         setIsPanning(false);
+        panSessionRef.current = null;
         window.removeEventListener("mousemove", handleMouseMove);
         window.removeEventListener("mouseup", handleMouseUp);
       };
@@ -268,7 +218,7 @@ export function useSvgCanvasController({
       window.addEventListener("mousemove", handleMouseMove);
       window.addEventListener("mouseup", handleMouseUp);
     },
-    [pan.x, pan.y, panToolActive, preparedSvg, spacePressed],
+    [hasContent, pan.x, pan.y, panToolActive, spacePressed],
   );
 
   return {
@@ -279,12 +229,7 @@ export function useSvgCanvasController({
     hoverTarget,
     isPanning,
     spacePressed,
-    svgMetrics,
-    geometry,
-    overlayRect,
-    paddingMessage,
     toViewportRect,
-    setSelectionTarget: onSelectionTargetChange,
     setHoverTarget,
     setPan,
     fitView,

@@ -11,27 +11,28 @@ import { StudioInspector } from "@/components/studio-inspector";
 import { SvgCanvas } from "@/components/svg-canvas";
 import { TopBar } from "@/components/top-bar";
 import { parseGcodeProgram, sampleProgramAtDistance } from "@/components/viewer/parse-gcode";
-import { buildElementColorMap } from "@/lib/color-detection";
 import {
-  clampPlacementToArtboard,
-  getAlignedPlacement,
-  getCanvasGeometry,
-  getPaddingValidationMessage,
-  parseSvgDocumentMetrics,
-  type SvgDocumentMetrics,
-} from "@/lib/editor-geometry";
-import { deriveOperationsFromProfileGroups, groupAssignmentsForIds } from "@/lib/profile-groups";
+  collectAssignmentsForArtObjects,
+  composeArtObjectsSvg,
+  createArtObject,
+  getArtObjectElementIds,
+  getDerivedOperationsForArtObjects,
+  resizeArtObjectWithAspect,
+} from "@/lib/art-objects";
+import { clampPlacementToArtboard, getAlignedPlacement, getCanvasGeometry, getPaddingValidationMessage } from "@/lib/editor-geometry";
+import { groupAssignmentsForIds } from "@/lib/profile-groups";
 import type {
-  AssignmentProfileGroup,
+  AlignmentAction,
+  ArtObject,
   DesignSelectionSnapshot,
   DiveRootScope,
+  EditorSelection,
   ElementAssignment,
   FillMode,
   FrontendOperation,
   GenerateJobResponse,
   InspectorContext,
   InspectorTab,
-  PreparedSvgDocument,
   Settings,
   TabId,
 } from "@/lib/types";
@@ -42,9 +43,7 @@ import { generateEngravingJob, loadDefaultSettings, prepareSvgDocument } from "@
 function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [advancedOverrides, setAdvancedOverrides] = useState<Record<string, boolean>>({});
-  const [preparedSvg, setPreparedSvg] = useState<PreparedSvgDocument | null>(null);
-  const [elementAssignments, setElementAssignments] = useState<Record<string, ElementAssignment>>({});
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [artObjects, setArtObjects] = useState<ArtObject[]>([]);
   const [hoveredLayerIds, setHoveredLayerIds] = useState<string[]>([]);
   const [generated, setGenerated] = useState<GenerateJobResponse | null>(null);
   const [lastGeneratedInputSignature, setLastGeneratedInputSignature] = useState<string | null>(null);
@@ -55,17 +54,14 @@ function App() {
   const [showPreviewBlockedNotice, setShowPreviewBlockedNotice] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("prepare");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("design");
-  const [canvasSelectionTarget, setCanvasSelectionTarget] = useState<"material" | "svg" | null>(null);
+  const [selection, setSelection] = useState<EditorSelection>({ type: "none" });
   const [isDiveMode, setIsDiveMode] = useState(false);
   const [activeDiveRoot, setActiveDiveRoot] = useState<DiveRootScope | null>(null);
   const [lastDesignSelection, setLastDesignSelection] = useState<DesignSelectionSnapshot | null>(null);
   const [modifierDirectPick, setModifierDirectPick] = useState(false);
-  const [elementColors, setElementColors] = useState<Map<string, string>>(new Map());
   const [designActiveProfileKey, setDesignActiveProfileKey] = useState<string | null>(null);
-  const [recentNewProfileKey, setRecentNewProfileKey] = useState<string | null>(null);
   const [showOperationOutlines, setShowOperationOutlines] = useState(true);
-  const [paddingMm, setPaddingMm] = useState(0);
-  const [svgSizeMm, setSvgSizeMm] = useState({ width: 100, height: 100, aspectLocked: true });
+  const [paddingMm, setPaddingMm] = useState(10);
   const [projectName, setProjectName] = useState("3D Dog Character");
   const [materialPreset, setMaterialPreset] = useState<MaterialPresetId>("Oak");
   const [previewActiveOperationId, setPreviewActiveOperationId] = useState<string | null>(null);
@@ -77,6 +73,7 @@ function App() {
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const previewBlockedNoticeTimerRef = useRef<number | null>(null);
+  const artObjectCounterRef = useRef(1);
 
   useEffect(() => {
     loadDefaultSettings()
@@ -88,6 +85,8 @@ function App() {
               engraving: {
                 ...defaults.engraving,
                 target_depth: 5,
+                placement_x: 0,
+                placement_y: 0,
               },
             },
             {},
@@ -132,188 +131,186 @@ function App() {
     };
   }, []);
 
-  const svgMetrics = useMemo(
-    () => (preparedSvg ? parseSvgDocumentMetrics(preparedSvg.normalized_svg) : null),
-    [preparedSvg],
+  const selectedArtObjectId =
+    selection.type === "art-object" || selection.type === "elements"
+      ? selection.artObjectId
+      : activeDiveRoot?.artObjectId ?? null;
+  const activeArtObject = selectedArtObjectId
+    ? artObjects.find((artObject) => artObject.id === selectedArtObjectId) ?? null
+    : null;
+  const allElementIds = useMemo(
+    () => artObjects.flatMap((artObject) => getArtObjectElementIds(artObject)),
+    [artObjects],
   );
-  const svgWidthMm = svgMetrics ? svgSizeMm.width : 0;
-  const svgHeightMm = svgMetrics ? svgSizeMm.height : 0;
-
-  const editorGeometry = useMemo(() => {
-    if (!settings || !svgMetrics) {
+  const mergedAssignments = useMemo(() => collectAssignmentsForArtObjects(artObjects), [artObjects]);
+  const allProfileGroups = useMemo(
+    () => groupAssignmentsForIds(mergedAssignments, allElementIds),
+    [allElementIds, mergedAssignments],
+  );
+  const derivedOperations = useMemo(
+    () => getDerivedOperationsForArtObjects(artObjects),
+    [artObjects],
+  );
+  const activeArtObjectElementIds = useMemo(
+    () => (activeArtObject ? getArtObjectElementIds(activeArtObject) : []),
+    [activeArtObject],
+  );
+  const activeArtObjectProfileGroups = useMemo(
+    () => groupAssignmentsForIds(mergedAssignments, activeArtObjectElementIds),
+    [activeArtObjectElementIds, mergedAssignments],
+  );
+  const paddingValidationMessage = useMemo(() => {
+    if (!settings || !activeArtObject) {
       return null;
     }
 
-    return getCanvasGeometry({
+    const geometry = getCanvasGeometry({
       artboardWidthMm: settings.engraving.material_width,
       artboardHeightMm: settings.engraving.material_height,
-      placementX: settings.engraving.placement_x,
-      placementY: settings.engraving.placement_y,
+      placementX: activeArtObject.placementX,
+      placementY: activeArtObject.placementY,
       paddingMm,
-      svgWidthMm,
-      svgHeightMm,
+      svgWidthMm: activeArtObject.widthMm,
+      svgHeightMm: activeArtObject.heightMm,
     });
-  }, [paddingMm, settings, svgHeightMm, svgMetrics, svgWidthMm]);
-  const paddingValidationMessage = useMemo(
-    () => (editorGeometry ? getPaddingValidationMessage(editorGeometry, paddingMm) : null),
-    [editorGeometry, paddingMm],
-  );
 
-  const allElementIds = useMemo(
-    () => preparedSvg?.selectable_element_ids ?? [],
-    [preparedSvg],
-  );
-  const svgDiveRoot = useMemo<DiveRootScope | null>(
-    () =>
-      preparedSvg
-        ? {
-            id: "svg-root",
-            label: "SVG",
-            elementIds: preparedSvg.selectable_element_ids,
-          }
-        : null,
-    [preparedSvg],
-  );
-  const allProfileGroups = useMemo<AssignmentProfileGroup[]>(
-    () => groupAssignmentsForIds(elementAssignments, allElementIds),
-    [allElementIds, elementAssignments],
-  );
-  const derivedOperations = useMemo(
-    () => deriveOperationsFromProfileGroups(allProfileGroups),
-    [allProfileGroups],
-  );
+    return getPaddingValidationMessage(geometry, paddingMm);
+  }, [activeArtObject, paddingMm, settings]);
 
-  useEffect(() => {
-    if (designActiveProfileKey && !allProfileGroups.some((group) => group.key === designActiveProfileKey)) {
-      setDesignActiveProfileKey(null);
+  const inspectorContext = useMemo<InspectorContext>(() => {
+    if (selection.type === "elements") {
+      const selectedAssignments = selection.elementIds
+        .map((id) => mergedAssignments[id])
+        .filter((assignment): assignment is ElementAssignment => Boolean(assignment));
+      const uniqueDepths = new Set(selectedAssignments.map((assignment) => assignment.targetDepthMm));
+      const uniqueFills = new Set(selectedAssignments.map((assignment) => assignment.fillMode ?? "__default__"));
+
+      return {
+        type: "selection",
+        elementIds: selection.elementIds,
+        profileGroups: groupAssignmentsForIds(mergedAssignments, selection.elementIds),
+        mixedDepth: uniqueDepths.size > 1,
+        mixedFillMode: uniqueFills.size > 1,
+        targetDepthMm: uniqueDepths.size === 1 ? selectedAssignments[0]?.targetDepthMm ?? null : null,
+        fillMode: uniqueFills.size === 1 ? selectedAssignments[0]?.fillMode ?? null : null,
+      };
     }
-  }, [allProfileGroups, designActiveProfileKey]);
-  useEffect(() => {
-    if (recentNewProfileKey && !allProfileGroups.some((group) => group.key === recentNewProfileKey)) {
-      setRecentNewProfileKey(null);
+
+    if (activeArtObject) {
+      return {
+        type: "art-object",
+        artObjectId: activeArtObject.id,
+        elementIds: activeArtObjectElementIds,
+        profileGroups: activeArtObjectProfileGroups,
+      };
     }
-  }, [allProfileGroups, recentNewProfileKey]);
+
+    return { type: "none" };
+  }, [activeArtObject, activeArtObjectElementIds, activeArtObjectProfileGroups, mergedAssignments, selection]);
+
   const generationInput = useMemo(() => {
-    if (!preparedSvg || !settings || derivedOperations.length === 0 || !svgMetrics) {
+    if (!settings || artObjects.length === 0 || derivedOperations.length === 0) {
       return null;
     }
 
     const requestSettings = structuredClone(settings);
     requestSettings.engraving.svg_width_override = null;
+    requestSettings.engraving.placement_x = 0;
+    requestSettings.engraving.placement_y = 0;
 
     return {
-      normalizedSvg: resizeSvgDocument(preparedSvg.normalized_svg, svgMetrics, svgWidthMm, svgHeightMm),
+      normalizedSvg: composeArtObjectsSvg(artObjects, requestSettings),
       settings: requestSettings,
       operations: derivedOperations,
     };
-  }, [derivedOperations, preparedSvg, settings, svgHeightMm, svgMetrics, svgWidthMm]);
+  }, [artObjects, derivedOperations, settings]);
   const generationInputSignature = useMemo(
     () => (generationInput ? JSON.stringify(generationInput) : null),
     [generationInput],
   );
-  const inspectorContext = useMemo<InspectorContext>(() => {
-    if (canvasSelectionTarget === "svg") {
-      return {
-        type: "svg",
-        elementIds: allElementIds,
-        profileGroups: allProfileGroups,
-      };
-    }
 
-    if (selectedIds.length === 0) {
-      return { type: "none" };
-    }
-
-    const selectedAssignments = selectedIds
-      .map((id) => elementAssignments[id])
-      .filter((assignment): assignment is ElementAssignment => Boolean(assignment));
-    const uniqueDepths = new Set(selectedAssignments.map((assignment) => assignment.targetDepthMm));
-    const uniqueFills = new Set(selectedAssignments.map((assignment) => assignment.fillMode ?? "__default__"));
-
-    return {
-      type: "selection",
-      elementIds: selectedIds,
-      profileGroups: allProfileGroups.filter((group) =>
-        group.elementIds.some((elementId) => selectedIds.includes(elementId)),
-      ),
-      mixedDepth: uniqueDepths.size > 1,
-      mixedFillMode: uniqueFills.size > 1,
-      targetDepthMm: uniqueDepths.size === 1 ? selectedAssignments[0]?.targetDepthMm ?? null : null,
-      fillMode: uniqueFills.size === 1 ? selectedAssignments[0]?.fillMode ?? null : null,
-    };
-  }, [allElementIds, allProfileGroups, canvasSelectionTarget, elementAssignments, selectedIds]);
-
-  const handleSvgImport = async (file: File) => {
-    if (!file.type.includes("svg") && !file.name.toLowerCase().endsWith(".svg")) {
-      setError("Please provide an SVG file.");
+  const handleSvgImport = async (inputFiles: FileList | File[]) => {
+    const files = Array.from(inputFiles).filter(
+      (file) => file.type.includes("svg") || file.name.toLowerCase().endsWith(".svg"),
+    );
+    if (files.length === 0) {
+      setError("Please provide SVG files.");
       return;
     }
 
-    const text = await file.text();
-    const prepared = await prepareSvgDocument(text);
-    const importedMetrics = parseSvgDocumentMetrics(prepared.normalized_svg);
-    setPreparedSvg(prepared);
-    setProjectName(file.name.replace(/\.svg$/i, ""));
-    setGenerated(null);
-    setLastGeneratedInputSignature(null);
-    setGeneratedOperationsSnapshot([]);
-    setPreviewActiveOperationId(null);
-    setPreviewCurrentDistance(0);
-    setPreviewPlaying(false);
-    setSelectedIds([]);
-    setCanvasSelectionTarget(null);
-    setIsDiveMode(false);
-    setActiveDiveRoot(null);
-    setLastDesignSelection(null);
-    setInspectorTab("design");
-    setActiveTab("prepare");
-    setPaddingMm(10);
-    setDesignActiveProfileKey(null);
-    setRecentNewProfileKey(null);
-    setShowOperationOutlines(true);
-    setShowPreviewBlockedNotice(false);
-    setError(null);
-
-    if (importedMetrics) {
-      setSvgSizeMm({
-        width: roundMm(importedMetrics.width),
-        height: roundMm(importedMetrics.height),
-        aspectLocked: true,
-      });
-    }
-
-    setSettings((current) => {
-      if (!current || !importedMetrics) {
-        return current;
+    try {
+      const preparedEntries = [];
+      for (const file of files) {
+        const text = await file.text();
+        const prepared = await prepareSvgDocument(text);
+        preparedEntries.push({ file, prepared });
       }
 
-      return {
-        ...current,
-        engraving: {
-          ...current.engraving,
-          material_width: Math.max(current.engraving.material_width, importedMetrics.width + 20),
-          material_height: Math.max(current.engraving.material_height, importedMetrics.height + 20),
-          svg_width_override: null,
-          placement_x: 10,
-          placement_y: 10,
-        },
-      };
-    });
+      let nextSettings = settings;
+      if (settings) {
+        const requiredWidth = Math.max(
+          settings.engraving.material_width,
+          ...preparedEntries.map(({ prepared }) => {
+            const metrics = artObjectMetrics(prepared.normalized_svg);
+            return metrics ? metrics.width + 20 : settings.engraving.material_width;
+          }),
+        );
+        const requiredHeight = Math.max(
+          settings.engraving.material_height,
+          ...preparedEntries.map(({ prepared }) => {
+            const metrics = artObjectMetrics(prepared.normalized_svg);
+            return metrics ? metrics.height + 20 : settings.engraving.material_height;
+          }),
+        );
+        nextSettings = {
+          ...settings,
+          engraving: {
+            ...settings.engraving,
+            material_width: roundMm(requiredWidth),
+            material_height: roundMm(requiredHeight),
+          },
+        };
+        setSettings(nextSettings);
+      }
 
-    const defaultDepth = settings?.engraving.target_depth ?? 5;
-    const defaultFillMode = settings?.engraving.fill_mode ?? "Pocket";
-    const nextAssignments = Object.fromEntries(
-      prepared.selectable_element_ids.map((elementId) => [
-        elementId,
-        {
-          elementId,
-          targetDepthMm: defaultDepth,
-          fillMode: defaultFillMode,
-        } satisfies ElementAssignment,
-      ]),
-    );
-    setElementAssignments(nextAssignments);
-    setElementColors(buildElementColorMap(prepared.normalized_svg));
+      const nextArtObjects = [...artObjects];
+      for (const { file, prepared } of preparedEntries) {
+        const artObjectId = `art-${artObjectCounterRef.current++}`;
+        nextArtObjects.push(
+          createArtObject({
+            artObjectId,
+            name: file.name.replace(/\.svg$/i, ""),
+            preparedSvg: prepared,
+            settings: nextSettings,
+            existingArtObjects: nextArtObjects,
+          }),
+        );
+      }
+
+      setArtObjects(nextArtObjects);
+      setGenerated(null);
+      setLastGeneratedInputSignature(null);
+      setGeneratedOperationsSnapshot([]);
+      setPreviewActiveOperationId(null);
+      setPreviewCurrentDistance(0);
+      setPreviewPlaying(false);
+      setDesignActiveProfileKey(null);
+      setShowOperationOutlines(true);
+      setShowPreviewBlockedNotice(false);
+      setError(null);
+      setInspectorTab("design");
+      setActiveTab("prepare");
+      const newestArtObject = nextArtObjects.at(-1);
+      setSelection(newestArtObject ? { type: "art-object", artObjectId: newestArtObject.id } : { type: "none" });
+      setIsDiveMode(false);
+      setActiveDiveRoot(null);
+
+      if (artObjects.length === 0) {
+        setProjectName(files[0].name.replace(/\.svg$/i, ""));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const handleMakePath = async () => {
@@ -344,18 +341,12 @@ function App() {
 
   const handleFileDrop = async (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const file = event.dataTransfer.files.item(0);
-    if (!file) {
-      return;
+    if (event.dataTransfer.files.length > 0) {
+      await handleSvgImport(event.dataTransfer.files);
     }
-    await handleSvgImport(file);
   };
 
-  const handleSettingsNumberChange = (
-    path: string,
-    value: number | null,
-    source: "basic" | "advanced",
-  ) => {
+  const handleSettingsNumberChange = (path: string, value: number | null, source: "basic" | "advanced") => {
     const nextOverrides =
       source === "advanced" && RECOMMENDED_ADVANCED_PATHS.has(path)
         ? { ...advancedOverrides, [path]: true }
@@ -379,136 +370,188 @@ function App() {
         return current;
       }
 
+      const minimum = getMinimumMaterialDimension(artObjects, paddingMm, dimension);
       const field = dimension === "width" ? "material_width" : "material_height";
       const requested = Math.max(1, value ?? current.engraving[field]);
-      let nextEngraving = {
-        ...current.engraving,
-        [field]: requested,
-      };
-
-      if (svgMetrics) {
-        const minimum = dimension === "width" ? svgWidthMm + paddingMm * 2 : svgHeightMm + paddingMm * 2;
-        nextEngraving = {
-          ...nextEngraving,
-          [field]: Math.max(requested, minimum),
-        };
-        nextEngraving = applyPlacementClamp(nextEngraving, svgWidthMm, svgHeightMm);
-      }
-
-      return {
+      const next = {
         ...current,
-        engraving: nextEngraving,
+        engraving: {
+          ...current.engraving,
+          [field]: Math.max(requested, minimum),
+        },
       };
+      return next;
     });
+
+    setArtObjects((current) =>
+      current.map((artObject) => clampArtObjectToMaterial(artObject, dimension, value, settings)),
+    );
   };
 
   const handlePlacementChange = (x: number, y: number) => {
-    setSettings((current) => {
-      if (!current) {
-        return current;
-      }
-
-      return {
-        ...current,
-        engraving: applyPlacementClamp(
-          {
-            ...current.engraving,
-            placement_x: x,
-            placement_y: y,
-          },
-          svgWidthMm,
-          svgHeightMm,
-        ),
-      };
-    });
-  };
-
-  const handleSvgSizeChange = (width: number | null, height: number | null) => {
-    if (!settings || !svgMetrics) {
+    if (!activeArtObject || !settings) {
       return;
     }
 
-    const availableWidth = Math.max(1, settings.engraving.material_width - settings.engraving.placement_x);
-    const availableHeight = Math.max(1, settings.engraving.material_height - settings.engraving.placement_y);
-    const nextWidth = clamp(width ?? svgWidthMm, 1, availableWidth);
-    const nextHeight = clamp(height ?? svgHeightMm, 1, availableHeight);
+    setArtObjects((current) =>
+      current.map((artObject) => {
+        if (artObject.id !== activeArtObject.id) {
+          return artObject;
+        }
+        const clamped = clampPlacementToArtboard({
+          artboardWidthMm: settings.engraving.material_width,
+          artboardHeightMm: settings.engraving.material_height,
+          placementX: x,
+          placementY: y,
+          svgWidthMm: artObject.widthMm,
+          svgHeightMm: artObject.heightMm,
+        });
+        return {
+          ...artObject,
+          placementX: clamped.x,
+          placementY: clamped.y,
+        };
+      }),
+    );
+  };
 
-    setSvgSizeMm((current) => ({
-      ...current,
-      width: roundMm(nextWidth),
-      height: roundMm(nextHeight),
-    }));
+  const handleArtObjectPlacementChange = (artObjectId: string, x: number, y: number) => {
+    if (!settings) {
+      return;
+    }
+    setArtObjects((current) =>
+      current.map((artObject) => {
+        if (artObject.id !== artObjectId) {
+          return artObject;
+        }
+        const clamped = clampPlacementToArtboard({
+          artboardWidthMm: settings.engraving.material_width,
+          artboardHeightMm: settings.engraving.material_height,
+          placementX: x,
+          placementY: y,
+          svgWidthMm: artObject.widthMm,
+          svgHeightMm: artObject.heightMm,
+        });
+        return {
+          ...artObject,
+          placementX: clamped.x,
+          placementY: clamped.y,
+        };
+      }),
+    );
+  };
+
+  const handleArtObjectDimensionChange = (
+    artObjectId: string,
+    dimension: "width" | "height",
+    value: number | null,
+  ) => {
+    if (!settings) {
+      return;
+    }
+
+    setArtObjects((current) =>
+      current.map((artObject) => {
+        if (artObject.id !== artObjectId) {
+          return artObject;
+        }
+
+        const next = resizeArtObjectWithAspect(
+          artObject,
+          dimension === "width" ? value : null,
+          dimension === "height" ? value : null,
+          settings,
+        );
+        return {
+          ...artObject,
+          ...next,
+        };
+      }),
+    );
+  };
+
+  const handleArtObjectSizeChange = (artObjectId: string, width: number | null, height: number | null) => {
+    if (!settings) {
+      return;
+    }
+    setArtObjects((current) =>
+      current.map((artObject) =>
+        artObject.id === artObjectId
+          ? {
+              ...artObject,
+              ...resizeArtObjectWithAspect(artObject, width, height, settings),
+            }
+          : artObject,
+      ),
+    );
   };
 
   const handleSvgDimensionChange = (dimension: "width" | "height", value: number | null) => {
-    if (!settings || !svgMetrics) {
+    if (!activeArtObject || !settings) {
       return;
     }
 
-    const aspectRatio = svgMetrics.aspectRatio;
-    const availableWidth = Math.max(1, settings.engraving.material_width - settings.engraving.placement_x);
-    const availableHeight = Math.max(1, settings.engraving.material_height - settings.engraving.placement_y);
-    const requested = Math.max(1, value ?? (dimension === "width" ? svgWidthMm : svgHeightMm));
+    setArtObjects((current) =>
+      current.map((artObject) => {
+        if (artObject.id !== activeArtObject.id) {
+          return artObject;
+        }
 
-    if (svgSizeMm.aspectLocked) {
-      const requestedWidth = dimension === "width" ? requested : requested * aspectRatio;
-      const maxWidth = Math.min(availableWidth, availableHeight * aspectRatio);
-      const nextWidth = clamp(requestedWidth, 1, Math.max(1, maxWidth));
-      const nextHeight = nextWidth / aspectRatio;
-      setSvgSizeMm((current) => ({
-        ...current,
-        width: roundMm(nextWidth),
-        height: roundMm(nextHeight),
-      }));
-      return;
-    }
-
-    if (dimension === "width") {
-      handleSvgSizeChange(requested, svgHeightMm);
-    } else {
-      handleSvgSizeChange(svgWidthMm, requested);
-    }
+        const next = resizeArtObjectWithAspect(
+          artObject,
+          dimension === "width" ? value : null,
+          dimension === "height" ? value : null,
+          settings,
+        );
+        return {
+          ...artObject,
+          ...next,
+        };
+      }),
+    );
   };
 
   const handleSvgAspectLockChange = (value: boolean) => {
-    if (!svgMetrics || !settings) {
+    if (!activeArtObject) {
       return;
     }
-
-    if (!value) {
-      setSvgSizeMm((current) => ({ ...current, aspectLocked: false }));
-      return;
-    }
-
-    const aspectRatio = svgMetrics.aspectRatio;
-    const availableWidth = Math.max(1, settings.engraving.material_width - settings.engraving.placement_x);
-    const availableHeight = Math.max(1, settings.engraving.material_height - settings.engraving.placement_y);
-    const maxWidth = Math.min(availableWidth, availableHeight * aspectRatio);
-    const nextWidth = clamp(svgWidthMm, 1, Math.max(1, maxWidth));
-    const nextHeight = nextWidth / aspectRatio;
-    setSvgSizeMm({
-      width: roundMm(nextWidth),
-      height: roundMm(nextHeight),
-      aspectLocked: true,
-    });
+    setArtObjects((current) =>
+      current.map((artObject) =>
+        artObject.id === activeArtObject.id
+          ? {
+              ...artObject,
+              aspectLocked: value,
+            }
+          : artObject,
+      ),
+    );
   };
 
   const handlePaddingChange = (value: number | null) => {
     setPaddingMm(Math.max(0, value ?? 0));
   };
 
-  const handleAlign = (action: Parameters<typeof getAlignedPlacement>[0]) => {
-    if (!settings || !editorGeometry) {
+  const handleAlign = (action: AlignmentAction) => {
+    if (!settings || !activeArtObject) {
       return;
     }
 
+    const geometry = getCanvasGeometry({
+      artboardWidthMm: settings.engraving.material_width,
+      artboardHeightMm: settings.engraving.material_height,
+      placementX: activeArtObject.placementX,
+      placementY: activeArtObject.placementY,
+      paddingMm,
+      svgWidthMm: activeArtObject.widthMm,
+      svgHeightMm: activeArtObject.heightMm,
+    });
     const nextPlacement = getAlignedPlacement(
       action,
-      editorGeometry,
+      geometry,
       settings.engraving.material_width,
       settings.engraving.material_height,
-      settings.engraving.placement_x,
-      settings.engraving.placement_y,
+      activeArtObject.placementX,
+      activeArtObject.placementY,
       paddingMm,
     );
 
@@ -567,35 +610,13 @@ function App() {
     setSettings((current) => (current ? applyRecommendedSettings(current, {}) : current));
   };
 
-  const selectIds = (ids: string[], additive: boolean) => {
-    setInspectorTab("design");
-    setCanvasSelectionTarget(null);
-    setDesignActiveProfileKey(null);
-    setRecentNewProfileKey(null);
-    setSelectedIds((current) => {
-      if (!additive) {
-        return ids;
-      }
-      const next = new Set(current);
-      for (const id of ids) {
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
-      }
-      return Array.from(next);
-    });
-  };
-
   const rememberCurrentDesignSelection = () => {
-    if (canvasSelectionTarget === "material") {
+    if (selection.type === "material") {
       return;
     }
 
     setLastDesignSelection({
-      selectionTarget: canvasSelectionTarget === "svg" ? "svg" : null,
-      selectedIds,
+      selection,
       isDiveMode,
       activeDiveRoot,
     });
@@ -603,68 +624,91 @@ function App() {
 
   const restoreDesignSelection = () => {
     if (lastDesignSelection) {
-      setCanvasSelectionTarget(lastDesignSelection.selectionTarget);
-      setSelectedIds(lastDesignSelection.selectedIds);
+      setSelection(lastDesignSelection.selection);
       setIsDiveMode(lastDesignSelection.isDiveMode);
       setActiveDiveRoot(lastDesignSelection.activeDiveRoot);
       return;
     }
 
-    if (preparedSvg) {
-      setCanvasSelectionTarget("svg");
-      setSelectedIds([]);
+    if (artObjects.length > 0) {
+      setSelection({ type: "art-object", artObjectId: artObjects[0].id });
       setIsDiveMode(false);
       setActiveDiveRoot(null);
       return;
     }
 
-    setCanvasSelectionTarget(null);
-    setSelectedIds([]);
+    setSelection({ type: "none" });
     setIsDiveMode(false);
     setActiveDiveRoot(null);
   };
 
   const selectMaterial = () => {
     rememberCurrentDesignSelection();
-    setSelectedIds([]);
-    setCanvasSelectionTarget("material");
+    setSelection({ type: "material" });
     setDesignActiveProfileKey(null);
-    setRecentNewProfileKey(null);
     setIsDiveMode(false);
     setActiveDiveRoot(null);
     setInspectorTab("material");
   };
 
-  const selectCanvasTarget = (target: "material" | "svg" | null) => {
-    if (target === "material") {
-      selectMaterial();
-      return;
-    }
-
-    setSelectedIds([]);
-    setCanvasSelectionTarget(target);
+  const selectArtObject = (artObjectId: string) => {
+    setSelection({ type: "art-object", artObjectId });
     setDesignActiveProfileKey(null);
-    setRecentNewProfileKey(null);
     setIsDiveMode(false);
     setActiveDiveRoot(null);
     setInspectorTab("design");
   };
 
+  const selectIds = (artObjectId: string, ids: string[], additive: boolean) => {
+    setInspectorTab("design");
+    setDesignActiveProfileKey(null);
+    setSelection((current) => {
+      if (!additive || current.type !== "elements" || current.artObjectId !== artObjectId) {
+        return {
+          type: "elements",
+          artObjectId,
+          elementIds: ids,
+        };
+      }
+
+      const next = new Set(current.elementIds);
+      for (const id of ids) {
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+      }
+
+      return {
+        type: "elements",
+        artObjectId,
+        elementIds: Array.from(next),
+      };
+    });
+  };
+
   const activateDiveRoot = (scope: DiveRootScope | null) => {
     setInspectorTab("design");
-    setCanvasSelectionTarget(null);
+    if (scope) {
+      setSelection({ type: "art-object", artObjectId: scope.artObjectId });
+    }
     setDesignActiveProfileKey(null);
-    setRecentNewProfileKey(null);
-    setSelectedIds([]);
     setIsDiveMode(!!scope);
     setActiveDiveRoot(scope);
   };
 
-  const enterSvgDiveMode = () => {
-    if (!svgDiveRoot) {
+  const enterSvgDiveMode = (artObjectId: string) => {
+    const artObject = artObjects.find((candidate) => candidate.id === artObjectId);
+    if (!artObject) {
       return;
     }
-    activateDiveRoot(svgDiveRoot);
+    activateDiveRoot({
+      id: `${artObject.id}:root`,
+      label: artObject.name,
+      artObjectId: artObject.id,
+      elementIds: getArtObjectElementIds(artObject),
+    });
   };
 
   const exitSvgDiveMode = () => {
@@ -690,89 +734,60 @@ function App() {
       return;
     }
 
-    const uniqueIds = Array.from(new Set(elementIds));
-    setElementAssignments((current) => {
-      const next = { ...current };
-      for (const elementId of uniqueIds) {
-        const existing = next[elementId];
-        if (!existing) {
-          continue;
+    setArtObjects((current) =>
+      current.map((artObject) => {
+        const nextAssignments = { ...artObject.elementAssignments };
+        let changed = false;
+        for (const elementId of elementIds) {
+          const existing = nextAssignments[elementId];
+          if (!existing) {
+            continue;
+          }
+          nextAssignments[elementId] = {
+            ...existing,
+            ...patch,
+          };
+          changed = true;
         }
-        next[elementId] = {
-          ...existing,
-          ...patch,
-        };
-      }
-      return next;
-    });
+
+        return changed
+          ? {
+              ...artObject,
+              elementAssignments: nextAssignments,
+            }
+          : artObject;
+      }),
+    );
   };
 
   const changeBatchDepth = (elementIds: string[], value: number) => {
     if (!Number.isFinite(value)) {
       return;
     }
-    const targetIds =
-      selectedIds.length > 0
-        ? elementIds.filter((elementId) => selectedIds.includes(elementId))
-        : elementIds;
-    if (targetIds.length === 0) {
-      return;
-    }
-    const referenceAssignment = elementAssignments[targetIds[0]];
-    const priorGroupSize = referenceAssignment
-      ? Object.values(elementAssignments).filter(
-          (assignment) =>
-            assignment.targetDepthMm === referenceAssignment.targetDepthMm &&
-            assignment.fillMode === referenceAssignment.fillMode,
-        ).length
-      : 0;
-    const nextProfileKey = referenceAssignment
-      ? `${value}::${referenceAssignment.fillMode ?? "default"}`
-      : null;
-    updateAssignmentsForIds(targetIds, { targetDepthMm: value });
-    setRecentNewProfileKey(
-      referenceAssignment && priorGroupSize > targetIds.length && nextProfileKey ? nextProfileKey : null,
-    );
+    updateAssignmentsForIds(elementIds, { targetDepthMm: value });
   };
 
   const changeBatchFillMode = (elementIds: string[], value: FillMode) => {
-    const targetIds =
-      selectedIds.length > 0
-        ? elementIds.filter((elementId) => selectedIds.includes(elementId))
-        : elementIds;
-    if (targetIds.length === 0) {
-      return;
-    }
-    const referenceAssignment = elementAssignments[targetIds[0]];
-    const priorGroupSize = referenceAssignment
-      ? Object.values(elementAssignments).filter(
-          (assignment) =>
-            assignment.targetDepthMm === referenceAssignment.targetDepthMm &&
-            assignment.fillMode === referenceAssignment.fillMode,
-        ).length
-      : 0;
-    const nextProfileKey = referenceAssignment
-      ? `${referenceAssignment.targetDepthMm}::${value}`
-      : null;
-    updateAssignmentsForIds(targetIds, { fillMode: value });
-    setRecentNewProfileKey(
-      referenceAssignment && priorGroupSize > targetIds.length && nextProfileKey ? nextProfileKey : null,
-    );
+    updateAssignmentsForIds(elementIds, { fillMode: value });
   };
 
   const handleProfilePreview = (profileKey: string | null) => {
     setInspectorTab("design");
-    setCanvasSelectionTarget(null);
     setDesignActiveProfileKey(profileKey);
-    setRecentNewProfileKey(null);
   };
 
   const handleProfileSelect = (elementIds: string[]) => {
+    if (elementIds.length === 0) {
+      return;
+    }
+    const artObjectId = splitCompositeOwner(elementIds[0]);
     setInspectorTab("design");
-    setCanvasSelectionTarget(null);
     setDesignActiveProfileKey(null);
-    setRecentNewProfileKey(null);
-    setSelectedIds(elementIds);
+    setSelection({
+      type: "elements",
+      artObjectId,
+      elementIds,
+    });
   };
 
   const downloadNc = () => {
@@ -912,16 +927,15 @@ function App() {
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
-
       <input
         ref={fileInputRef}
         type="file"
         accept=".svg,image/svg+xml"
+        multiple
         className="hidden"
         onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) {
-            void handleSvgImport(file);
+          if (event.target.files?.length) {
+            void handleSvgImport(event.target.files);
           }
         }}
       />
@@ -943,18 +957,17 @@ function App() {
             <Panel defaultSize={20} minSize={16} maxSize={28}>
               <div className="h-full overflow-hidden bg-content1">
                 <LayerTree
+                  artObjects={artObjects}
                   projectName={projectName}
                   onProjectNameChange={setProjectName}
-                  tree={preparedSvg?.tree ?? null}
-                  selectedIds={selectedIds}
-                  selectionTarget={canvasSelectionTarget}
+                  selection={selection}
                   activeDiveRootId={activeDiveRoot?.id ?? null}
-                  assignments={elementAssignments}
-                  elementColors={elementColors}
+                  onSelectMaterial={selectMaterial}
+                  onSelectArtObject={selectArtObject}
                   onSelectIds={selectIds}
-                  onSelectTarget={selectCanvasTarget}
                   onActivateDiveRoot={activateDiveRoot}
                   onHoverIdsChange={setHoveredLayerIds}
+                  onAddClick={() => fileInputRef.current?.click()}
                 />
               </div>
             </Panel>
@@ -979,37 +992,40 @@ function App() {
                 />
                 <div className="min-h-0 flex-1">
                   <SvgCanvas
-                    preparedSvg={preparedSvg}
+                    artObjects={artObjects}
                     operations={derivedOperations}
-                    selectedIds={selectedIds}
+                    selection={selection}
                     hoveredIds={hoveredLayerIds}
                     activeOperationId={null}
                     activeProfileKey={designActiveProfileKey}
-                    selectionTarget={canvasSelectionTarget}
                     isDiveMode={isDiveMode}
                     activeDiveRoot={activeDiveRoot}
                     modifierDirectPick={modifierDirectPick}
                     showOperationOutlines={showOperationOutlines}
                     materialWidth={settings?.engraving.material_width ?? 300}
                     materialHeight={settings?.engraving.material_height ?? 300}
-                    placementX={settings?.engraving.placement_x ?? 0}
-                    placementY={settings?.engraving.placement_y ?? 0}
                     paddingMm={paddingMm}
                     paddingValidationMessage={paddingValidationMessage}
-                    svgWidthMm={svgWidthMm}
-                    svgHeightMm={svgHeightMm}
-                    svgAspectLocked={svgSizeMm.aspectLocked}
                     materialPreset={materialPreset}
-                    onSelectionTargetChange={selectCanvasTarget}
+                    onSelectionChange={(nextSelection) => {
+                      if (nextSelection.type === "material") {
+                        selectMaterial();
+                        return;
+                      }
+                      setSelection(nextSelection);
+                      if (nextSelection.type !== "elements") {
+                        setDesignActiveProfileKey(null);
+                      }
+                    }}
                     onSelectIds={selectIds}
                     onSelectMaterial={selectMaterial}
                     onEnterSvgDiveMode={enterSvgDiveMode}
                     onExitSvgDiveMode={exitSvgDiveMode}
                     onImportClick={() => fileInputRef.current?.click()}
                     onMaterialSizeChange={handleMaterialDimensionChange}
-                    onPlacementChange={handlePlacementChange}
-                    onSvgDimensionChange={handleSvgDimensionChange}
-                    onSvgSizeChange={handleSvgSizeChange}
+                    onArtObjectPlacementChange={handleArtObjectPlacementChange}
+                    onArtObjectDimensionChange={handleArtObjectDimensionChange}
+                    onArtObjectSizeChange={handleArtObjectSizeChange}
                     onShowOperationOutlinesChange={setShowOperationOutlines}
                   />
                 </div>
@@ -1037,15 +1053,10 @@ function App() {
                     />
                   }
                   context={inspectorContext}
+                  activeArtObject={activeArtObject}
                   allProfileGroups={allProfileGroups}
                   activeProfileKey={designActiveProfileKey}
-                  recentNewProfileKey={recentNewProfileKey}
                   settings={settings}
-                  svgWidthMm={svgWidthMm}
-                  svgHeightMm={svgHeightMm}
-                  svgAspectLocked={svgSizeMm.aspectLocked}
-                  placementX={settings?.engraving.placement_x ?? 0}
-                  placementY={settings?.engraving.placement_y ?? 0}
                   paddingValidationMessage={paddingValidationMessage}
                   onSvgDimensionChange={handleSvgDimensionChange}
                   onSvgAspectLockChange={handleSvgAspectLockChange}
@@ -1178,31 +1189,7 @@ function computeRecommendedAdvancedValues(settings: Settings) {
   };
 }
 
-function applyPlacementClamp(
-  engraving: Settings["engraving"],
-  svgWidthMm: number,
-  svgHeightMm: number,
-) {
-  const clampedPlacement = clampPlacementToArtboard({
-    artboardWidthMm: engraving.material_width,
-    artboardHeightMm: engraving.material_height,
-    placementX: engraving.placement_x,
-    placementY: engraving.placement_y,
-    svgWidthMm,
-    svgHeightMm,
-  });
-
-  return {
-    ...engraving,
-    placement_x: clampedPlacement.x,
-    placement_y: clampedPlacement.y,
-  };
-}
-
-function applyRecommendedSettings(
-  settings: Settings,
-  overrides: Record<string, boolean>,
-) {
+function applyRecommendedSettings(settings: Settings, overrides: Record<string, boolean>) {
   const next = structuredClone(settings);
   const recommended = computeRecommendedAdvancedValues(next);
 
@@ -1221,24 +1208,76 @@ function applyRecommendedSettings(
   return next;
 }
 
-function resizeSvgDocument(
-  normalizedSvg: string,
-  svgMetrics: SvgDocumentMetrics,
-  widthMm: number,
-  heightMm: number,
+function getMinimumMaterialDimension(
+  artObjects: ArtObject[],
+  paddingMm: number,
+  dimension: "width" | "height",
 ) {
-  const parser = new DOMParser();
-  const document = parser.parseFromString(normalizedSvg, "image/svg+xml");
-  const svg = document.querySelector("svg");
-  if (!svg) {
-    return normalizedSvg;
+  if (artObjects.length === 0) {
+    return 1;
   }
 
-  svg.setAttribute("viewBox", `${svgMetrics.x} ${svgMetrics.y} ${svgMetrics.width} ${svgMetrics.height}`);
-  svg.setAttribute("width", `${roundMm(widthMm)}mm`);
-  svg.setAttribute("height", `${roundMm(heightMm)}mm`);
+  if (dimension === "width") {
+    return Math.max(...artObjects.map((artObject) => artObject.placementX + artObject.widthMm + paddingMm));
+  }
 
-  return new XMLSerializer().serializeToString(document);
+  return Math.max(...artObjects.map((artObject) => artObject.placementY + artObject.heightMm + paddingMm));
+}
+
+function clampArtObjectToMaterial(
+  artObject: ArtObject,
+  dimension: "width" | "height",
+  value: number | null,
+  settings: Settings | null,
+) {
+  if (!settings) {
+    return artObject;
+  }
+
+  const materialWidth = dimension === "width" ? Math.max(1, value ?? settings.engraving.material_width) : settings.engraving.material_width;
+  const materialHeight = dimension === "height" ? Math.max(1, value ?? settings.engraving.material_height) : settings.engraving.material_height;
+  const widthMm = Math.min(artObject.widthMm, materialWidth);
+  const heightMm = Math.min(artObject.heightMm, materialHeight);
+  const clampedPlacement = clampPlacementToArtboard({
+    artboardWidthMm: materialWidth,
+    artboardHeightMm: materialHeight,
+    placementX: artObject.placementX,
+    placementY: artObject.placementY,
+    svgWidthMm: widthMm,
+    svgHeightMm: heightMm,
+  });
+
+  return {
+    ...artObject,
+    widthMm,
+    heightMm,
+    placementX: clampedPlacement.x,
+    placementY: clampedPlacement.y,
+  };
+}
+
+function artObjectMetrics(normalizedSvg: string) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(normalizedSvg, "image/svg+xml");
+  const svg = doc.querySelector("svg");
+  if (!svg) {
+    return null;
+  }
+  const viewBox = svg.getAttribute("viewBox")?.split(/[\s,]+/).map(Number) ?? [];
+  if (viewBox.length === 4 && viewBox.every(Number.isFinite)) {
+    return { width: viewBox[2], height: viewBox[3] };
+  }
+  const width = Number.parseFloat(svg.getAttribute("width") ?? "0");
+  const height = Number.parseFloat(svg.getAttribute("height") ?? "0");
+  if (!Number.isFinite(width) || !Number.isFinite(height)) {
+    return null;
+  }
+  return { width, height };
+}
+
+function splitCompositeOwner(compositeId: string) {
+  const [owner] = compositeId.split("::");
+  return owner;
 }
 
 function roundMm(value: number) {
