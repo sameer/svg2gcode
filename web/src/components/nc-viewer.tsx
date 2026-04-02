@@ -1,14 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 
+import { AppIcon, Icons } from "@/lib/icons";
 import type { GenerateJobResponse } from "@/lib/types";
-import { clamp } from "@/lib/utils";
 
-import { PreviewTimeline } from "./preview-timeline";
 import { buildAccessMap } from "./viewer/access-map";
 import { buildHeightField } from "./viewer/height-field";
 import {
@@ -24,6 +23,10 @@ import {
 interface NcViewerProps {
   gcodeResult: GenerateJobResponse | null;
   activeOperationId: string | null;
+  currentDistance: number;
+  showStock: boolean;
+  liveCutSimulation: boolean;
+  cameraMode: "orthographic" | "perspective";
 }
 
 interface LayerHandles {
@@ -34,6 +37,10 @@ interface LayerHandles {
 export function NcViewer({
   gcodeResult,
   activeOperationId,
+  currentDistance,
+  showStock,
+  liveCutSimulation,
+  cameraMode,
 }: NcViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const playbackDistanceRef = useRef(0);
@@ -70,57 +77,9 @@ export function NcViewer({
     );
   }, [materialWidth, materialHeight, maxDepth, parsedProgram, toolDiameter]);
 
-  const [showStock, setShowStock] = useState(true);
-  const [liveCutSimulation, setLiveCutSimulation] = useState(true);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackRate, setPlaybackRate] = useState(1);
-  const [currentDistance, setCurrentDistance] = useState(0);
-
-  useEffect(() => {
-    const totalDistance = parsedProgram?.totalDistance ?? 0;
-    playbackDistanceRef.current = totalDistance;
-    const frameId = window.requestAnimationFrame(() => {
-      setCurrentDistance(totalDistance);
-      setIsPlaying(false);
-    });
-    return () => window.cancelAnimationFrame(frameId);
-  }, [parsedProgram?.totalDistance]);
-
   useEffect(() => {
     playbackDistanceRef.current = currentDistance;
   }, [currentDistance]);
-
-  useEffect(() => {
-    if (!isPlaying || !parsedProgram) {
-      return;
-    }
-
-    let frameId = 0;
-    let lastFrame = performance.now();
-
-    const tick = (now: number) => {
-      const elapsed = (now - lastFrame) / 1000;
-      lastFrame = now;
-      const baseDistancePerSecond = Math.max(parsedProgram.totalDistance / 18, 45);
-
-      setCurrentDistance((distance) => {
-        const next = Math.min(
-          parsedProgram.totalDistance,
-          distance + elapsed * baseDistancePerSecond * playbackRate,
-        );
-        if (next >= parsedProgram.totalDistance) {
-          setIsPlaying(false);
-          return parsedProgram.totalDistance;
-        }
-        return next;
-      });
-
-      frameId = window.requestAnimationFrame(tick);
-    };
-
-    frameId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(frameId);
-  }, [isPlaying, parsedProgram, playbackRate]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -133,12 +92,23 @@ export function NcViewer({
     renderer.domElement.style.display = "block";
     renderer.domElement.style.width = "100%";
     renderer.domElement.style.height = "100%";
-    renderer.setClearColor(new THREE.Color("#edf0f6"));
+    renderer.setClearColor(new THREE.Color("#18181d"));
     container.replaceChildren(renderer.domElement);
 
     let viewportWidth = 0;
     let viewportHeight = 0;
     const lineMaterials: LineMaterial[] = [];
+
+    const diagonal = Math.sqrt(materialWidth ** 2 + materialHeight ** 2);
+    const fovRad = (Math.PI * 24) / 360;
+    const fitDistance = (diagonal / 2) / Math.tan(fovRad) * 1.15;
+    const orthographicSize = Math.max(materialWidth, materialHeight) * 0.8;
+
+    const camera =
+      cameraMode === "orthographic"
+        ? new THREE.OrthographicCamera(-orthographicSize, orthographicSize, orthographicSize, -orthographicSize, 0.1, 5_000)
+        : new THREE.PerspectiveCamera(24, 1, 0.1, 5_000);
+
     const syncViewport = () => {
       const nextWidth = Math.max(1, container.clientWidth);
       const nextHeight = Math.max(1, container.clientHeight);
@@ -148,7 +118,17 @@ export function NcViewer({
       viewportWidth = nextWidth;
       viewportHeight = nextHeight;
       renderer.setSize(nextWidth, nextHeight, false);
-      camera.aspect = nextWidth / nextHeight;
+
+      if (camera instanceof THREE.PerspectiveCamera) {
+        camera.aspect = nextWidth / nextHeight;
+      } else {
+        const aspect = nextWidth / nextHeight;
+        camera.left = -orthographicSize * aspect;
+        camera.right = orthographicSize * aspect;
+        camera.top = orthographicSize;
+        camera.bottom = -orthographicSize;
+      }
+
       camera.updateProjectionMatrix();
       for (const material of lineMaterials) {
         material.resolution.set(nextWidth, nextHeight);
@@ -156,12 +136,8 @@ export function NcViewer({
     };
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#edf0f6");
+    scene.background = new THREE.Color("#18181d");
 
-    const camera = new THREE.PerspectiveCamera(24, 1, 0.1, 5_000);
-    const diagonal = Math.sqrt(materialWidth ** 2 + materialHeight ** 2);
-    const fovRad = (Math.PI * 24) / 360;
-    const fitDistance = (diagonal / 2) / Math.tan(fovRad) * 1.15;
     camera.position.set(0, -diagonal * 0.04, fitDistance);
     camera.up.set(0, 1, 0);
 
@@ -175,20 +151,23 @@ export function NcViewer({
       RIGHT: THREE.MOUSE.DOLLY,
     };
 
-    scene.add(new THREE.AmbientLight("#ffffff", 1.5));
-    const directional = new THREE.DirectionalLight("#fff7ed", 1.05);
+    scene.add(new THREE.AmbientLight("#e4d8c8", 1.2));
+    const directional = new THREE.DirectionalLight("#ffd2a8", 0.75);
     directional.position.set(materialWidth * 0.5, -materialHeight * 0.9, materialThickness * 5);
     scene.add(directional);
+    const fill = new THREE.DirectionalLight("#93c5fd", 0.55);
+    fill.position.set(-materialWidth * 0.7, materialHeight * 0.8, materialThickness * 4);
+    scene.add(fill);
 
     const world = new THREE.Group();
     scene.add(world);
 
     const stockMaterial = new THREE.MeshStandardMaterial({
-      color: "#d8ba95",
+      color: "#c9c0b6",
       transparent: true,
-      opacity: showStock ? 0.12 : 0,
-      roughness: 0.9,
-      metalness: 0.01,
+      opacity: showStock ? 0.95 : 0,
+      roughness: 0.95,
+      metalness: 0.02,
       side: THREE.DoubleSide,
     });
     const stock = createStockShell(
@@ -205,6 +184,7 @@ export function NcViewer({
     let accessTexture: THREE.CanvasTexture | null = null;
     let surfaceGeometry: THREE.PlaneGeometry | null = null;
     let surfaceOverlayGeometry: THREE.PlaneGeometry | null = null;
+
     if (heightField) {
       const plane = new THREE.PlaneGeometry(
         heightField.width,
@@ -233,12 +213,12 @@ export function NcViewer({
       surface = new THREE.Mesh(
         plane,
         new THREE.MeshStandardMaterial({
-          color: "#e9d8bf",
-          roughness: 0.82,
-          metalness: 0.03,
+          color: "#d9d0c4",
+          roughness: 0.93,
+          metalness: 0.02,
           side: THREE.FrontSide,
           transparent: true,
-          opacity: showStock ? 0.94 : 0,
+          opacity: showStock ? 0.98 : 0,
         }),
       );
       surface.visible = showStock;
@@ -287,17 +267,17 @@ export function NcViewer({
     const cutter = new THREE.Mesh(
       new THREE.CylinderGeometry(toolDiameter * 0.5, toolDiameter * 0.5, toolLength, 24),
       new THREE.MeshStandardMaterial({
-        color: "#f59e0b",
+        color: "#7BFFAF",
         roughness: 0.32,
-        metalness: 0.15,
+        metalness: 0.24,
       }),
     );
     const collet = new THREE.Mesh(
       new THREE.CylinderGeometry(toolDiameter * 0.33, toolDiameter * 0.33, toolLength * 0.6, 20),
       new THREE.MeshStandardMaterial({
-        color: "#475569",
+        color: "#d1d5db",
         roughness: 0.4,
-        metalness: 0.35,
+        metalness: 0.5,
       }),
     );
     cutter.rotation.x = Math.PI / 2;
@@ -406,11 +386,11 @@ export function NcViewer({
     let frameId = 0;
     const tick = () => {
       controls.update();
-      stockMaterial.opacity = showStock ? 0.12 : 0;
+      stockMaterial.opacity = showStock ? 0.95 : 0;
       stock.visible = showStock;
       if (surface) {
         const material = surface.material as THREE.MeshStandardMaterial;
-        material.opacity = showStock ? 0.94 : 0;
+        material.opacity = showStock ? 0.98 : 0;
         surface.visible = showStock;
       }
       if (surfaceOverlay) {
@@ -447,60 +427,62 @@ export function NcViewer({
   }, [
     activeOperationId,
     accessMap,
+    cameraMode,
     heightField,
+    liveCutSimulation,
     materialHeight,
     materialThickness,
     materialWidth,
     maxDepth,
     parsedProgram,
     showStock,
-    liveCutSimulation,
     toolDiameter,
   ]);
 
-  const handleTogglePlaying = () => {
-    if (!parsedProgram) {
-      return;
-    }
-    if (currentDistance >= parsedProgram.totalDistance) {
-      const restartDistance = 0;
-      playbackDistanceRef.current = restartDistance;
-      setCurrentDistance(restartDistance);
-    }
-    setIsPlaying((value) => !value);
-  };
-
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div
-        ref={containerRef}
-        className="min-h-0 flex-1 overflow-hidden"
-      >
-        {!gcodeResult && (
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
+      <div ref={containerRef} className="min-h-0 flex-1 overflow-hidden">
+        {!gcodeResult ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-muted-foreground">Generate a job to preview the cut result.</p>
           </div>
-        )}
+        ) : null}
       </div>
-      <PreviewTimeline
-        program={parsedProgram}
-        currentDistance={currentDistance}
-        isPlaying={isPlaying}
-        playbackRate={playbackRate}
-        showStock={showStock}
-        liveCutSimulation={liveCutSimulation}
-        activeOperationId={activeOperationId}
-        onDistanceChange={(distance) => {
-          const nextDistance = clamp(distance, 0, parsedProgram?.totalDistance ?? 0);
-          playbackDistanceRef.current = nextDistance;
-          setCurrentDistance(nextDistance);
-          setIsPlaying(false);
-        }}
-        onTogglePlaying={handleTogglePlaying}
-        onPlaybackRateChange={setPlaybackRate}
-        onShowStockChange={setShowStock}
-        onLiveCutSimulationChange={setLiveCutSimulation}
-      />
+
+      <div className="pointer-events-none absolute left-8 top-8 z-20 rounded-[1.4rem] bg-[rgba(20,20,24,0.78)] px-4 py-4 text-white shadow-[0_18px_40px_rgba(0,0,0,0.38)] backdrop-blur-xl">
+        <div className="relative h-24 w-24">
+          <div className="absolute left-1/2 top-1/2 h-12 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/85" />
+          <div className="absolute left-1/2 top-1/2 h-0.5 w-12 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-white/85" />
+          <div className="absolute left-1/2 top-1/2 h-0.5 w-12 -translate-x-1/2 -translate-y-1/2 -rotate-45 bg-white/85" />
+          <AxisBubble className="left-1/2 top-0 -translate-x-1/2 bg-[#3F7DFF]" label="Z" />
+          <AxisBubble className="left-0 top-1/2 -translate-y-1/2 bg-[#FF4E4E]" label="X" />
+          <AxisBubble className="right-0 top-1/2 -translate-y-1/2 bg-[#37D86F]" label="Y" />
+          <AxisBubble className="left-[18%] top-[14%] bg-[#37D86F]" />
+          <AxisBubble className="right-[16%] top-[18%] bg-[#FF4E4E]" />
+          <AxisBubble className="left-[48%] bottom-[8%] -translate-x-1/2 bg-[#3F7DFF]" />
+        </div>
+      </div>
+
+      <div className="pointer-events-none absolute right-8 top-8 z-20 rounded-[1.15rem] bg-[rgba(20,20,24,0.82)] px-6 py-4 text-[1.05rem] text-white shadow-[0_18px_40px_rgba(0,0,0,0.38)] backdrop-blur-xl">
+        <span className="inline-flex items-center gap-3">
+          <span>{cameraMode === "orthographic" ? "100 %" : "Perspective"}</span>
+          <AppIcon icon={Icons.chevronDown} className="h-4 w-4 text-white/55" />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function AxisBubble({
+  className,
+  label,
+}: {
+  className: string;
+  label?: string;
+}) {
+  return (
+    <div className={`absolute inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-white ${className}`}>
+      {label}
     </div>
   );
 }
@@ -583,14 +565,14 @@ function selectBucketForMotion(
 }
 
 function colorForSegment(segment: ParsedSegment, activeOperationId: string | null) {
-  let color = new THREE.Color("#2563eb");
+  let color = new THREE.Color("#67B8FF");
 
   if (segment.motionKind === "rapid") {
     color = new THREE.Color("#94a3b8");
   } else if (segment.motionKind === "plunge") {
-    color = new THREE.Color("#f97316");
+    color = new THREE.Color("#fb7185");
   } else if (segment.motionKind === "retract") {
-    color = new THREE.Color("#38bdf8");
+    color = new THREE.Color("#67B8FF");
   } else if (segment.operationColor) {
     color = new THREE.Color(segment.operationColor);
   }

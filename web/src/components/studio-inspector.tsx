@@ -1,9 +1,10 @@
-import { Lock, Unlock } from "lucide-react";
 import { useCallback, useState } from "react";
+import { Chip } from "@heroui/react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AppIcon, Icons } from "@/lib/icons";
 import type {
   AlignmentAction,
   AssignmentProfileGroup,
@@ -12,7 +13,7 @@ import type {
   InspectorTab,
   Settings,
 } from "@/lib/types";
-import { formatMillimeters } from "@/lib/utils";
+import { cn, formatMillimeters } from "@/lib/utils";
 
 interface StudioInspectorProps {
   activeTab: InspectorTab;
@@ -58,19 +59,25 @@ export function StudioInspector({
   onBatchFillModeChange,
 }: StudioInspectorProps) {
   return (
-    <div className="flex h-full flex-col bg-card">
-      <div className="border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2 rounded-lg bg-muted/60 p-1">
-          <TabButton active={activeTab === "design"} onClick={() => onTabChange("design")}>
-            Design
-          </TabButton>
-          <TabButton active={activeTab === "material"} onClick={() => onTabChange("material")}>
-            Material
-          </TabButton>
+    <div className="flex h-full flex-col bg-[linear-gradient(180deg,rgba(25,25,29,0.96),rgba(20,20,24,0.98))] text-white">
+      <ShellHeader />
+
+      <div className="px-5 pb-5">
+        <div className="flex rounded-[1.35rem] bg-white/[0.06] p-1">
+          <InspectorTabButton
+            active={activeTab === "design"}
+            label="Design"
+            onClick={() => onTabChange("design")}
+          />
+          <InspectorTabButton
+            active={activeTab === "material"}
+            label="Material"
+            onClick={() => onTabChange("material")}
+          />
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
         {activeTab === "design" ? (
           <DesignTab
             context={context}
@@ -98,6 +105,15 @@ export function StudioInspector({
   );
 }
 
+function ShellHeader() {
+  return (
+    <div className="flex items-center justify-between px-5 py-7">
+      <div className="h-11 w-11 rounded-full bg-[radial-gradient(circle_at_35%_35%,#fff7cf,#ff9848_58%,#ff5225)] shadow-[0_10px_30px_rgba(255,122,60,0.24)]" />
+      <Button className="h-12 rounded-[1.25rem] px-6 text-lg">Share</Button>
+    </div>
+  );
+}
+
 function DesignTab({
   context,
   settings,
@@ -115,221 +131,384 @@ function DesignTab({
   onAlign,
   onBatchDepthChange,
   onBatchFillModeChange,
-}: Omit<StudioInspectorProps, "activeTab" | "onTabChange">) {
+}: Omit<StudioInspectorProps, "activeTab" | "onTabChange" | "materialContent">) {
   if (!settings) {
-    return <div className="px-4 py-3 text-sm text-muted-foreground">Loading inspector...</div>;
+    return <div className="text-sm text-white/50">Loading inspector…</div>;
   }
 
-  if (context.type === "none") {
-    return (
-      <div className="px-4 py-5">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          Design
-        </p>
-        <p className="mt-3 rounded-xl border border-dashed border-border bg-muted/30 px-4 py-5 text-sm leading-relaxed text-muted-foreground">
-          Select the full SVG, dive into its parts, or pick individual shapes to edit dimensions and cut profiles here.
-        </p>
+  const selectionCount = context.type === "none" ? 0 : context.elementIds.length;
+  const mixedDepth = context.type === "selection" ? context.mixedDepth : false;
+  const mixedFill = context.type === "selection" ? context.mixedFillMode : false;
+  const depthBadge =
+    context.type === "selection"
+      ? context.targetDepthMm != null
+        ? `${context.targetDepthMm} mm`
+        : "Mixed"
+      : `${settings.engraving.target_depth} mm`;
+
+  return (
+    <div className="space-y-7">
+      <div className="flex flex-wrap gap-2">
+        <BadgePill accent={selectionCount > 0}>{selectionCount} selected</BadgePill>
+        <BadgePill>{depthBadge}</BadgePill>
+        <BadgePill>{paddingMm} mm</BadgePill>
       </div>
-    );
-  }
 
-  if (context.type === "svg") {
-    return (
-      <div className="space-y-5 px-4 py-4">
-        <SectionHeader
-          eyebrow="Design"
-          title="SVG"
-          description="Resize, align, and rebalance the full artwork without losing grouped depth profiles."
-        />
-
-        <div className="space-y-3 rounded-xl border border-border bg-muted/25 p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Dimensions
-            </span>
-            <button
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
-              onClick={() => onSvgAspectLockChange(!svgAspectLocked)}
-            >
-              {svgAspectLocked ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
-              {svgAspectLocked ? "Locked" : "Unlocked"}
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <NumberField
-              label="Width"
-              unit="mm"
-              value={svgWidthMm}
-              onChange={(value) => onSvgDimensionChange("width", value)}
-            />
-            <NumberField
-              label="Height"
-              unit="mm"
-              value={svgHeightMm}
-              onChange={(value) => onSvgDimensionChange("height", value)}
+      <section className="space-y-4">
+        <SectionHeading title="Position" />
+        <div>
+          <p className="mb-3 text-sm text-white/70">Alignment</p>
+          <div className="grid grid-cols-2 gap-3">
+            <AlignmentCluster onAlign={onAlign} disabled={!!paddingValidationMessage} />
+            <AlignmentCluster
+              vertical
+              onAlign={onAlign}
+              disabled={!!paddingValidationMessage}
             />
           </div>
-        </div>
-
-        <div className="space-y-3 rounded-xl border border-border bg-muted/25 p-3">
-          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Placement
-          </span>
-          <div className="grid grid-cols-2 gap-2">
-            <NumberField
-              label="Offset X"
-              unit="mm"
-              value={placementX}
-              onChange={(value) =>
-                onPlacementChange(value ?? placementX, placementY)
-              }
-            />
-            <NumberField
-              label="Offset Y"
-              unit="mm"
-              value={placementY}
-              onChange={(value) =>
-                onPlacementChange(placementX, value ?? placementY)
-              }
-            />
-            <NumberField
-              label="Padding"
-              unit="mm"
-              value={paddingMm}
-              onChange={onPaddingChange}
-            />
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            {ALIGNMENT_BUTTONS.map(({ action, label }) => (
-              <Button
-                key={action}
-                size="sm"
-                variant="outline"
-                disabled={!!paddingValidationMessage}
-                onClick={() => onAlign(action)}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            {paddingValidationMessage ??
-              "Align the artwork to the stock edges or center while respecting the current padding."}
+          <p className="mt-3 text-xs leading-relaxed text-white/36">
+            {paddingValidationMessage ?? "Common alignment controls are grouped here so you can position the artwork without bouncing between cards."}
           </p>
         </div>
 
-        <ProfileGroupsSection
-          title="Depth Profiles"
-          description="Editing a profile updates every matching part in this SVG while leaving other groups intact."
-          groups={context.profileGroups}
-          onDepthChange={onBatchDepthChange}
-          onFillModeChange={onBatchFillModeChange}
-        />
-      </div>
-    );
-  }
+        <div>
+          <p className="mb-3 text-sm text-white/70">Rotation</p>
+          <div className="flex items-center rounded-[1.2rem] bg-white/[0.05]">
+            <DisabledIconButton icon={Icons.rotateLeft} />
+            <div className="flex h-14 min-w-0 flex-1 items-center justify-center border-x border-white/6 text-lg text-white/48">
+              0
+            </div>
+            <DisabledIconButton icon={Icons.rotateRight} />
+            <DisabledIconButton icon={Icons.reset} />
+          </div>
+        </div>
 
-  return (
-    <div className="space-y-5 px-4 py-4">
-      <SectionHeader
-        eyebrow="Design"
-        title={context.elementIds.length === 1 ? "Selected Part" : `${context.elementIds.length} Parts`}
-        description="Batch edit the current selection, then refine remaining profile groups below if needed."
-      />
-
-      <div className="space-y-3 rounded-xl border border-border bg-muted/25 p-3">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Batch Edit
-        </span>
-        <div className="grid grid-cols-2 gap-2">
-          <MixedNumberField
-            label="Depth"
-            unit="mm"
-            value={context.targetDepthMm}
-            mixed={context.mixedDepth}
-            onCommit={(value) => {
-              if (value != null) {
-                onBatchDepthChange(context.elementIds, value);
-              }
-            }}
+        <div className="grid grid-cols-2 gap-3">
+          <CompactField
+            label="Y"
+            value={placementY}
+            suffix="mm"
+            icon={Icons.positionY}
+            onChange={(value) => onPlacementChange(placementX, value ?? placementY)}
           />
-          <FillModeField
-            label="Fill"
-            value={context.fillMode}
-            mixed={context.mixedFillMode}
-            onChange={(value) => onBatchFillModeChange(context.elementIds, value)}
+          <CompactField
+            label="X"
+            value={placementX}
+            suffix="mm"
+            icon={Icons.positionX}
+            onChange={(value) => onPlacementChange(value ?? placementX, placementY)}
           />
         </div>
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          Mixed values stay untouched until you enter a new value.
-        </p>
-      </div>
+      </section>
 
-      <ProfileGroupsSection
-        title="Profiles In Selection"
-        description="Use these grouped controls to retune all matching selected parts together."
-        groups={context.profileGroups}
-        onDepthChange={onBatchDepthChange}
-        onFillModeChange={onBatchFillModeChange}
-      />
+      <section className="space-y-4">
+        <SectionHeading title="Layout" />
+        <div>
+          <p className="mb-3 text-sm text-white/70">Dimensions</p>
+          <div className="grid grid-cols-[1fr_1fr_auto] gap-3">
+            <CompactField
+              label="W"
+              value={svgWidthMm}
+              suffix="mm"
+              icon={Icons.width}
+              onChange={(value) => onSvgDimensionChange("width", value)}
+            />
+            <CompactField
+              label="H"
+              value={svgHeightMm}
+              suffix="mm"
+              icon={Icons.positionY}
+              onChange={(value) => onSvgDimensionChange("height", value)}
+            />
+            <button
+              className={cn(
+                "inline-flex h-14 w-14 items-center justify-center rounded-[1.1rem] bg-white/[0.05] text-white transition",
+                svgAspectLocked ? "text-white" : "text-white/42",
+              )}
+              onClick={() => onSvgAspectLockChange(!svgAspectLocked)}
+            >
+              <AppIcon
+                icon={svgAspectLocked ? Icons.lock : Icons.lockOpen}
+                className="h-5 w-5"
+              />
+            </button>
+          </div>
+          <div className="mt-3 max-w-[12rem]">
+            <CompactField
+              label="Padding"
+              value={paddingMm}
+              suffix="mm"
+              icon={Icons.grid}
+              onChange={onPaddingChange}
+            />
+          </div>
+        </div>
+      </section>
+
+      {context.type === "none" ? (
+        <div className="rounded-[1.35rem] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm leading-relaxed text-white/42">
+          Select the SVG or one or more parts to edit cut depth, fill mode, and placement settings here.
+        </div>
+      ) : context.type === "selection" ? (
+        <section className="space-y-4">
+          <SectionHeading title="Cut depths" actionLabel="+" />
+          <div className="grid grid-cols-2 gap-3">
+            <MixedNumberField
+              label="Depth"
+              unit="mm"
+              value={context.targetDepthMm}
+              mixed={mixedDepth}
+              onCommit={(value) => {
+                if (value != null) {
+                  onBatchDepthChange(context.elementIds, value);
+                }
+              }}
+            />
+            <FillModeField
+              label="Fill"
+              value={context.fillMode}
+              mixed={mixedFill}
+              onChange={(value) => onBatchFillModeChange(context.elementIds, value)}
+            />
+          </div>
+          <ProfileGroupsSection
+            groups={context.profileGroups}
+            onDepthChange={onBatchDepthChange}
+            onFillModeChange={onBatchFillModeChange}
+          />
+        </section>
+      ) : (
+        <section className="space-y-4">
+          <SectionHeading title="Cut depths" actionLabel="+" />
+          <ProfileGroupsSection
+            groups={context.profileGroups}
+            onDepthChange={onBatchDepthChange}
+            onFillModeChange={onBatchFillModeChange}
+          />
+        </section>
+      )}
     </div>
   );
 }
 
 function ProfileGroupsSection({
-  title,
-  description,
   groups,
   onDepthChange,
   onFillModeChange,
 }: {
-  title: string;
-  description: string;
   groups: AssignmentProfileGroup[];
   onDepthChange: (elementIds: string[], value: number) => void;
   onFillModeChange: (elementIds: string[], value: FillMode | null) => void;
 }) {
   return (
-    <section className="space-y-3">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
-        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{description}</p>
-      </div>
-      <div className="space-y-2">
-        {groups.map((group) => (
-          <div key={group.key} className="rounded-xl border border-border bg-background p-3">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-foreground">{formatMillimeters(group.targetDepthMm)}</p>
-                <p className="text-[11px] text-muted-foreground">
-                  {group.fillMode ?? "Default fill"} · {group.elementIds.length} parts
-                </p>
-              </div>
-              <span className="rounded-full border border-border bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                Group
-              </span>
+    <div className="space-y-3">
+      {groups.map((group) => (
+        <div
+          key={group.key}
+          className="rounded-[1.35rem] bg-white/[0.05] px-4 py-4"
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className="h-4 w-4 rounded-[4px]"
+              style={{ backgroundColor: group.fillMode === "Contour" ? "#67B8FF" : "#FF667A" }}
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-[1.05rem] font-medium text-white">
+                {formatMillimeters(group.targetDepthMm)}
+              </p>
+              <p className="text-sm text-white/36">{group.elementIds.length} parts</p>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <NumberField
-                label="Depth"
-                unit="mm"
-                value={group.targetDepthMm}
-                onChange={(value) => {
-                  if (value != null) {
-                    onDepthChange(group.elementIds, value);
-                  }
-                }}
-              />
-              <FillModeField
-                label="Fill"
-                value={group.fillMode}
-                onChange={(value) => onFillModeChange(group.elementIds, value)}
-              />
-            </div>
+            <div className="text-sm text-white/42">{group.fillMode ?? "Default"}</div>
           </div>
-        ))}
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <NumberField
+              label="Depth"
+              unit="mm"
+              value={group.targetDepthMm}
+              onChange={(value) => {
+                if (value != null) {
+                  onDepthChange(group.elementIds, value);
+                }
+              }}
+            />
+            <FillModeField
+              label="Fill"
+              value={group.fillMode}
+              onChange={(value) => onFillModeChange(group.elementIds, value)}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function InspectorTabButton({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={cn(
+        "h-12 flex-1 rounded-[1.15rem] text-lg font-medium transition",
+        active ? "bg-white/[0.16] text-white" : "text-white/55 hover:bg-white/[0.04] hover:text-white",
+      )}
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  );
+}
+
+function SectionHeading({
+  title,
+  actionLabel,
+}: {
+  title: string;
+  actionLabel?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <h3 className="text-[1.15rem] font-medium text-white">{title}</h3>
+      {actionLabel ? <button className="text-3xl leading-none text-white/72">{actionLabel}</button> : null}
+    </div>
+  );
+}
+
+function BadgePill({
+  children,
+  accent = false,
+}: {
+  children: React.ReactNode;
+  accent?: boolean;
+}) {
+  return (
+    <Chip
+      className={cn(
+        "px-3 py-1 text-[0.95rem] font-medium",
+        accent ? "bg-primary text-white" : "bg-white/[0.06] text-white/72",
+      )}
+    >
+      {children}
+    </Chip>
+  );
+}
+
+function AlignmentCluster({
+  vertical = false,
+  disabled = false,
+  onAlign,
+}: {
+  vertical?: boolean;
+  disabled?: boolean;
+  onAlign: (alignment: AlignmentAction) => void;
+}) {
+  const actions = vertical
+    ? [
+        { action: "top" as const, icon: Icons.alignTop },
+        { action: "center-y" as const, icon: Icons.alignCenterVertical },
+        { action: "bottom" as const, icon: Icons.alignBottom },
+      ]
+    : [
+        { action: "left" as const, icon: Icons.alignLeft },
+        { action: "center-x" as const, icon: Icons.alignCenterHorizontal },
+        { action: "right" as const, icon: Icons.alignRight },
+      ];
+
+  return (
+    <div className="flex rounded-[1.2rem] bg-white/[0.05] p-1">
+      {actions.map(({ action, icon }, index) => (
+        <button
+          key={action}
+          className={cn(
+            "inline-flex h-12 flex-1 items-center justify-center text-white transition hover:bg-white/[0.08]",
+            index > 0 && "border-l border-white/6",
+            disabled && "cursor-not-allowed text-white/22 hover:bg-transparent",
+          )}
+          disabled={disabled}
+          onClick={() => onAlign(action)}
+        >
+          <AppIcon icon={icon} className="h-5 w-5" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DisabledIconButton({ icon }: { icon: typeof Icons.rotateLeft }) {
+  return (
+    <button
+      className="inline-flex h-14 w-14 items-center justify-center text-white/26"
+      disabled
+    >
+      <AppIcon icon={icon} className="h-5 w-5" />
+    </button>
+  );
+}
+
+function CompactField({
+  label,
+  value,
+  suffix,
+  icon,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  suffix: string;
+  icon: typeof Icons.positionX;
+  onChange: (value: number | null) => void;
+}) {
+  const [editValue, setEditValue] = useState<string | null>(null);
+
+  const commit = useCallback(
+    (raw: string) => {
+      const parsed = Number.parseFloat(raw);
+      if (raw.trim() === "") {
+        onChange(null);
+      } else if (Number.isFinite(parsed)) {
+        onChange(parsed);
+      }
+      setEditValue(null);
+    },
+    [onChange],
+  );
+
+  const displayValue = editValue ?? value.toFixed(3).replace(/\.?0+$/, "");
+
+  return (
+    <div className="flex h-14 items-center rounded-[1.15rem] bg-white/[0.05]">
+      <div className="inline-flex min-w-[3.25rem] items-center justify-center gap-1 text-sm text-white/46">
+        <AppIcon icon={icon} className="h-4 w-4" />
+        {label}
       </div>
-    </section>
+      <Input
+        type="text"
+        inputMode="decimal"
+        className="h-full border-0 bg-transparent px-0 text-[1.1rem] text-white focus-visible:ring-0"
+        value={displayValue}
+        onFocus={(event) => {
+          setEditValue(String(value));
+          requestAnimationFrame(() => event.target.select());
+        }}
+        onChange={(event) => setEditValue(event.target.value)}
+        onBlur={(event) => commit(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          } else if (event.key === "Escape") {
+            setEditValue(null);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+      <div className="pr-4 text-[1.1rem] text-white/62">{suffix}</div>
+    </div>
   );
 }
 
@@ -348,9 +527,9 @@ function FillModeField({
 
   return (
     <div className="grid gap-1.5">
-      <Label className="text-xs">{label}</Label>
+      <Label className="text-xs text-white/45">{label}</Label>
       <select
-        className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+        className="h-12 rounded-[1rem] border border-white/8 bg-white/[0.04] px-3 text-sm text-white outline-none transition focus:border-primary/35"
         value={selectValue}
         onChange={(event) => {
           const nextValue = event.target.value;
@@ -399,12 +578,12 @@ function NumberField({
 
   return (
     <div className="grid gap-1.5">
-      <Label className="text-xs">{label}</Label>
+      <Label className="text-xs text-white/45">{label}</Label>
       <div className="relative">
         <Input
           type="text"
           inputMode="decimal"
-          className="h-8 pr-12 text-xs"
+          className="h-12 rounded-[1rem] border-white/8 bg-white/[0.04] pr-12 text-sm text-white"
           value={displayValue}
           onFocus={(event) => {
             setEditValue(value.toFixed(2));
@@ -421,7 +600,7 @@ function NumberField({
             }
           }}
         />
-        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">
           {unit}
         </span>
       </div>
@@ -443,17 +622,16 @@ function MixedNumberField({
   onCommit: (value: number | null) => void;
 }) {
   const [editValue, setEditValue] = useState<string | null>(null);
-  const displayValue =
-    editValue ?? (mixed ? "" : value != null ? value.toFixed(2) : "");
+  const displayValue = editValue ?? (mixed ? "" : value != null ? value.toFixed(2) : "");
 
   return (
     <div className="grid gap-1.5">
-      <Label className="text-xs">{label}</Label>
+      <Label className="text-xs text-white/45">{label}</Label>
       <div className="relative">
         <Input
           type="text"
           inputMode="decimal"
-          className="h-8 pr-12 text-xs"
+          className="h-12 rounded-[1rem] border-white/8 bg-white/[0.04] pr-12 text-sm text-white"
           placeholder={mixed ? "Mixed" : "0.00"}
           value={displayValue}
           onFocus={(event) => {
@@ -482,60 +660,10 @@ function MixedNumberField({
             }
           }}
         />
-        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">
           {unit}
         </span>
       </div>
     </div>
   );
 }
-
-function SectionHeader({
-  eyebrow,
-  title,
-  description,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-        {eyebrow}
-      </p>
-      <h2 className="mt-2 text-lg font-semibold text-foreground">{title}</h2>
-      <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{description}</p>
-    </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition ${
-        active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-      }`}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
-const ALIGNMENT_BUTTONS: Array<{ action: AlignmentAction; label: string }> = [
-  { action: "left", label: "Left" },
-  { action: "center-x", label: "Center X" },
-  { action: "right", label: "Right" },
-  { action: "top", label: "Top" },
-  { action: "center-y", label: "Center Y" },
-  { action: "bottom", label: "Bottom" },
-];

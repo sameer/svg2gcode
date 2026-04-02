@@ -1,8 +1,7 @@
-import { Pause, Play, RotateCcw, SkipBack, SkipForward, Eye, EyeOff } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { clamp, formatMillimeters } from "@/lib/utils";
+import { AppIcon, Icons } from "@/lib/icons";
+import { clamp } from "@/lib/utils";
 
 import type { OperationSpan, ParsedEvent, ParsedProgram } from "./viewer/parse-gcode";
 
@@ -10,32 +9,18 @@ interface PreviewTimelineProps {
   program: ParsedProgram | null;
   currentDistance: number;
   isPlaying: boolean;
-  playbackRate: number;
-  showStock: boolean;
-  liveCutSimulation: boolean;
   activeOperationId: string | null;
   onDistanceChange: (distance: number) => void;
   onTogglePlaying: () => void;
-  onPlaybackRateChange: (rate: number) => void;
-  onShowStockChange: (value: boolean) => void;
-  onLiveCutSimulationChange: (value: boolean) => void;
 }
-
-const PLAYBACK_RATES = [0.5, 1, 2, 4] as const;
 
 export function PreviewTimeline({
   program,
   currentDistance,
   isPlaying,
-  playbackRate,
-  showStock,
-  liveCutSimulation,
   activeOperationId,
   onDistanceChange,
   onTogglePlaying,
-  onPlaybackRateChange,
-  onShowStockChange,
-  onLiveCutSimulationChange,
 }: PreviewTimelineProps) {
   const [hoveredEvent, setHoveredEvent] = useState<ParsedEvent | null>(null);
 
@@ -55,70 +40,42 @@ export function PreviewTimeline({
   }
 
   return (
-    <div className="shrink-0 border-t border-border bg-card/95 px-4 py-3 backdrop-blur">
-      <div className="flex items-center gap-2">
-        <Button size="icon" variant="outline" onClick={() => onDistanceChange(0)}>
-          <SkipBack className="h-4 w-4" />
-        </Button>
-        <Button size="icon" onClick={onTogglePlaying}>
-          {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-        </Button>
-        <Button size="icon" variant="outline" onClick={() => onDistanceChange(totalDistance)}>
-          <SkipForward className="h-4 w-4" />
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => onDistanceChange(totalDistance)}>
-          <RotateCcw className="mr-1 h-3.5 w-3.5" />
-          Full Path
-        </Button>
-        <Button
-          size="sm"
-          variant={showStock ? "secondary" : "outline"}
-          onClick={() => onShowStockChange(!showStock)}
-        >
-          {showStock ? <Eye className="mr-1 h-3.5 w-3.5" /> : <EyeOff className="mr-1 h-3.5 w-3.5" />}
-          Stock
-        </Button>
-        <Button
-          size="sm"
-          variant={liveCutSimulation ? "secondary" : "outline"}
-          onClick={() => onLiveCutSimulationChange(!liveCutSimulation)}
-        >
-          Live Cut
-        </Button>
-
-        <div className="ml-2 flex items-center gap-1 rounded-full border border-border bg-background p-1">
-          {PLAYBACK_RATES.map((rate) => (
-            <button
-              key={rate}
-              className={`rounded-full px-2 py-1 text-[10px] font-medium ${
-                playbackRate === rate
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-              }`}
-              onClick={() => onPlaybackRateChange(rate)}
-            >
-              {rate}x
-            </button>
-          ))}
-        </div>
-
-        <div className="ml-auto text-right">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-            {activeSpan?.operationName ?? "Preview"}
-          </p>
-          <p className="text-xs font-medium text-foreground">
-            {formatMillimeters(progress * totalDistance)} / {formatMillimeters(totalDistance)}
-          </p>
-        </div>
-      </div>
-
-      <div className="relative mt-3 rounded-xl border border-border bg-muted/45 px-3 py-4">
-        <div className="relative h-10">
-          <div className="absolute inset-x-0 top-1/2 h-3 -translate-y-1/2 rounded-full bg-background shadow-inner" />
-          <div
-            className="absolute inset-y-0 left-0 rounded-full bg-primary/14"
-            style={{ width: `${progress * 100}%` }}
+    <div className="pointer-events-none absolute inset-x-8 bottom-7 z-30 flex justify-center">
+      <div className="pointer-events-auto w-full max-w-[920px] rounded-[1.9rem] border border-white/8 bg-[rgba(22,22,27,0.92)] px-6 py-5 shadow-[0_28px_70px_rgba(0,0,0,0.48)] backdrop-blur-2xl">
+        <div className="flex items-center gap-3">
+          <TransportButton icon={Icons.prev} onClick={() => onDistanceChange(0)} />
+          <TransportButton
+            icon={isPlaying ? Icons.pause : Icons.play}
+            active
+            onClick={onTogglePlaying}
           />
+          <TransportButton icon={Icons.next} onClick={() => onDistanceChange(totalDistance)} />
+
+          <div className="ml-3 flex items-center gap-3">
+            {program.operationSpans.slice(0, 6).map((span) => (
+              <button
+                key={span.operationId}
+                className="h-4 w-4 rounded-full transition"
+                style={{
+                  backgroundColor: span.color ?? "#67B8FF",
+                  opacity:
+                    !activeOperationId || activeOperationId === span.operationId ? 1 : 0.4,
+                }}
+                onClick={() => onDistanceChange(span.startDistance)}
+                title={span.operationName}
+              />
+            ))}
+          </div>
+
+          <div className="ml-auto min-w-0 text-right">
+            <p className="text-xs uppercase tracking-[0.18em] text-white/32">
+              {activeSpan?.operationName ?? "Preview"}
+            </p>
+          </div>
+        </div>
+
+        <div className="relative mt-5 h-12">
+          <div className="absolute inset-x-0 top-1/2 h-3 -translate-y-1/2 rounded-full bg-black/40" />
 
           {program.operationSpans.map((span) => (
             <OperationSpanMarker
@@ -153,29 +110,49 @@ export function PreviewTimeline({
           />
 
           <div
-            className="absolute top-1/2 z-30 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow"
+            className="absolute top-1/2 z-30 h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-[0.95rem] border-2 border-white/80 bg-[#7BFFAF] shadow-[0_0_18px_rgba(123,255,175,0.3)]"
             style={{ left: `${progress * 100}%` }}
           />
-        </div>
 
-        {hoveredEvent && (
-          <div
-            className="pointer-events-none absolute top-0 z-40 -translate-y-[115%] rounded-lg border border-border bg-background px-3 py-2 text-xs shadow-lg"
-            style={{ left: `${(hoveredEvent.distance / Math.max(totalDistance, 1)) * 100}%` }}
-          >
-            <p className="font-semibold text-foreground">
-              {hoveredEvent.kind === "plunge" ? "Plunge" : "Retract"}
-            </p>
-            <p className="text-muted-foreground">
-              {hoveredEvent.operationName ?? "Unassigned"} • line {hoveredEvent.lineNumber}
-            </p>
-            <p className="text-muted-foreground">
-              X {hoveredEvent.position.x.toFixed(2)} • Y {hoveredEvent.position.y.toFixed(2)} • Z {hoveredEvent.position.z.toFixed(2)}
-            </p>
-          </div>
-        )}
+          {hoveredEvent ? (
+            <div
+              className="pointer-events-none absolute bottom-full z-40 mb-3 rounded-[1rem] border border-white/10 bg-[rgba(19,19,23,0.98)] px-3 py-2 text-xs shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
+              style={{ left: `${(hoveredEvent.distance / Math.max(totalDistance, 1)) * 100}%` }}
+            >
+              <p className="font-semibold text-white">
+                {hoveredEvent.kind === "plunge" ? "Plunge" : "Retract"}
+              </p>
+              <p className="text-white/55">
+                {hoveredEvent.operationName ?? "Unassigned"} • line {hoveredEvent.lineNumber}
+              </p>
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
+  );
+}
+
+function TransportButton({
+  icon,
+  active = false,
+  onClick,
+}: {
+  icon: typeof Icons.play;
+  active?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={
+        active
+          ? "inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.12] text-white"
+          : "inline-flex h-11 w-11 items-center justify-center rounded-full text-white/78 transition hover:bg-white/[0.06] hover:text-white"
+      }
+      onClick={onClick}
+    >
+      <AppIcon icon={icon} className="h-5 w-5" />
+    </button>
   );
 }
 
@@ -200,13 +177,12 @@ function OperationSpanMarker({
 
   return (
     <button
-      className={`absolute top-1/2 z-10 h-3 -translate-y-1/2 rounded-full transition-opacity ${
-        dimmed ? "opacity-25" : active ? "opacity-100" : "opacity-65"
-      }`}
+      className={active ? "absolute top-1/2 z-10 h-3 -translate-y-1/2 rounded-full" : "absolute top-1/2 z-10 h-3 -translate-y-1/2 rounded-full"}
       style={{
         left: `${left}%`,
         width: `${width}%`,
         backgroundColor: span.color ?? "#3b82f6",
+        opacity: dimmed ? 0.28 : active ? 1 : 0.66,
       }}
       onClick={onClick}
       title={span.operationName}
@@ -231,10 +207,12 @@ function EventMarker({
 
   return (
     <button
-      className={`absolute top-1/2 z-20 -translate-x-1/2 -translate-y-[120%] text-[10px] font-black ${
-        dimmed ? "opacity-25" : event.kind === "plunge" ? "text-orange-500" : "text-sky-500"
-      }`}
-      style={{ left: `${left}%` }}
+      className="absolute top-1/2 z-20 -translate-x-1/2 -translate-y-[125%]"
+      style={{
+        left: `${left}%`,
+        opacity: dimmed ? 0.25 : 1,
+        color: event.kind === "plunge" ? "#FF6B6B" : "#67B8FF",
+      }}
       onMouseEnter={() => onHover(event)}
       onMouseLeave={() => onHover(null)}
       onFocus={() => onHover(event)}
@@ -242,7 +220,7 @@ function EventMarker({
       onClick={onClick}
       title={`${event.kind} at line ${event.lineNumber}`}
     >
-      ▼
+      ●
     </button>
   );
 }

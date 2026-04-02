@@ -1,13 +1,12 @@
-import { Minus, Plus, ScanSearch } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Konva from "konva";
 import { Group, Layer, Line, Rect, Stage, Tag, Text, Transformer } from "react-konva";
 
 import { SvgHitLayer } from "@/components/svg-hit-layer";
 import { useSvgCanvasController } from "@/components/use-svg-canvas-controller";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getCanvasGeometry } from "@/lib/editor-geometry";
+import { AppIcon, Icons } from "@/lib/icons";
 import type {
   CanvasSelectionTarget,
   DiveRootScope,
@@ -50,6 +49,8 @@ interface SvgCanvasProps {
   onSelectIds: (ids: string[], additive: boolean) => void;
   onSelectMaterial: () => void;
   onEnterSvgDiveMode: () => void;
+  onExitSvgDiveMode: () => void;
+  onImportClick?: () => void;
   onMaterialSizeChange?: (dimension: "width" | "height", value: number | null) => void;
   onPlacementChange?: (x: number, y: number) => void;
   onSvgDimensionChange?: (dimension: "width" | "height", value: number | null) => void;
@@ -78,6 +79,8 @@ export function SvgCanvas({
   onSelectIds,
   onSelectMaterial,
   onEnterSvgDiveMode,
+  onExitSvgDiveMode,
+  onImportClick,
   onMaterialSizeChange,
   onPlacementChange,
   onSvgDimensionChange,
@@ -92,6 +95,7 @@ export function SvgCanvas({
   const [liveSvgBox, setLiveSvgBox] = useState<CanvasBox | null>(null);
   const [resizeOverlay, setResizeOverlay] = useState<ResizeOverlayState | null>(null);
   const [marqueeRect, setMarqueeRect] = useState<MarqueeRect | null>(null);
+  const [marqueeHoverIds, setMarqueeHoverIds] = useState<string[]>([]);
 
   const operationForId = useMemo(() => {
     const map = new Map<string, FrontendOperation>();
@@ -222,6 +226,20 @@ export function SvgCanvas({
   const shapePickingEnabled = true;
 
   useEffect(() => {
+    if (!isDiveMode) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onExitSvgDiveMode();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isDiveMode, onExitSvgDiveMode]);
+
+  useEffect(() => {
     const transformer = transformerRef.current;
     if (!transformer) {
       return;
@@ -257,7 +275,10 @@ export function SvgCanvas({
 
       event.stopPropagation();
       if (isDiveMode || modifierDirectPick || event.metaKey || event.ctrlKey) {
-        onSelectionTargetChange(null);
+        // Don't call onSelectionTargetChange in dive mode — selectCanvasTarget resets isDiveMode
+        if (!isDiveMode) {
+          onSelectionTargetChange(null);
+        }
         onSelectIds([id], event.metaKey || event.ctrlKey || event.shiftKey);
         return;
       }
@@ -282,9 +303,75 @@ export function SvgCanvas({
         return;
       }
       event.stopPropagation();
-      onEnterSvgDiveMode();
+      if (isDiveMode) {
+        onExitSvgDiveMode();
+      } else {
+        onEnterSvgDiveMode();
+      }
     },
-    [modifierDirectPick, onEnterSvgDiveMode],
+    [isDiveMode, modifierDirectPick, onEnterSvgDiveMode, onExitSvgDiveMode],
+  );
+
+  // startMarquee: subscribes window mousemove/mouseup and draws the selection rectangle.
+  // minDragPx: if set > 0, the selection is only committed if the user dragged at least
+  // that many pixels — use this when called from a hit-layer mousedown so that a plain
+  // click still lets the click handler select the element.
+  const startMarquee = useCallback(
+    (origin: { x: number; y: number }, additive: boolean, minDragPx = 0) => {
+      let currentRect = { left: origin.x, top: origin.y, width: 0, height: 0 };
+      setMarqueeRect(currentRect);
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        const viewport = viewportRef.current;
+        if (!viewport) {
+          return;
+        }
+        const bounds = viewport.getBoundingClientRect();
+        const nextPoint = {
+          x: moveEvent.clientX - bounds.left,
+          y: moveEvent.clientY - bounds.top,
+        };
+        currentRect = normalizeMarquee(origin, nextPoint);
+        setMarqueeRect(currentRect);
+        // Live-preview: highlight elements inside the current marquee rect in blue
+        const hoverIds = collectIntersectingSvgIds(
+          hitLayerHostRef.current,
+          viewportRef.current,
+          currentRect,
+          interactiveIds,
+        );
+        setMarqueeHoverIds(hoverIds);
+      };
+
+      const handleMouseUp = () => {
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("mouseup", handleMouseUp);
+        setMarqueeHoverIds([]);
+        const didDrag = currentRect.width >= minDragPx || currentRect.height >= minDragPx;
+        if (!didDrag) {
+          setMarqueeRect(null);
+          return;
+        }
+        const ids = collectIntersectingSvgIds(
+          hitLayerHostRef.current,
+          viewportRef.current,
+          currentRect,
+          interactiveIds,
+        );
+        setMarqueeRect(null);
+        if (ids.length > 0) {
+          // onSelectIds already clears canvasSelectionTarget; skip onSelectionTargetChange
+          // which would also reset isDiveMode via selectCanvasTarget
+          onSelectIds(ids, additive);
+        } else if (!additive) {
+          onSelectIds([], false);
+        }
+      };
+
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    },
+    [interactiveIds, onSelectIds, viewportRef],
   );
 
   const handleStageMouseDown = useCallback(
@@ -305,48 +392,7 @@ export function SvgCanvas({
         effectiveOverlayRect &&
         isPointInsideRect(pointer, effectiveOverlayRect)
       ) {
-        const additive = event.evt.shiftKey;
-        const origin = {
-          x: pointer.x,
-          y: pointer.y,
-        };
-        let currentRect = { left: origin.x, top: origin.y, width: 0, height: 0 };
-        setMarqueeRect(currentRect);
-
-        const handleMouseMove = (moveEvent: MouseEvent) => {
-          const viewport = viewportRef.current;
-          if (!viewport) {
-            return;
-          }
-          const bounds = viewport.getBoundingClientRect();
-          const nextPoint = {
-            x: moveEvent.clientX - bounds.left,
-            y: moveEvent.clientY - bounds.top,
-          };
-          currentRect = normalizeMarquee(origin, nextPoint);
-          setMarqueeRect(currentRect);
-        };
-
-        const handleMouseUp = () => {
-          window.removeEventListener("mousemove", handleMouseMove);
-          window.removeEventListener("mouseup", handleMouseUp);
-          const ids = collectIntersectingSvgIds(
-            hitLayerHostRef.current,
-            viewportRef.current,
-            currentRect,
-            interactiveIds,
-          );
-          setMarqueeRect(null);
-          if (ids.length > 0) {
-            onSelectionTargetChange(null);
-            onSelectIds(ids, additive);
-          } else if (!additive) {
-            onSelectIds([], false);
-          }
-        };
-
-        window.addEventListener("mousemove", handleMouseMove);
-        window.addEventListener("mouseup", handleMouseUp);
+        startMarquee(pointer, event.evt.shiftKey);
         return;
       }
 
@@ -354,7 +400,30 @@ export function SvgCanvas({
       onSelectionTargetChange(null);
       onSelectIds([], false);
     },
-    [effectiveOverlayRect, interactiveIds, isDiveMode, onSelectIds, onSelectionTargetChange, spacePressed, viewportRef],
+    [effectiveOverlayRect, isDiveMode, onSelectIds, onSelectionTargetChange, spacePressed, startMarquee],
+  );
+
+  // Handles mousedown on SVG elements in the hit layer while in dive mode.
+  // Starts marquee selection with a drag threshold so that plain clicks still
+  // route through the click handler to select the individual element.
+  const handleHitLayerMouseDown = useCallback(
+    (event: MouseEvent) => {
+      if (spacePressed) {
+        return;
+      }
+      const viewport = viewportRef.current;
+      if (!viewport) {
+        return;
+      }
+      event.preventDefault();
+      const bounds = viewport.getBoundingClientRect();
+      const origin = {
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+      };
+      startMarquee(origin, event.shiftKey, 5);
+    },
+    [spacePressed, startMarquee, viewportRef],
   );
 
   const handleArtboardSelect = useCallback(() => {
@@ -649,19 +718,19 @@ export function SvgCanvas({
     <div
       ref={viewportRef}
       className={cn(
-        "relative h-full w-full overflow-hidden bg-[#c8ced8]",
+        "relative h-full w-full overflow-hidden bg-[#060914]",
         isPanning ? "cursor-grabbing" : spacePressed ? "cursor-grab" : "cursor-default",
       )}
       onMouseDown={handleViewportMouseDown}
       onWheel={handleWheel}
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.82),_rgba(208,214,224,0.96)_42%,_rgba(154,165,182,0.98)_100%)]" />
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.12)_1px,transparent_1px)] bg-[size:32px_32px] opacity-45" />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,_transparent_0%,_transparent_58%,_rgba(15,23,42,0.12)_100%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(39,102,255,0.24),_rgba(7,11,24,0.92)_38%,_rgba(3,5,13,0.98)_100%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:32px_32px]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,_transparent_0%,_transparent_58%,_rgba(0,0,0,0.45)_100%)]" />
 
       {!preparedSvg || !effectiveGeometry || !svgMetrics || !viewportSize.width || !viewportSize.height ? (
         <div className="relative flex h-full items-center justify-center">
-          <p className="max-w-sm border border-white/60 bg-white/70 px-6 py-5 text-center text-sm text-slate-600 shadow-[0_18px_45px_rgba(15,23,42,0.08)] backdrop-blur">
+          <p className="max-w-sm rounded-[1.35rem] border border-white/10 bg-[#0b1020]/88 px-6 py-5 text-center text-sm leading-relaxed text-slate-300 shadow-[0_24px_60px_rgba(0,0,0,0.35)] backdrop-blur-xl">
             Drop an SVG into the studio to start assigning depths, sizing the material, and generating an NC program.
           </p>
         </div>
@@ -685,12 +754,13 @@ export function SvgCanvas({
                 y={effectiveArtboardBox.y}
                 width={effectiveArtboardBox.width}
                 height={effectiveArtboardBox.height}
-                fill="#ffffff"
-                shadowColor="rgba(15, 23, 42, 0.2)"
+                fill="#101522"
+                shadowColor="rgba(2, 6, 23, 0.55)"
                 shadowBlur={32 / zoom}
                 shadowOffset={{ x: 0, y: 18 / zoom }}
-                stroke={selectionTarget === "material" ? "#0ea5e9" : "rgba(148,163,184,0.7)"}
+                stroke={selectionTarget === "material" ? "#2f95ff" : "rgba(148,163,184,0.38)"}
                 strokeWidth={selectionTarget === "material" ? 1.4 / zoom : 1 / zoom}
+                listening={!isDiveMode}
                 onMouseDown={handleArtboardSelect}
                 onMouseEnter={() => setHoverTarget("material")}
                 onMouseLeave={() => setHoverTarget((current) => (current === "material" ? null : current))}
@@ -714,7 +784,7 @@ export function SvgCanvas({
                   y={effectiveArtboardBox.y + paddingMm}
                   width={Math.max(0, effectiveArtboardBox.width - paddingMm * 2)}
                   height={Math.max(0, effectiveArtboardBox.height - paddingMm * 2)}
-                  stroke={paddingMessage ? "rgba(217,119,6,0.95)" : "rgba(14,165,233,0.42)"}
+                  stroke={paddingMessage ? "rgba(245,158,11,0.92)" : "rgba(47,149,255,0.42)"}
                   strokeWidth={1 / zoom}
                   dash={[10 / zoom, 8 / zoom]}
                   listening={false}
@@ -726,11 +796,11 @@ export function SvgCanvas({
                 y={effectiveSvgBox?.y ?? effectiveArtboardBox.y + effectiveGeometry.svgTopMm}
                 width={effectiveSvgBox?.width ?? effectiveGeometry.svgWidthMm}
                 height={effectiveSvgBox?.height ?? effectiveGeometry.svgHeightMm}
-                fill="rgba(16, 185, 129, 0.001)"
+                fill="rgba(16, 185, 129, 0.002)"
                 listening={!isDiveMode}
                 draggable={selectionTarget === "svg" && !isDiveMode}
                 onMouseDown={handleSvgSelect}
-                onDblClick={onEnterSvgDiveMode}
+                onDblClick={isDiveMode ? onExitSvgDiveMode : onEnterSvgDiveMode}
                 onMouseEnter={() => setHoverTarget("svg")}
                 onMouseLeave={() => setHoverTarget((current) => (current === "svg" ? null : current))}
                 onDragStart={handleSvgDragStart}
@@ -805,15 +875,17 @@ export function SvgCanvas({
               normalizedSvg={preparedSvg.normalized_svg}
               rect={effectiveOverlayRect}
               selectedIds={selectedIds}
+              previewSelectedIds={marqueeHoverIds}
               activeOperationId={activeOperationId}
               operationForId={operationForId}
               interactive={shapePickingEnabled}
-              interactiveIds={isDiveMode || modifierDirectPick ? interactiveIds : null}
+              interactiveIds={isDiveMode || modifierDirectPick ? interactiveIds : []}
               onHostReady={(host) => {
                 hitLayerHostRef.current = host;
               }}
               onClick={handlePartClick}
               onDoubleClick={handlePartDoubleClick}
+              onMouseDown={isDiveMode ? handleHitLayerMouseDown : undefined}
             />
           ) : null}
 
@@ -824,47 +896,46 @@ export function SvgCanvas({
             height={viewportSize.height}
           />
 
-          <div className="absolute right-4 top-4 z-20 flex items-center gap-2 rounded-full border border-white/70 bg-slate-950/80 px-2 py-2 text-white shadow-[0_16px_40px_rgba(15,23,42,0.24)] backdrop-blur">
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8 rounded-none text-white hover:bg-white/10 hover:text-white"
-              onClick={(event) => {
-                event.stopPropagation();
-                zoomAtPoint(zoom / 1.15);
-              }}
-            >
-              <Minus className="h-4 w-4" />
-            </Button>
-            <span className="min-w-16 text-center text-xs font-medium">{Math.round(zoom * 100)}%</span>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8 rounded-none text-white hover:bg-white/10 hover:text-white"
-              onClick={(event) => {
-                event.stopPropagation();
-                zoomAtPoint(zoom * 1.15);
-              }}
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 rounded-none px-3 text-white hover:bg-white/10 hover:text-white"
-              onClick={(event) => {
-                event.stopPropagation();
-                fitView();
-              }}
-            >
-              <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
-              Fit
-            </Button>
+          <div className="pointer-events-none absolute inset-x-0 bottom-7 z-20 flex justify-center px-6">
+            <div className="pointer-events-auto flex items-center gap-2 rounded-[1.75rem] border border-white/10 bg-[rgba(19,19,23,0.9)] px-4 py-3 text-white shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
+              <ToolbarButton icon={Icons.playCircle} />
+              <ToolbarButton icon={Icons.hand} />
+              <ToolbarButton icon={Icons.fit} onClick={fitView} />
+              <div className="ml-2 flex items-center gap-3 rounded-[1.2rem] bg-white/[0.05] px-4 py-3">
+                <button
+                  className="text-white/72"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    zoomAtPoint(zoom / 1.15);
+                  }}
+                >
+                  <AppIcon icon={Icons.minus} className="h-4 w-4" />
+                </button>
+                <span className="min-w-14 text-center text-[1.05rem]">{Math.round(zoom * 100)} %</span>
+                <button
+                  className="text-white/72"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    zoomAtPoint(zoom * 1.15);
+                  }}
+                >
+                  <AppIcon icon={Icons.plus} className="h-4 w-4" />
+                </button>
+              </div>
+              <ToolbarButton icon={Icons.undo} disabled />
+              <ToolbarButton icon={Icons.redo} disabled />
+            </div>
+          </div>
+
+          <div className="absolute bottom-28 right-7 z-20 w-[18rem] rounded-[1.7rem] border border-white/10 bg-[rgba(19,19,23,0.92)] p-3 text-white shadow-[0_28px_70px_rgba(0,0,0,0.48)] backdrop-blur-2xl">
+            <AssetButton icon={Icons.picture} label="Add photos or videos" disabled />
+            <AssetButton icon={Icons.cube} label="Add 3D objects" disabled />
+            <AssetButton icon={Icons.fileUpload} label="Add files (docs, txt...)" onClick={onImportClick} />
           </div>
 
           {resizeOverlayRect ? (
             <div
-              className="absolute z-20 rounded-lg border border-white/80 bg-white/95 p-2 shadow-[0_24px_70px_rgba(15,23,42,0.18)] backdrop-blur"
+              className="absolute z-20 rounded-[1.15rem] border border-white/10 bg-[#0a1020]/94 p-3 shadow-[0_24px_70px_rgba(0,0,0,0.42)] backdrop-blur-xl"
               style={{
                 left: clamp(resizeOverlayRect.left, 12, Math.max(12, viewportSize.width - resizeOverlayRect.width - 12)),
                 top: Math.max(12, resizeOverlayRect.top),
@@ -905,6 +976,57 @@ export function SvgCanvas({
         </>
       )}
     </div>
+  );
+}
+
+function ToolbarButton({
+  icon,
+  disabled = false,
+  onClick,
+}: {
+  icon: typeof Icons.playCircle;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      className={cn(
+        "inline-flex h-12 w-12 items-center justify-center rounded-full text-white transition",
+        disabled ? "cursor-not-allowed text-white/22" : "hover:bg-white/[0.08]",
+      )}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <AppIcon icon={icon} className="h-5 w-5" />
+    </button>
+  );
+}
+
+function AssetButton({
+  icon,
+  label,
+  disabled = false,
+  onClick,
+}: {
+  icon: typeof Icons.picture;
+  label: string;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      className={cn(
+        "mb-2 flex w-full items-center gap-3 rounded-[1.2rem] px-4 py-3 text-left text-[1.05rem] transition last:mb-0",
+        disabled
+          ? "cursor-not-allowed bg-white/[0.03] text-white/42"
+          : "bg-white/[0.06] text-white hover:bg-white/[0.1]",
+      )}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <AppIcon icon={icon} className="h-5 w-5" />
+      {label}
+    </button>
   );
 }
 
@@ -974,13 +1096,13 @@ function ObjectChrome({
   const color =
     tone === "artboard"
       ? subtle
-        ? "rgba(56,189,248,0.55)"
-        : "rgba(14,165,233,0.98)"
+        ? "rgba(69,159,255,0.55)"
+        : "rgba(47,149,255,0.98)"
       : subtle
         ? "rgba(52,211,153,0.6)"
         : "rgba(16,185,129,0.98)";
-  const labelFill = tone === "artboard" ? "rgba(224,242,254,0.96)" : "rgba(209,250,229,0.96)";
-  const labelText = tone === "artboard" ? "#0369a1" : "#047857";
+  const labelFill = tone === "artboard" ? "rgba(12,22,45,0.92)" : "rgba(8,34,28,0.92)";
+  const labelText = tone === "artboard" ? "#8ec8ff" : "#86efac";
 
   return (
     <Group listening={false}>
@@ -1015,7 +1137,7 @@ function ObjectChrome({
           fill={labelText}
         />
         {helper ? (
-          <Text x={52 / zoom} y={4.8 / zoom} fontSize={10 / zoom} text={helper} fill="rgba(71,85,105,0.9)" />
+          <Text x={52 / zoom} y={4.8 / zoom} fontSize={10 / zoom} text={helper} fill="rgba(203,213,225,0.85)" />
         ) : null}
       </Group>
     </Group>
@@ -1067,12 +1189,12 @@ function InlineDimensionInput({
 
   return (
     <div className="grid gap-1">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</span>
       <div className="relative">
         <Input
           type="text"
           inputMode="decimal"
-          className="h-8 border-slate-200 pr-9 text-xs"
+          className="h-9 rounded-[0.95rem] border-white/10 bg-white/[0.04] pr-9 text-xs text-foreground"
           value={displayValue}
           onFocus={(event) => {
             setEditValue(value.toFixed(2));
@@ -1100,7 +1222,7 @@ function InlineDimensionInput({
             }
           }}
         />
-        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
+        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-500">
           mm
         </span>
       </div>

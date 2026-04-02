@@ -1,7 +1,8 @@
-import { ChevronDown, ChevronRight, Search } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Chip } from "@heroui/react";
 
 import { Input } from "@/components/ui/input";
+import { AppIcon, Icons } from "@/lib/icons";
 import type {
   CanvasSelectionTarget,
   DiveRootScope,
@@ -13,6 +14,8 @@ import { cn, formatMillimeters } from "@/lib/utils";
 
 interface LayerTreeProps {
   tree: SvgTreeNode | null;
+  projectName: string;
+  projectSubtitle: string;
   selectedIds: string[];
   selectionTarget: CanvasSelectionTarget;
   isDiveMode: boolean;
@@ -26,6 +29,8 @@ interface LayerTreeProps {
 
 export function LayerTree({
   tree,
+  projectName,
+  projectSubtitle,
   selectedIds,
   selectionTarget,
   isDiveMode,
@@ -38,6 +43,7 @@ export function LayerTree({
 }: LayerTreeProps) {
   const [mode, setMode] = useState<LayerGroupingMode>("structure");
   const [query, setQuery] = useState("");
+  const [sidebarTab, setSidebarTab] = useState<"layers" | "library">("layers");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
   const selectableNodes = useMemo(() => flattenSelectableNodes(tree), [tree]);
@@ -55,6 +61,7 @@ export function LayerTree({
 
   const groupedNodes = useMemo(() => {
     const groups = new Map<string, { key: string; label: string; nodes: typeof filteredNodes }>();
+
     for (const node of filteredNodes) {
       const assignment = node.id ? assignments[node.id] : null;
       const key =
@@ -72,120 +79,257 @@ export function LayerTree({
         groups.set(key, { key, label, nodes: [node] });
       }
     }
+
     return Array.from(groups.values()).sort((left, right) => left.label.localeCompare(right.label));
   }, [assignments, filteredNodes, mode]);
 
+  const selectedPartCount = selectionTarget === "svg" ? selectableNodes.length : selectedIds.length;
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-border px-4 py-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          Layers
-        </p>
-        <div className="relative mt-3">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="h-9 pl-9 text-xs"
-            placeholder="Search parts"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+    <div className="flex h-full flex-col bg-[linear-gradient(180deg,rgba(25,25,29,0.96),rgba(20,20,24,0.98))] text-white">
+      <div className="border-b border-white/6 px-5 py-5">
+        <div className="flex items-center justify-between">
+          <div className="inline-flex items-center gap-3">
+            <div className="text-[2.1rem] font-black tracking-[-0.08em] text-white/70">LOGO</div>
+          </div>
+          <button className="inline-flex h-9 w-9 items-center justify-center rounded-[0.9rem] border border-white/8 bg-white/[0.03] text-white/85">
+            <AppIcon icon={Icons.grid} className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mt-8">
+          <div className="flex items-center gap-2">
+            <h2 className="truncate text-[2rem] font-semibold tracking-[-0.04em] text-white">
+              {projectName}
+            </h2>
+            <AppIcon icon={Icons.chevronDown} className="h-4 w-4 text-white/70" />
+          </div>
+          <p className="mt-1 text-base text-white/42">{projectSubtitle}</p>
+        </div>
+      </div>
+
+      <div className="px-5 py-5">
+        <div className="flex rounded-[1.35rem] bg-white/[0.06] p-1">
+          <SidebarTabButton
+            active={sidebarTab === "layers"}
+            icon={Icons.layers}
+            label="Layers"
+            onClick={() => setSidebarTab("layers")}
+          />
+          <SidebarTabButton
+            active={sidebarTab === "library"}
+            icon={Icons.library}
+            label="Library"
+            disabled
+            onClick={() => setSidebarTab("library")}
           />
         </div>
-        <div className="mt-3 flex gap-2 rounded-lg bg-muted/50 p-1">
-          {(["structure", "depth", "fill"] as const).map((value) => (
-            <button
-              key={value}
-              className={cn(
-                "flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium capitalize transition",
-                mode === value
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setMode(value)}
-            >
-              {value}
-            </button>
-          ))}
+      </div>
+
+      {sidebarTab === "library" ? (
+        <div className="px-5 pb-5 text-sm text-white/40">
+          <div className="rounded-[1.35rem] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5">
+            Library items are part of the visual shell for now and will be wired once reusable assets exist in the editor.
+          </div>
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="px-5">
+            <div className="relative">
+              <AppIcon
+                icon={Icons.search}
+                className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/34"
+              />
+              <Input
+                className="h-12 rounded-[1.25rem] border-white/5 bg-white/[0.03] pl-11 text-sm text-white placeholder:text-white/28"
+                placeholder="Search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+          </div>
 
-      <div className="border-b border-border px-3 py-3">
-        <ObjectButton
-          label="Material"
-          active={selectionTarget === "material"}
-          onClick={() => onSelectTarget("material")}
-        />
-        <ObjectButton
-          label="SVG"
-          active={selectionTarget === "svg" && !isDiveMode}
-          onClick={() => onSelectTarget("svg")}
-        />
-      </div>
+          <div className="px-5 pt-7">
+            <p className="mb-3 text-sm font-medium text-white/86">Group by</p>
+            <div className="flex flex-wrap gap-2">
+              <GroupingChip
+                active={mode === "structure"}
+                icon={Icons.structure}
+                label="Structure"
+                onClick={() => setMode("structure")}
+              />
+              <GroupingChip
+                active={mode === "depth"}
+                icon={Icons.depth}
+                label="Depth"
+                onClick={() => setMode("depth")}
+              />
+              <GroupingChip
+                active={mode === "fill"}
+                icon={Icons.code}
+                label="Cut Type"
+                onClick={() => setMode("fill")}
+              />
+            </div>
+          </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
-        {!tree ? (
-          <p className="px-2 text-xs text-muted-foreground">Import an SVG to inspect its structure.</p>
-        ) : mode === "structure" ? (
-          <div className="space-y-0.5">
-            <StructureTree
-              node={tree}
-              selectedIds={selectedIds}
-              assignments={assignments}
-              elementColors={elementColors}
-              query={query}
-              activeDiveRootId={activeDiveRootId}
-              onSelectIds={onSelectIds}
-              onSelectTarget={onSelectTarget}
-              onActivateDiveRoot={onActivateDiveRoot}
+          <div className="px-5 pt-6">
+            <p className="text-[1.05rem] font-medium text-white/88">Layers</p>
+          </div>
+
+          <div className="border-b border-white/6 px-5 py-4">
+            <ObjectButton
+              icon={Icons.cube}
+              label="Material"
+              active={selectionTarget === "material"}
+              onClick={() => onSelectTarget("material")}
+            />
+            <ObjectButton
+              icon={Icons.canvas}
+              label="SVG"
+              active={selectionTarget === "svg" && !isDiveMode}
+              onClick={() => onSelectTarget("svg")}
             />
           </div>
-        ) : (
-          <div className="space-y-2">
-            {groupedNodes.map((group) => {
-              const isCollapsed = collapsedGroups[group.key] ?? false;
-              return (
-                <div key={group.key} className="rounded-xl border border-border bg-muted/20">
-                  <button
-                    className="flex w-full items-center justify-between px-3 py-2 text-left"
-                    onClick={() =>
-                      setCollapsedGroups((current) => ({
-                        ...current,
-                        [group.key]: !isCollapsed,
-                      }))
-                    }
-                  >
-                    <span className="flex items-center gap-2">
-                      {isCollapsed ? (
-                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                      ) : (
-                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                      )}
-                      <span className="text-xs font-medium text-foreground">{group.label}</span>
-                    </span>
-                    <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                      {group.nodes.length}
-                    </span>
-                  </button>
-                  {!isCollapsed ? (
-                    <div className="space-y-0.5 border-t border-border px-2 py-2">
-                      {group.nodes.map((node) => (
-                        <PartRow
-                          key={node.id ?? node.label}
-                          node={node}
-                          selectedIds={selectedIds}
-                          assignments={assignments}
-                          elementColors={elementColors}
-                          onSelectIds={onSelectIds}
-                        />
-                      ))}
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+            {!tree ? (
+              <div className="mx-1 rounded-[1.35rem] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm leading-relaxed text-white/45">
+                Import an SVG from the add-files menu to build the layer stack.
+              </div>
+            ) : mode === "structure" ? (
+              <div className="space-y-1">
+                <StructureTree
+                  node={tree}
+                  selectedIds={selectedIds}
+                  assignments={assignments}
+                  elementColors={elementColors}
+                  query={query}
+                  activeDiveRootId={activeDiveRootId}
+                  onSelectIds={onSelectIds}
+                  onSelectTarget={onSelectTarget}
+                  onActivateDiveRoot={onActivateDiveRoot}
+                />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {groupedNodes.map((group) => {
+                  const isCollapsed = collapsedGroups[group.key] ?? false;
+                  return (
+                    <div key={group.key} className="rounded-[1.35rem] bg-white/[0.04] p-1">
+                      <button
+                        className="flex w-full items-center justify-between rounded-[1.1rem] px-3 py-3 text-left hover:bg-white/[0.05]"
+                        onClick={() =>
+                          setCollapsedGroups((current) => ({
+                            ...current,
+                            [group.key]: !isCollapsed,
+                          }))
+                        }
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <AppIcon
+                            icon={isCollapsed ? Icons.chevronRight : Icons.chevronDown}
+                            className="h-4 w-4 text-white/48"
+                          />
+                          <span className="text-sm font-medium text-white">{group.label}</span>
+                        </span>
+                        <Chip className="bg-white/[0.06] px-2 py-1 text-[11px] font-semibold text-white/56">
+                          {group.nodes.length}
+                        </Chip>
+                      </button>
+
+                      {!isCollapsed ? (
+                        <div className="space-y-1 px-1 pb-1">
+                          {group.nodes.map((node) => (
+                            <PartRow
+                              key={node.id ?? node.label}
+                              node={node}
+                              selectedIds={selectedIds}
+                              assignments={assignments}
+                              elementColors={elementColors}
+                              onSelectIds={onSelectIds}
+                            />
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
-              );
-            })}
+                  );
+                })}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+
+          <div className="border-t border-white/6 px-5 py-5">
+            <button className="flex w-full items-center justify-between rounded-[1.25rem] border border-white/8 bg-white/[0.03] px-4 py-3.5 text-left">
+              <span className="inline-flex items-center gap-3">
+                <AppIcon icon={Icons.search} className="h-5 w-5 text-white/58" />
+                <span className="text-[1.15rem] font-medium text-white">Search</span>
+              </span>
+              <span className="rounded-[0.85rem] border border-white/10 bg-white/[0.05] px-3 py-1 text-sm text-white/58">
+                ⌘ K
+              </span>
+            </button>
+            <p className="mt-3 text-xs text-white/30">
+              {selectedPartCount > 0 ? `${selectedPartCount} tracked parts in this workspace.` : "No active parts yet."}
+            </p>
+          </div>
+        </>
+      )}
     </div>
+  );
+}
+
+function SidebarTabButton({
+  active,
+  disabled = false,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  icon: typeof Icons.layers;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={cn(
+        "inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-[1.15rem] text-lg font-medium transition",
+        active ? "bg-white/[0.16] text-white" : "text-white/50 hover:bg-white/[0.04] hover:text-white",
+        disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-white/50",
+      )}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <AppIcon icon={icon} className="h-4 w-4" />
+      {label}
+    </button>
+  );
+}
+
+function GroupingChip({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: typeof Icons.structure;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition",
+        active ? "bg-white/[0.12] text-white" : "bg-white/[0.05] text-white/60 hover:bg-white/[0.08] hover:text-white",
+      )}
+      onClick={onClick}
+    >
+      <AppIcon icon={icon} className="h-4 w-4" />
+      {label}
+    </button>
   );
 }
 
@@ -249,14 +393,14 @@ function StructureTree({
   const elementColor = node.id ? elementColors?.get(node.id) ?? null : null;
 
   return (
-    <div className="space-y-0.5">
+    <div className="space-y-1">
       <button
         className={cn(
-          "flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-xs transition-colors hover:bg-accent/70",
-          isSelected && "bg-accent/70 text-foreground",
-          isActiveDiveRoot && "ring-1 ring-primary/50",
+          "flex w-full items-center justify-between rounded-[1.1rem] px-3 py-3 text-left transition hover:bg-white/[0.05]",
+          isSelected && "bg-white/[0.08]",
+          isActiveDiveRoot && "ring-1 ring-primary/40",
         )}
-        style={{ paddingLeft: `${8 + depth * 10}px` }}
+        style={{ paddingLeft: `${12 + depth * 16}px` }}
         onClick={(event) => {
           if (node.tag_name === "svg") {
             onSelectTarget("svg");
@@ -278,25 +422,26 @@ function StructureTree({
           );
         }}
       >
-        <span className="flex min-w-0 items-center gap-1.5">
-          <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+        <span className="flex min-w-0 items-center gap-2">
+          <AppIcon icon={Icons.cube} className="h-4 w-4 shrink-0 text-white/52" />
           {elementColor ? (
-            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: elementColor }} />
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: elementColor }} />
           ) : null}
-          <span className="truncate">{node.label}</span>
+          <span className="truncate text-[1.03rem] text-white">{node.label}</span>
         </span>
-        <span className="flex items-center gap-1.5">
+
+        <span className="flex items-center gap-2">
           {isActiveDiveRoot ? (
-            <span className="rounded bg-primary/10 px-1 py-0.5 text-[9px] font-medium text-primary">
+            <span className="rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary">
               Dive
             </span>
           ) : null}
           {assignment ? (
-            <span className="rounded px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
+            <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold text-[#2F95FF]">
               {assignment.targetDepthMm}mm
             </span>
           ) : null}
-          <span className="text-[10px] text-muted-foreground">{node.selectable_descendant_ids.length}</span>
+          <span className="text-xs text-white/32">{node.selectable_descendant_ids.length}</span>
         </span>
       </button>
       {children}
@@ -324,8 +469,8 @@ function PartRow({
   return (
     <button
       className={cn(
-        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent/70",
-        isSelected && "bg-accent/70 text-foreground",
+        "flex w-full items-center gap-3 rounded-[1.15rem] px-4 py-3 text-left transition hover:bg-white/[0.06]",
+        isSelected && "bg-white/[0.1]",
       )}
       onClick={(event) =>
         onSelectIds(
@@ -334,24 +479,30 @@ function PartRow({
         )
       }
     >
-      <span className="flex min-w-0 items-center gap-2">
-        {elementColor ? (
-          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: elementColor }} />
-        ) : null}
-        <span className="truncate">{node.label}</span>
+      <div className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/[0.04]">
+        <span className="h-4 w-1 rounded-full bg-[#FF667A]" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[1.05rem] font-medium text-white">{node.label}</p>
+      </div>
+      <span className="rounded-full bg-white/[0.05] px-2.5 py-1 text-[11px] font-semibold text-[#2F95FF]">
+        {assignment ? `${assignment.targetDepthMm}mm` : "Unset"}
       </span>
-      <span className="text-[10px] text-muted-foreground">
-        {assignment ? `${assignment.targetDepthMm}mm` : "Unassigned"}
+      <span className="inline-flex h-7 w-7 items-center justify-center rounded-[0.8rem] border border-white/8 bg-white/[0.03] text-white/56">
+        <AppIcon icon={Icons.plusCircle} className="h-4 w-4" />
       </span>
+      {elementColor ? <span className="hidden rounded-full px-2 py-1 text-[11px]" style={{ color: elementColor }} /> : null}
     </button>
   );
 }
 
 function ObjectButton({
+  icon,
   label,
   active,
   onClick,
 }: {
+  icon: typeof Icons.cube;
   label: string;
   active: boolean;
   onClick: () => void;
@@ -359,17 +510,18 @@ function ObjectButton({
   return (
     <button
       className={cn(
-        "mb-2 flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs font-medium transition",
+        "mb-2 flex w-full items-center justify-between rounded-[1.1rem] border px-3 py-3 text-left transition",
         active
-          ? "border-primary bg-primary/8 text-foreground"
-          : "border-border bg-background text-muted-foreground hover:text-foreground",
+          ? "border-primary/30 bg-primary/12 text-white"
+          : "border-white/8 bg-white/[0.03] text-white/58 hover:bg-white/[0.05] hover:text-white",
       )}
       onClick={onClick}
     >
-      <span>{label}</span>
-      <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-        Object
+      <span className="inline-flex items-center gap-2 text-sm font-medium">
+        <AppIcon icon={icon} className="h-4 w-4" />
+        {label}
       </span>
+      <span className="text-[11px] uppercase tracking-[0.16em] text-white/28">Object</span>
     </button>
   );
 }

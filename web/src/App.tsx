@@ -4,12 +4,13 @@ import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { LayerTree } from "@/components/layer-tree";
 import { MaterialInspector } from "@/components/material-inspector";
 import { NcViewer } from "@/components/nc-viewer";
+import { PreviewInspector } from "@/components/preview-inspector";
 import { PreviewSidebar } from "@/components/preview-sidebar";
+import { PreviewTimeline } from "@/components/preview-timeline";
 import { StudioInspector } from "@/components/studio-inspector";
 import { SvgCanvas } from "@/components/svg-canvas";
 import { TopBar } from "@/components/top-bar";
-import { ViewportToolbar } from "@/components/viewport-toolbar";
-import { parseGcodeProgram } from "@/components/viewer/parse-gcode";
+import { parseGcodeProgram, sampleProgramAtDistance } from "@/components/viewer/parse-gcode";
 import { colorForOperation } from "@/lib/colors";
 import { buildElementColorMap } from "@/lib/color-detection";
 import {
@@ -57,6 +58,14 @@ function App() {
   const [elementColors, setElementColors] = useState<Map<string, string>>(new Map());
   const [paddingMm, setPaddingMm] = useState(0);
   const [svgSizeMm, setSvgSizeMm] = useState({ width: 100, height: 100, aspectLocked: true });
+  const [projectName, setProjectName] = useState("3D Dog Character");
+  const [previewActiveOperationId, setPreviewActiveOperationId] = useState<string | null>(null);
+  const [previewCameraMode, setPreviewCameraMode] = useState<"orthographic" | "perspective">("orthographic");
+  const [previewShowStock, setPreviewShowStock] = useState(true);
+  const [previewLiveCutSimulation] = useState(true);
+  const [previewPlaybackRate] = useState(1);
+  const [previewCurrentDistance, setPreviewCurrentDistance] = useState(0);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -140,18 +149,6 @@ function App() {
     () => deriveOperationsFromAssignments(elementAssignments, allElementIds),
     [allElementIds, elementAssignments],
   );
-  const operationForElement = useMemo(() => {
-    const map = new Map<string, FrontendOperation>();
-    for (const operation of derivedOperations) {
-      for (const id of operation.assigned_element_ids) {
-        map.set(id, operation);
-      }
-    }
-    return map;
-  }, [derivedOperations]);
-  const activeOperation =
-    selectedIds.length > 0 ? operationForElement.get(selectedIds[0]) ?? null : null;
-
   const inspectorContext = useMemo<InspectorContext>(() => {
     if (canvasSelectionTarget === "svg") {
       return {
@@ -192,8 +189,12 @@ function App() {
     const prepared = await prepareSvgDocument(text);
     const importedMetrics = parseSvgDocumentMetrics(prepared.normalized_svg);
     setPreparedSvg(prepared);
+    setProjectName(file.name.replace(/\.svg$/i, ""));
     setGenerated(null);
     setGeneratedOperationsSnapshot([]);
+    setPreviewActiveOperationId(null);
+    setPreviewCurrentDistance(0);
+    setPreviewPlaying(false);
     setSelectedIds([]);
     setCanvasSelectionTarget(null);
     setIsDiveMode(false);
@@ -579,6 +580,10 @@ function App() {
     activateDiveRoot(svgDiveRoot);
   };
 
+  const exitSvgDiveMode = () => {
+    activateDiveRoot(null);
+  };
+
   const handleInspectorTabChange = (tab: InspectorTab) => {
     if (tab === inspectorTab) {
       return;
@@ -640,6 +645,51 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
+  const focusPreviewLine = (lineNumber: number) => {
+    if (!parsedProgram) {
+      return;
+    }
+
+    const targetSegment =
+      parsedProgram.segments.find((segment) => segment.lineNumber >= lineNumber) ??
+      parsedProgram.segments.at(-1);
+    if (!targetSegment) {
+      return;
+    }
+
+    setPreviewPlaying(false);
+    setPreviewCurrentDistance(targetSegment.cumulativeDistanceStart);
+    if (targetSegment.operationId) {
+      setPreviewActiveOperationId(targetSegment.operationId);
+    }
+  };
+
+  const stepPreviewLine = (direction: -1 | 1) => {
+    if (previewNavigableLines.length === 0) {
+      return;
+    }
+
+    const currentIndex = activePreviewLineNumber
+      ? Math.max(0, previewNavigableLines.findIndex((lineNumber) => lineNumber >= activePreviewLineNumber))
+      : direction > 0
+        ? -1
+        : previewNavigableLines.length;
+    const nextIndex = clamp(currentIndex + direction, 0, previewNavigableLines.length - 1);
+    focusPreviewLine(previewNavigableLines[nextIndex]);
+  };
+
+  const togglePreviewPlaying = () => {
+    if (!parsedProgram) {
+      return;
+    }
+
+    if (previewCurrentDistance >= parsedProgram.totalDistance) {
+      setPreviewCurrentDistance(0);
+    }
+
+    setPreviewPlaying((value) => !value);
+  };
+
   const parsedProgram = useMemo(() => {
     if (!generated) {
       return null;
@@ -647,29 +697,60 @@ function App() {
     return parseGcodeProgram(generated.gcode, generated.operation_ranges);
   }, [generated]);
 
-  const maxDepth = parsedProgram?.bounds?.minZ ?? 0;
-  const previewSnapshot = generated?.preview_snapshot;
-  const previewMaterialWidth = previewSnapshot?.material_width ?? settings?.engraving.material_width ?? 100;
-  const previewMaterialHeight = previewSnapshot?.material_height ?? settings?.engraving.material_height ?? 100;
-  const previewMaterialThickness =
-    previewSnapshot?.material_thickness ?? settings?.engraving.material_thickness ?? 18;
-  const previewToolDiameter = previewSnapshot?.tool_diameter ?? settings?.engraving.tool_diameter ?? 6;
+  useEffect(() => {
+    const totalDistance = parsedProgram?.totalDistance ?? 0;
+    setPreviewCurrentDistance(totalDistance);
+    setPreviewPlaying(false);
+  }, [parsedProgram?.totalDistance]);
+
+  useEffect(() => {
+    if (!previewPlaying || !parsedProgram) {
+      return;
+    }
+
+    let frameId = 0;
+    let lastFrame = performance.now();
+
+    const tick = (now: number) => {
+      const elapsed = (now - lastFrame) / 1000;
+      lastFrame = now;
+      const baseDistancePerSecond = Math.max(parsedProgram.totalDistance / 18, 45);
+
+      setPreviewCurrentDistance((distance) => {
+        const next = Math.min(
+          parsedProgram.totalDistance,
+          distance + elapsed * baseDistancePerSecond * previewPlaybackRate,
+        );
+        if (next >= parsedProgram.totalDistance) {
+          setPreviewPlaying(false);
+          return parsedProgram.totalDistance;
+        }
+        return next;
+      });
+
+      frameId = window.requestAnimationFrame(tick);
+    };
+
+    frameId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [parsedProgram, previewPlaybackRate, previewPlaying]);
+
   const recommendedAdvanced = settings ? computeRecommendedAdvancedValues(settings) : {};
   const previewOperations = generatedOperationsSnapshot.length > 0 ? generatedOperationsSnapshot : derivedOperations;
+  const previewNavigableLines = useMemo(
+    () => Array.from(new Set(parsedProgram?.segments.map((segment) => segment.lineNumber) ?? [])),
+    [parsedProgram?.segments],
+  );
+  const previewSample = useMemo(
+    () => (parsedProgram ? sampleProgramAtDistance(parsedProgram, previewCurrentDistance) : null),
+    [parsedProgram, previewCurrentDistance],
+  );
+  const activePreviewLineNumber = previewSample?.segment?.lineNumber ?? previewNavigableLines.at(-1) ?? null;
+  const projectSubtitle = "3D Design Project";
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      <TopBar
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        isReady={isReady}
-        isGenerating={isGenerating}
-        hasGenerated={!!generated}
-        hasSvg={!!preparedSvg && derivedOperations.length > 0}
-        onImportClick={() => fileInputRef.current?.click()}
-        onMakePath={() => void handleMakePath()}
-        onDownload={downloadNc}
-      />
+    <div className="relative flex h-screen flex-col overflow-hidden bg-[#111113] text-foreground">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(88,110,255,0.08),_transparent_24%),radial-gradient(circle_at_50%_50%,rgba(255,128,84,0.04),transparent_38%)]" />
 
       <input
         ref={fileInputRef}
@@ -685,17 +766,19 @@ function App() {
       />
 
       {error && activeTab === "prepare" ? (
-        <div className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
+        <div className="absolute left-1/2 top-6 z-40 -translate-x-1/2 rounded-[1rem] border border-red-400/20 bg-red-500/10 px-4 py-2 text-xs text-red-100">
           {error}
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1">
+      <div className="relative z-10 min-h-0 flex-1 p-3">
         {activeTab === "prepare" ? (
-          <PanelGroup direction="horizontal" className="h-full">
-            <Panel defaultSize={18} minSize={14} maxSize={28}>
-              <div className="h-full overflow-hidden border-r border-border bg-card">
+          <PanelGroup direction="horizontal" className="h-full gap-4">
+            <Panel defaultSize={20} minSize={16} maxSize={28}>
+              <div className="h-full overflow-hidden rounded-[1.9rem] border border-white/6 bg-[#19191d] shadow-[0_30px_80px_rgba(0,0,0,0.4)]">
                 <LayerTree
+                  projectName={projectName}
+                  projectSubtitle={projectSubtitle}
                   tree={preparedSvg?.tree ?? null}
                   selectedIds={selectedIds}
                   selectionTarget={canvasSelectionTarget}
@@ -709,22 +792,19 @@ function App() {
                 />
               </div>
             </Panel>
-            <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-primary/40" />
+            <PanelResizeHandle className="mx-1 w-1 rounded-full bg-white/[0.04] transition-colors hover:bg-primary/30" />
             <Panel defaultSize={56} minSize={36}>
               <div
-                className="flex h-full flex-col"
+                className="relative flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/6 bg-[linear-gradient(180deg,rgba(16,16,18,0.95),rgba(13,13,16,0.98))] shadow-[0_30px_80px_rgba(0,0,0,0.45)]"
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => void handleFileDrop(event)}
               >
-                <ViewportToolbar
+                <TopBar
                   activeTab={activeTab}
-                  selectedCount={selectedIds.length}
-                  activeOperation={activeOperation}
-                  materialWidth={settings?.engraving.material_width ?? 100}
-                  materialHeight={settings?.engraving.material_height ?? 100}
-                  materialThickness={settings?.engraving.material_thickness ?? 18}
-                  toolDiameter={settings?.engraving.tool_diameter ?? 6}
-                  maxDepth={maxDepth}
+                  hasGenerated={!!generated}
+                  isBusy={isGenerating || !isReady}
+                  onTabChange={setActiveTab}
+                  onExport={() => void handleMakePath()}
                 />
                 <div className="min-h-0 flex-1">
                   <SvgCanvas
@@ -749,6 +829,8 @@ function App() {
                     onSelectIds={selectIds}
                     onSelectMaterial={selectMaterial}
                     onEnterSvgDiveMode={enterSvgDiveMode}
+                    onExitSvgDiveMode={exitSvgDiveMode}
+                    onImportClick={() => fileInputRef.current?.click()}
                     onMaterialSizeChange={handleMaterialDimensionChange}
                     onPlacementChange={handlePlacementChange}
                     onSvgDimensionChange={handleSvgDimensionChange}
@@ -757,9 +839,9 @@ function App() {
                 </div>
               </div>
             </Panel>
-            <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-primary/40" />
+            <PanelResizeHandle className="mx-1 w-1 rounded-full bg-white/[0.04] transition-colors hover:bg-primary/30" />
             <Panel defaultSize={26} minSize={18} maxSize={34}>
-              <div className="h-full overflow-hidden border-l border-border bg-card">
+              <div className="h-full overflow-hidden rounded-[1.9rem] border border-white/6 bg-[#19191d] shadow-[0_30px_80px_rgba(0,0,0,0.4)]">
                 <StudioInspector
                   activeTab={inspectorTab}
                   onTabChange={handleInspectorTabChange}
@@ -796,28 +878,69 @@ function App() {
             </Panel>
           </PanelGroup>
         ) : (
-          <PanelGroup direction="horizontal" className="h-full">
-            <Panel defaultSize={22} minSize={16} maxSize={30}>
-              <div className="h-full overflow-y-auto border-r border-border bg-card">
-                <PreviewSidebar generated={generated} operations={previewOperations} error={error} />
+          <PanelGroup direction="horizontal" className="h-full gap-4">
+            <Panel defaultSize={20} minSize={16} maxSize={28}>
+              <div className="h-full overflow-hidden rounded-[1.9rem] border border-white/6 bg-[#19191d] shadow-[0_30px_80px_rgba(0,0,0,0.4)]">
+                <PreviewSidebar
+                  projectName={projectName}
+                  projectSubtitle={projectSubtitle}
+                  generated={generated}
+                  program={parsedProgram}
+                  operations={previewOperations}
+                  error={error}
+                  activeLineNumber={activePreviewLineNumber}
+                  activeOperationId={previewActiveOperationId}
+                  onLineSelect={focusPreviewLine}
+                  onStepLine={stepPreviewLine}
+                  onOperationSelect={setPreviewActiveOperationId}
+                />
               </div>
             </Panel>
-            <PanelResizeHandle className="w-px bg-border transition-colors hover:bg-primary/40" />
-            <Panel defaultSize={78}>
-              <div className="flex h-full flex-col">
-                <ViewportToolbar
+            <PanelResizeHandle className="mx-1 w-1 rounded-full bg-white/[0.04] transition-colors hover:bg-primary/30" />
+            <Panel defaultSize={55} minSize={38}>
+              <div className="relative flex h-full flex-col overflow-hidden rounded-[2rem] border border-white/6 bg-[linear-gradient(180deg,rgba(27,27,30,0.98),rgba(19,19,23,1))] shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
+                <TopBar
                   activeTab={activeTab}
-                  selectedCount={selectedIds.length}
-                  activeOperation={null}
-                  materialWidth={previewMaterialWidth}
-                  materialHeight={previewMaterialHeight}
-                  materialThickness={previewMaterialThickness}
-                  toolDiameter={previewToolDiameter}
-                  maxDepth={maxDepth}
+                  hasGenerated={!!generated}
+                  onTabChange={setActiveTab}
+                  onExport={downloadNc}
                 />
                 <div className="min-h-0 flex-1">
-                  <NcViewer gcodeResult={generated} activeOperationId={null} />
+                  <NcViewer
+                    gcodeResult={generated}
+                    activeOperationId={previewActiveOperationId}
+                    currentDistance={previewCurrentDistance}
+                    showStock={previewShowStock}
+                    liveCutSimulation={previewLiveCutSimulation}
+                    cameraMode={previewCameraMode}
+                  />
                 </div>
+                <PreviewTimeline
+                  program={parsedProgram}
+                  currentDistance={previewCurrentDistance}
+                  isPlaying={previewPlaying}
+                  activeOperationId={previewActiveOperationId}
+                  onDistanceChange={(distance) => {
+                    setPreviewPlaying(false);
+                    setPreviewCurrentDistance(distance);
+                  }}
+                  onTogglePlaying={togglePreviewPlaying}
+                />
+              </div>
+            </Panel>
+            <PanelResizeHandle className="mx-1 w-1 rounded-full bg-white/[0.04] transition-colors hover:bg-primary/30" />
+            <Panel defaultSize={25} minSize={18} maxSize={32}>
+              <div className="h-full overflow-hidden rounded-[1.9rem] border border-white/6 bg-[#19191d] shadow-[0_30px_80px_rgba(0,0,0,0.4)]">
+                <PreviewInspector
+                  generated={generated}
+                  operations={previewOperations}
+                  activeOperationId={previewActiveOperationId}
+                  cameraMode={previewCameraMode}
+                  showStock={previewShowStock}
+                  onOperationSelect={setPreviewActiveOperationId}
+                  onCameraModeChange={setPreviewCameraMode}
+                  onShowStockChange={setPreviewShowStock}
+                />
               </div>
             </Panel>
           </PanelGroup>

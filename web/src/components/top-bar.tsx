@@ -1,137 +1,91 @@
-import { Download, FileUp, Loader2, Play } from "lucide-react";
+import { Chip } from "@heroui/react";
 
-import { Button } from "@/components/ui/button";
+import { AppIcon, Icons } from "@/lib/icons";
 import type { TabId } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+import { Button } from "./ui/button";
+
 interface TopBarProps {
   activeTab: TabId;
-  onTabChange: (tab: TabId) => void;
-  isReady: boolean;
-  isGenerating: boolean;
   hasGenerated: boolean;
-  hasSvg: boolean;
-  onImportClick: () => void;
-  onMakePath: () => void;
-  onDownload: () => void;
+  isBusy?: boolean;
+  onTabChange: (tab: TabId) => void;
+  onExport: () => void;
 }
 
 export function TopBar({
   activeTab,
-  onTabChange,
-  isReady,
-  isGenerating,
   hasGenerated,
-  hasSvg,
-  onImportClick,
-  onMakePath,
-  onDownload,
+  isBusy = false,
+  onTabChange,
+  onExport,
 }: TopBarProps) {
   return (
-    <div className="flex h-12 shrink-0 items-center gap-4 bg-slate-900 px-4">
-      <span className="text-sm font-semibold text-slate-100 tracking-tight mr-2">
-        SVG Studio
-      </span>
+    <div className="pointer-events-none absolute inset-x-0 top-8 z-30 flex justify-center px-6">
+      <div className="pointer-events-auto inline-flex items-center gap-3 rounded-[1.75rem] border border-white/8 bg-[rgba(25,25,29,0.92)] p-3 shadow-[0_28px_60px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
+        <div className="inline-flex items-center gap-1 rounded-[1.25rem] bg-white/[0.05] p-1">
+          <WorkspaceButton
+            label="Design"
+            icon={Icons.canvas}
+            active={activeTab === "prepare"}
+            onClick={() => onTabChange("prepare")}
+          />
+          <WorkspaceButton
+            label="3D preview"
+            icon={Icons.cube}
+            active={activeTab === "preview"}
+            disabled={!hasGenerated}
+            onClick={() => onTabChange("preview")}
+          />
+        </div>
 
-      <div className="flex items-center gap-1 rounded-lg bg-slate-800 p-0.5">
-        <TabButton
-          active={activeTab === "prepare"}
-          onClick={() => onTabChange("prepare")}
-          color="sky"
-        >
-          Prepare
-        </TabButton>
-        <TabButton
-          active={activeTab === "preview"}
-          onClick={() => onTabChange("preview")}
-          disabled={!hasGenerated}
-          color="emerald"
-        >
-          Preview
-        </TabButton>
-      </div>
-
-      <div className="flex-1" />
-
-      {isGenerating && (
-        <span className="flex items-center gap-2 text-xs text-slate-400">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Generating...
-        </span>
-      )}
-
-      {!isReady && (
-        <span className="flex items-center gap-2 text-xs text-slate-400">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Loading WASM...
-        </span>
-      )}
-
-      <div className="flex items-center gap-2">
         <Button
           size="sm"
-          variant="ghost"
-          className="h-8 text-slate-300 hover:text-slate-100 hover:bg-slate-800"
-          onClick={onImportClick}
+          className="h-12 rounded-[1.2rem] px-5 text-[0.95rem]"
+          onClick={onExport}
         >
-          <FileUp className="mr-1.5 h-3.5 w-3.5" />
-          Import SVG
+          <AppIcon icon={Icons.export} className="h-4 w-4" />
+          Export
         </Button>
-        <Button
-          size="sm"
-          className="h-8 bg-sky-600 text-white hover:bg-sky-500"
-          onClick={onMakePath}
-          disabled={!hasSvg || !isReady || isGenerating}
-        >
-          <Play className="mr-1.5 h-3.5 w-3.5" />
-          Make Path
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 text-slate-300 hover:text-slate-100 hover:bg-slate-800"
-          onClick={onDownload}
-          disabled={!hasGenerated}
-        >
-          <Download className="mr-1.5 h-3.5 w-3.5" />
-          Download .nc
-        </Button>
+
+        {isBusy ? (
+          <Chip className="border border-primary/20 bg-primary/10 px-3 py-1 text-[11px] font-semibold text-primary">
+            Processing
+          </Chip>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function TabButton({
+function WorkspaceButton({
+  label,
+  icon,
   active,
-  disabled,
-  color,
+  disabled = false,
   onClick,
-  children,
 }: {
+  label: string;
+  icon: typeof Icons.canvas;
   active: boolean;
   disabled?: boolean;
-  color: "sky" | "emerald";
   onClick: () => void;
-  children: React.ReactNode;
 }) {
-  const activeColors = {
-    sky: "bg-sky-600 text-white",
-    emerald: "bg-emerald-600 text-white",
-  };
-
   return (
     <button
       className={cn(
-        "rounded-md px-4 py-1.5 text-xs font-medium transition-colors",
+        "inline-flex h-11 items-center gap-2 rounded-[1rem] px-4 text-base font-medium transition",
         active
-          ? activeColors[color]
-          : "text-slate-400 hover:text-slate-200",
-        disabled && "opacity-40 pointer-events-none",
+          ? "bg-white/[0.16] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+          : "text-white/60 hover:bg-white/[0.06] hover:text-white",
+        disabled && "cursor-not-allowed opacity-35 hover:bg-transparent hover:text-white/60",
       )}
-      onClick={onClick}
       disabled={disabled}
+      onClick={onClick}
     >
-      {children}
+      <AppIcon icon={icon} className="h-4 w-4" />
+      {label}
     </button>
   );
 }
