@@ -45,10 +45,14 @@ interface SvgCanvasProps {
   onSelectMaterial: () => void;
   onEnterSvgDiveMode: (artObjectId: string) => void;
   onExitSvgDiveMode: () => void;
+  onActivateDiveRoot: (scope: DiveRootScope | null) => void;
   onImportClick?: () => void;
   onMaterialSizeChange?: (dimension: "width" | "height", value: number | null) => void;
   onArtObjectPlacementChange?: (artObjectId: string, x: number, y: number) => void;
   onArtObjectSizeChange?: (artObjectId: string, width: number | null, height: number | null) => void;
+  onArtObjectsTransformChange?: (
+    transforms: { artObjectId: string; x: number; y: number; width: number; height: number }[],
+  ) => void;
   onShowOperationOutlinesChange?: (value: boolean) => void;
 }
 
@@ -74,10 +78,12 @@ export function SvgCanvas({
   onSelectMaterial,
   onEnterSvgDiveMode,
   onExitSvgDiveMode,
+  onActivateDiveRoot,
   onImportClick,
   onMaterialSizeChange,
   onArtObjectPlacementChange,
   onArtObjectSizeChange,
+  onArtObjectsTransformChange,
   onShowOperationOutlinesChange,
 }: SvgCanvasProps) {
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -101,6 +107,12 @@ export function SvgCanvas({
     () => artObjects.map((artObject) => `${artObject.id}:${artObject.widthMm}:${artObject.heightMm}:${artObject.placementX}:${artObject.placementY}`).join("|"),
     [artObjects],
   );
+  // Ref-based forwarding so the controller can call our marquee handler without
+  // circular dependency on hooks defined later.
+  const nonPanMouseDownRef = useRef<((event: React.MouseEvent<HTMLDivElement>) => void) | null>(null);
+  const handleNonPanMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    nonPanMouseDownRef.current?.(event);
+  }, []);
   const {
     viewportRef,
     viewportSize,
@@ -124,6 +136,7 @@ export function SvgCanvas({
     materialHeight,
     panToolActive: interactionMode === "pan",
     onSelectionChange,
+    onNonPanMouseDown: handleNonPanMouseDown,
   });
 
   const operationForId = useMemo(() => {
@@ -201,6 +214,11 @@ export function SvgCanvas({
 
     if (selection.type === "material" && artboardRef.current) {
       transformer.nodes([artboardRef.current]);
+    } else if (selection.type === "art-objects") {
+      const nodes = selection.artObjectIds
+        .map((artObjectId) => artObjectRectRefs.current[artObjectId])
+        .filter((node): node is Konva.Rect => Boolean(node));
+      transformer.nodes(nodes);
     } else if (selectedArtObjectId) {
       const node = artObjectRectRefs.current[selectedArtObjectId];
       transformer.nodes(node ? [node] : []);
@@ -208,7 +226,7 @@ export function SvgCanvas({
       transformer.nodes([]);
     }
     transformer.getLayer()?.batchDraw();
-  }, [selectedArtObjectId, selection.type]);
+  }, [selectedArtObjectId, selection]);
 
   useEffect(() => {
     if (!isDiveMode) {
@@ -245,6 +263,8 @@ export function SvgCanvas({
   }, [
     artObjects,
     isDiveMode,
+    liveArtObjectBox,
+    liveMaterialBox,
     pan.x,
     pan.y,
     selection,
@@ -254,20 +274,6 @@ export function SvgCanvas({
     viewportSize.width,
     zoom,
   ]);
-
-  const handleStageMouseDown = useCallback(
-    (event: Konva.KonvaEventObject<MouseEvent>) => {
-      if (spacePressed || panToolActive) {
-        return;
-      }
-      const stage = event.target.getStage();
-      if (!stage || event.target !== stage) {
-        return;
-      }
-      onSelectionChange({ type: "none" });
-    },
-    [onSelectionChange, panToolActive, spacePressed],
-  );
 
   const handleMaterialSelect = useCallback(() => {
     if (panToolActive || directPickEnabled) {
@@ -305,14 +311,27 @@ export function SvgCanvas({
       }
 
       event.stopPropagation();
+
+      // Edit mode (dive or direct-pick or modifier): select individual path
       if (isDiveMode || directPickEnabled || event.metaKey || event.ctrlKey || event.shiftKey) {
         onSelectIds(artObjectId, [id], event.metaKey || event.ctrlKey || event.shiftKey);
         return;
       }
 
+      // Non-edit mode: find parent group and select all its paths as a unit
+      const artObject = artObjects.find((a) => a.id === artObjectId);
+      if (artObject) {
+        const parentGroup = findParentGroup(artObject.preparedSvg.tree, id, artObjectId);
+        if (parentGroup && parentGroup.elementIds.length > 1) {
+          onSelectIds(artObjectId, parentGroup.elementIds, false);
+          return;
+        }
+      }
+
+      // Fallback: select the art object
       onSelectionChange({ type: "art-object", artObjectId });
     },
-    [directPickEnabled, isDiveMode, onSelectIds, onSelectionChange, panToolActive],
+    [artObjects, directPickEnabled, isDiveMode, onSelectIds, onSelectionChange, panToolActive],
   );
 
   const handlePartDoubleClick = useCallback(
@@ -321,13 +340,44 @@ export function SvgCanvas({
         return;
       }
       event.stopPropagation();
+
+      if (!isDiveMode) {
+        // First double-click: enter dive mode (focus) for the art object
+        onEnterSvgDiveMode(artObjectId);
+        return;
+      }
+
       if (isDiveMode && selectedArtObjectId === artObjectId) {
+        // Already in dive mode. Check if the clicked element belongs to a group
+        // we can drill into.
+        const target = event.target;
+        const selectable = target instanceof Element ? target.closest("[data-s2g-id]") : null;
+        const hitElementId = selectable?.getAttribute("data-s2g-id") ?? null;
+
+        if (hitElementId) {
+          const artObject = artObjects.find((a) => a.id === artObjectId);
+          if (artObject) {
+            const parentGroup = findParentGroup(artObject.preparedSvg.tree, hitElementId, artObjectId);
+            if (parentGroup && activeDiveRoot?.id !== parentGroup.scopeId) {
+              // Drill into the group
+              onActivateDiveRoot({
+                id: parentGroup.scopeId,
+                label: parentGroup.label,
+                elementIds: parentGroup.elementIds,
+                artObjectId,
+              });
+              return;
+            }
+          }
+        }
+
+        // Already at deepest level or no group found: exit dive mode
         onExitSvgDiveMode();
       } else {
         onEnterSvgDiveMode(artObjectId);
       }
     },
-    [directPickEnabled, isDiveMode, onEnterSvgDiveMode, onExitSvgDiveMode, panToolActive, selectedArtObjectId],
+    [activeDiveRoot, artObjects, directPickEnabled, isDiveMode, onActivateDiveRoot, onEnterSvgDiveMode, onExitSvgDiveMode, panToolActive, selectedArtObjectId],
   );
 
   const startMarquee = useCallback(
@@ -432,6 +482,34 @@ export function SvgCanvas({
     [artObjectBoxes, artObjects, onSelectArtObjects, onSelectionChange, toViewportRect, viewportRef],
   );
 
+  const handleStageMouseDown = useCallback(
+    (event: Konva.KonvaEventObject<MouseEvent>) => {
+      if (spacePressed || panToolActive) {
+        return;
+      }
+      const stage = event.target.getStage();
+      if (!stage || event.target !== stage) {
+        return;
+      }
+      // Start a marquee from the stage background — a simple click (below
+      // threshold) will fall through to the onClickFallback and clear selection.
+      const viewport = viewportRef.current;
+      if (!viewport) {
+        onSelectionChange({ type: "none" });
+        return;
+      }
+      const nativeEvent = event.evt;
+      const bounds = viewport.getBoundingClientRect();
+      startArtObjectMarquee(
+        { x: nativeEvent.clientX - bounds.left, y: nativeEvent.clientY - bounds.top },
+        nativeEvent.shiftKey || nativeEvent.metaKey || nativeEvent.ctrlKey,
+        5,
+        () => onSelectionChange({ type: "none" }),
+      );
+    },
+    [onSelectionChange, panToolActive, spacePressed, startArtObjectMarquee, viewportRef],
+  );
+
   const handleHitLayerMouseDown = useCallback(
     (artObjectId: string) => (event: MouseEvent) => {
       if (spacePressed || panToolActive) {
@@ -441,6 +519,23 @@ export function SvgCanvas({
       if (!viewport) {
         return;
       }
+
+      // If mousedown is on an already-selected element, skip marquee so the
+      // user can click-drag to move the art object instead.
+      const target = event.target;
+      if (target instanceof Element) {
+        const selectable = target.closest("[data-s2g-id]");
+        const hitElementId = selectable?.getAttribute("data-s2g-id") ?? null;
+        if (
+          hitElementId &&
+          selection.type === "elements" &&
+          selection.artObjectId === artObjectId &&
+          selection.elementIds.includes(hitElementId)
+        ) {
+          return;
+        }
+      }
+
       event.preventDefault();
       const bounds = viewport.getBoundingClientRect();
       startMarquee(
@@ -453,12 +548,19 @@ export function SvgCanvas({
         5,
       );
     },
-    [panToolActive, spacePressed, startMarquee, viewportRef],
+    [panToolActive, selection, spacePressed, startMarquee, viewportRef],
   );
 
   const handleCanvasMouseDown = useCallback(
-    (event: MouseEvent, onClickFallback?: () => void) => {
+    (
+      event: MouseEvent,
+      options?: { onClickFallback?: () => void; allowDirectManipulation?: boolean },
+    ) => {
       if (spacePressed || panToolActive || directPickEnabled) {
+        return;
+      }
+      if (options?.allowDirectManipulation) {
+        options.onClickFallback?.();
         return;
       }
       const viewport = viewportRef.current;
@@ -474,11 +576,38 @@ export function SvgCanvas({
         },
         event.shiftKey || event.metaKey || event.ctrlKey,
         5,
-        onClickFallback,
+        options?.onClickFallback,
       );
     },
     [directPickEnabled, panToolActive, spacePressed, startArtObjectMarquee, viewportRef],
   );
+
+  // Wire the viewport-level non-pan mousedown to start a marquee from anywhere
+  // (including outside the artboard). The ref avoids circular deps with hooks above.
+  useEffect(() => {
+    nonPanMouseDownRef.current = (event: React.MouseEvent<HTMLDivElement>) => {
+      if (spacePressed || panToolActive) {
+        return;
+      }
+      // Only handle clicks on the viewport background or Konva canvas — not on
+      // hit-layer overlays (those have their own mousedown handlers).
+      const target = event.target as HTMLElement;
+      if (target.closest("[data-s2g-id]") || target.closest(".hit-layer-host")) {
+        return;
+      }
+      const viewport = viewportRef.current;
+      if (!viewport) {
+        return;
+      }
+      const bounds = viewport.getBoundingClientRect();
+      startArtObjectMarquee(
+        { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
+        event.shiftKey || event.metaKey || event.ctrlKey,
+        5,
+        () => onSelectionChange({ type: "none" }),
+      );
+    };
+  }, [onSelectionChange, panToolActive, spacePressed, startArtObjectMarquee, viewportRef]);
 
   const handleArtObjectDragStart = useCallback(
     (artObjectId: string) => {
@@ -540,8 +669,8 @@ export function SvgCanvas({
 
   const handleTransformEnd = useCallback(() => {
     const transformer = transformerRef.current;
-    const node = transformer?.nodes()[0];
-    if (!node) {
+    const nodes = transformer?.nodes() ?? [];
+    if (nodes.length === 0) {
       return;
     }
 
@@ -555,6 +684,28 @@ export function SvgCanvas({
       }));
       onMaterialSizeChange?.("width", roundMm(normalized.width));
       onMaterialSizeChange?.("height", roundMm(normalized.height));
+      return;
+    }
+
+    if (selection.type === "art-objects") {
+      const transforms = selection.artObjectIds
+        .map((artObjectId) => {
+          const rectNode = artObjectRectRefs.current[artObjectId];
+          if (!rectNode) {
+            return null;
+          }
+          const normalized = normalizeRectNode(rectNode);
+          return {
+            artObjectId,
+            x: roundMm(normalized.x),
+            y: roundMm(materialHeight - normalized.y - normalized.height),
+            width: roundMm(normalized.width),
+            height: roundMm(normalized.height),
+          };
+        })
+        .filter((value): value is { artObjectId: string; x: number; y: number; width: number; height: number } => Boolean(value));
+      setLiveArtObjectBox(null);
+      onArtObjectsTransformChange?.(transforms);
       return;
     }
 
@@ -577,11 +728,12 @@ export function SvgCanvas({
     onArtObjectSizeChange?.(selectedArtObjectId, roundMm(normalized.width), roundMm(normalized.height));
   }, [
     materialHeight,
+    onArtObjectsTransformChange,
     onArtObjectPlacementChange,
     onArtObjectSizeChange,
     onMaterialSizeChange,
     selectedArtObjectId,
-    selection.type,
+    selection,
     setPan,
     zoom,
   ]);
@@ -628,7 +780,7 @@ export function SvgCanvas({
       const toPxX = (mm: number) => mm * zoom + pan.x;
       const toPxY = (mm: number) => mm * zoom + pan.y;
 
-      if (selection.type === "material") {
+      if (selection.type === "material" || selection.type === "art-objects") {
         return {
           ...newBox,
           width: Math.max(newBox.width, toPx(paddingMm * 2 + 1)),
@@ -749,12 +901,12 @@ export function SvgCanvas({
                 y={materialBox.y}
                 width={materialBox.width}
                 height={materialBox.height}
-                fill={isDiveMode ? "rgba(106, 75, 51, 0.48)" : "#6a4b33"}
+                fill={isDiveMode ? "rgba(40, 28, 18, 0.65)" : "#6a4b33"}
                 cornerRadius={2 / zoom}
                 stroke={selection.type === "material" ? "#73bbff" : "rgba(132, 94, 62, 0.55)"}
                 strokeWidth={selection.type === "material" ? 1.4 / zoom : 1 / zoom}
                 listening={!isDiveMode}
-                onMouseDown={(event) => handleCanvasMouseDown(event.evt, handleMaterialSelect)}
+                onMouseDown={(event) => handleCanvasMouseDown(event.evt, { onClickFallback: handleMaterialSelect })}
                 onMouseEnter={() => setHoverTarget("material")}
                 onMouseLeave={() => setHoverTarget((current) => (current === "material" ? null : current))}
               />
@@ -809,8 +961,13 @@ export function SvgCanvas({
                       stroke={selected || hoverTarget === "art-object" ? "rgba(115,187,255,0.95)" : "rgba(115,187,255,0.32)"}
                       strokeWidth={selected ? 1.35 / zoom : 1 / zoom}
                       dash={selected ? [6 / zoom, 4 / zoom] : [4 / zoom, 4 / zoom]}
-                      draggable={selected && !isDiveMode}
-                      onMouseDown={(event) => handleCanvasMouseDown(event.evt, () => handleArtObjectSelect(artObject.id))}
+                      draggable={selection.type === "art-object" && selected && !isDiveMode}
+                      onMouseDown={(event) =>
+                        handleCanvasMouseDown(event.evt, {
+                          onClickFallback: () => handleArtObjectSelect(artObject.id),
+                          allowDirectManipulation: selected,
+                        })
+                      }
                       onDblClick={() => (isDiveMode && selected ? onExitSvgDiveMode() : onEnterSvgDiveMode(artObject.id))}
                       onMouseEnter={() => {
                         if (!directPickEnabled) {
@@ -861,13 +1018,14 @@ export function SvgCanvas({
                 borderStroke="#73bbff"
                 borderStrokeWidth={1.25 / zoom}
                 borderDash={[10 / zoom, 6 / zoom]}
+                shouldOverdrawWholeArea
                 boundBoxFunc={transformerBoundBox}
                 onTransform={() => {
                   if (selection.type === "material" && artboardRef.current) {
                     setLiveMaterialBox(normalizeRectNode(artboardRef.current));
                     return;
                   }
-                  if (selectedArtObjectId) {
+                  if (selection.type === "art-object" && selectedArtObjectId) {
                     const node = artObjectRectRefs.current[selectedArtObjectId];
                     if (node) {
                       setLiveArtObjectBox({ artObjectId: selectedArtObjectId, box: normalizeRectNode(node) });
@@ -879,6 +1037,13 @@ export function SvgCanvas({
             </Layer>
           </Stage>
 
+          {/* Focus mode darkening overlay — sits between non-focused and focused layers */}
+          {isDiveMode ? (
+            <div
+              className="pointer-events-none absolute inset-0 z-[5] bg-black/50 transition-opacity duration-200"
+            />
+          ) : null}
+
           {artObjects.map((artObject) => {
             const box = artObjectBoxes[artObject.id];
             const rect = toViewportRect(box);
@@ -888,6 +1053,8 @@ export function SvgCanvas({
             const artObjectElementIds = artObject.preparedSvg.selectable_element_ids.map(
               (elementId) => `${artObject.id}::${elementId}`,
             );
+            const isFocused = isDiveMode && selectedArtObjectId === artObject.id;
+            const isDimmed = isDiveMode && !isFocused;
             const interactiveIds =
               activeDiveRoot?.artObjectId === artObject.id
                 ? activeDiveRoot.elementIds
@@ -901,27 +1068,38 @@ export function SvgCanvas({
               directPickEnabled;
 
             return (
-              <SvgHitLayer
-                key={`hit-${artObject.id}`}
-                normalizedSvg={withCompositeElementIds(artObject.preparedSvg.normalized_svg, artObject.id)}
-                rect={rect}
-                selectedIds={selection.type === "elements" && selection.artObjectId === artObject.id ? selection.elementIds : []}
-                previewSelectedIds={[...hoveredIds, ...marqueeHoverIds]}
-                activeOperationId={activeOperationId}
-                activeProfileKey={activeProfileKey}
-                operationForId={operationForId}
-                showOperationOutlines={showOperationOutlines}
-                svgSelected={selectedArtObjectIds.includes(artObject.id)}
-                editMode={(isDiveMode && selectedArtObjectId === artObject.id) || directPickEnabled}
-                interactive={hitLayerInteractive}
-                interactiveIds={interactiveIds}
-                onHostReady={(host) => {
-                  hitLayerHostRefs.current[artObject.id] = host;
+              <div
+                key={`hit-wrapper-${artObject.id}`}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  zIndex: isFocused ? 10 : 1,
+                  opacity: isDimmed ? 0.15 : 1,
+                  transition: "opacity 200ms ease",
+                  pointerEvents: "none",
                 }}
-                onClick={handlePartClick(artObject.id)}
-                onDoubleClick={handlePartDoubleClick(artObject.id)}
-                onMouseDown={isDiveMode || directPickEnabled ? handleHitLayerMouseDown(artObject.id) : undefined}
-              />
+              >
+                <SvgHitLayer
+                  normalizedSvg={withCompositeElementIds(artObject.preparedSvg.normalized_svg, artObject.id)}
+                  rect={rect}
+                  selectedIds={selection.type === "elements" && selection.artObjectId === artObject.id ? selection.elementIds : []}
+                  previewSelectedIds={[...hoveredIds, ...marqueeHoverIds]}
+                  activeOperationId={activeOperationId}
+                  activeProfileKey={activeProfileKey}
+                  operationForId={operationForId}
+                  showOperationOutlines={showOperationOutlines}
+                  svgSelected={selectedArtObjectIds.includes(artObject.id)}
+                  editMode={isFocused || directPickEnabled}
+                  interactive={hitLayerInteractive}
+                  interactiveIds={interactiveIds}
+                  onHostReady={(host) => {
+                    hitLayerHostRefs.current[artObject.id] = host;
+                  }}
+                  onClick={handlePartClick(artObject.id)}
+                  onDoubleClick={handlePartDoubleClick(artObject.id)}
+                  onMouseDown={isDiveMode || directPickEnabled ? handleHitLayerMouseDown(artObject.id) : undefined}
+                />
+              </div>
             );
           })}
 
@@ -1152,6 +1330,57 @@ function collectNodeBounds(
 
 function escapeAttributeValue(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/**
+ * Finds the deepest `<g>` group node that contains the given composite element ID.
+ * Returns the scope info needed to activate a group-level dive root.
+ */
+function findParentGroup(
+  tree: SvgTreeNode,
+  compositeElementId: string,
+  artObjectId: string,
+): { scopeId: string; label: string; elementIds: string[] } | null {
+  // Strip the artObjectId prefix to get the raw element ID
+  const rawId = compositeElementId.startsWith(`${artObjectId}::`)
+    ? compositeElementId.slice(artObjectId.length + 2)
+    : compositeElementId;
+
+  return findGroupContaining(tree, rawId, artObjectId);
+}
+
+function findGroupContaining(
+  node: SvgTreeNode,
+  rawElementId: string,
+  artObjectId: string,
+): { scopeId: string; label: string; elementIds: string[] } | null {
+  // Only look at group nodes that actually contain this element
+  if (node.tag_name === "g" && node.selectable_descendant_ids.includes(rawElementId)) {
+    // Check children first for a more specific (deeper) group
+    for (const child of node.children) {
+      const deeper = findGroupContaining(child, rawElementId, artObjectId);
+      if (deeper) {
+        return deeper;
+      }
+    }
+    // This is the deepest group containing the element
+    return {
+      scopeId: `${artObjectId}:${node.id ?? node.label}`,
+      label: node.label,
+      elementIds: node.selectable_descendant_ids.map((id) =>
+        buildCompositeElementId(artObjectId, id),
+      ),
+    };
+  }
+
+  // Recurse into children
+  for (const child of node.children) {
+    const found = findGroupContaining(child, rawElementId, artObjectId);
+    if (found) {
+      return found;
+    }
+  }
+  return null;
 }
 
 function ToolbarButton({

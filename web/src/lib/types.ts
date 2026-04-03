@@ -11,6 +11,7 @@ export type AlignmentAction =
   | "top"
   | "center-y"
   | "bottom";
+export type DistributionAction = "horizontal" | "vertical";
 
 export interface Settings {
   conversion: {

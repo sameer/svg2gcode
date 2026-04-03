@@ -39,6 +39,11 @@ type PresentationState = {
   interactiveIdSet: Set<string> | null;
 };
 
+// Illustrator-like color constants
+const SELECTION_BLUE = "#2D8CFF";
+const HOVER_BLUE = "#5BA3FF";
+const SUBTLE_SHADOW = "drop-shadow(0 0.5px 0 rgba(255,255,255,0.04)) drop-shadow(0 -0.8px 0.6px rgba(20,20,30,0.18)) drop-shadow(0 0.8px 1px rgba(15,15,25,0.12))";
+
 function applyElementPresentation(element: SVGElement, state: PresentationState) {
   const id = element.getAttribute("data-s2g-id");
   if (!id) {
@@ -66,87 +71,53 @@ function applyElementPresentation(element: SVGElement, state: PresentationState)
   const isActive = activeOperationId ? operation?.id === activeOperationId : true;
   const isInteractive = interactive && (!interactiveIdSet || interactiveIdSet.has(id));
   const operationColor = operation?.color ?? "#ef4444";
-  const fallbackOutline = "#8ea0b8";
-  const woodTone = showOperationOutlines
-    ? {
-        fill: "rgba(255, 255, 255, 0.035)",
-        stroke: "rgba(142, 160, 184, 0.8)",
-        highlightStroke: "rgba(226, 235, 248, 0.95)",
-        glow: "rgba(103, 184, 255, 0.2)",
-      }
-    : {
-        fill: "rgba(86, 53, 31, 0.16)",
-        stroke: "rgba(90, 56, 33, 0.58)",
-        highlightStroke: "rgba(98, 60, 34, 0.82)",
-        glow: "rgba(62, 37, 18, 0.24)",
-      };
-  const mappedTone = {
-    stroke: rgba(operationColor, showOperationOutlines ? 0.98 : 0.92),
-    strongStroke: rgba(operationColor, 1),
-    fill: rgba(operationColor, showOperationOutlines ? 0.055 : 0.1),
-    strongFill: rgba(operationColor, showOperationOutlines ? 0.11 : 0.14),
-    glow: rgba(operationColor, showOperationOutlines ? 0.3 : 0.24),
-  };
-  const outlineTone = {
-    stroke: operation ? mappedTone.stroke : rgba(fallbackOutline, 0.78),
-    strongStroke: operation ? mappedTone.strongStroke : rgba(fallbackOutline, 0.96),
-    fill: operation ? mappedTone.fill : "rgba(190, 204, 224, 0.03)",
-    strongFill: operation ? mappedTone.strongFill : "rgba(190, 204, 224, 0.08)",
-    glow: operation ? mappedTone.glow : "rgba(103, 184, 255, 0.18)",
-  };
+  const isHighlighted = !isSelected && (isPreviewSelected || isProfilePreviewed || (editMode && isHovered && isInteractive));
 
+  // Pointer events & cursor
   element.style.pointerEvents = isInteractive ? "auto" : "none";
   element.style.cursor = isInteractive ? "pointer" : "default";
-  element.style.transition =
-    "opacity 120ms ease, filter 120ms ease, stroke-width 120ms ease, stroke 120ms ease";
-  element.style.opacity = showOperationOutlines
-    ? (!interactiveIdSet || interactiveIdSet.has(id) ? "1" : "0.5")
-    : isActive && (!interactiveIdSet || interactiveIdSet.has(id))
-      ? "1"
-      : "0.22";
-
-  const isHighlighted = !isSelected && (isPreviewSelected || isProfilePreviewed || (editMode && isHovered && isInteractive));
-  const baseTone = showOperationOutlines ? outlineTone : mappedTone;
-  const showMappedStroke = showOperationOutlines || isSelected || isHighlighted || svgSelected;
-  element.style.fill = showOperationOutlines ? baseTone.fill : woodTone.fill;
+  element.style.transition = "opacity 120ms ease, filter 120ms ease, stroke-width 120ms ease, stroke 120ms ease";
   element.style.strokeLinecap = "round";
   element.style.strokeLinejoin = "round";
-  if (isSelected) {
-    element.style.stroke = baseTone.strongStroke;
-    element.style.strokeWidth = editMode ? (showOperationOutlines ? "2.3" : "2") : "1.8";
-    element.style.fill = showOperationOutlines ? baseTone.strongFill : editMode ? mappedTone.strongFill : woodTone.fill;
-    element.style.vectorEffect = "non-scaling-stroke";
-  } else if (isHighlighted) {
-    element.style.stroke = baseTone.stroke;
-    element.style.strokeWidth = editMode ? (showOperationOutlines ? "2" : "1.7") : "1.45";
-    element.style.fill = showOperationOutlines
-      ? editMode || isProfilePreviewed
-        ? baseTone.strongFill
-        : baseTone.fill
-      : editMode || isProfilePreviewed
-        ? mappedTone.fill
-        : woodTone.fill;
-    element.style.vectorEffect = "non-scaling-stroke";
-  } else if (svgSelected) {
-    element.style.stroke = baseTone.stroke;
-    element.style.strokeWidth = showOperationOutlines ? "1.5" : "1.15";
-    element.style.fill = showOperationOutlines ? baseTone.fill : woodTone.fill;
-    element.style.vectorEffect = "non-scaling-stroke";
-  } else {
-    element.style.stroke = showOperationOutlines ? baseTone.stroke : woodTone.stroke;
-    element.style.strokeWidth = showOperationOutlines ? "1.45" : "0.7";
-    element.style.fill = showOperationOutlines ? baseTone.fill : woodTone.fill;
-    element.style.vectorEffect = "non-scaling-stroke";
-  }
+  element.style.vectorEffect = "non-scaling-stroke";
 
-  if (showMappedStroke) {
-    element.style.filter =
-      `drop-shadow(0 1px 0 rgba(255,255,255,0.07)) drop-shadow(0 -1px 1px rgba(36,46,60,0.22)) drop-shadow(0 1.2px 1.6px rgba(22,30,44,0.16)) drop-shadow(0 0 0.32rem ${baseTone.glow})`;
+  // Opacity — dim inactive/non-interactive elements
+  const isInScope = !interactiveIdSet || interactiveIdSet.has(id);
+  element.style.opacity = isActive && isInScope ? "1" : "0.18";
+
+  // Priority-based styling: selected > highlighted > svgSelected > normal
+  if (isSelected) {
+    element.style.stroke = SELECTION_BLUE;
+    element.style.strokeWidth = editMode ? "2.2" : "1.8";
+    element.style.fill = "rgba(45, 140, 255, 0.08)";
+    element.style.filter = `${SUBTLE_SHADOW} drop-shadow(0 0 0.3rem rgba(45, 140, 255, 0.3))`;
+  } else if (isHighlighted) {
+    element.style.stroke = HOVER_BLUE;
+    element.style.strokeWidth = editMode ? "1.8" : "1.5";
+    element.style.fill = "rgba(45, 140, 255, 0.04)";
+    element.style.filter = `${SUBTLE_SHADOW} drop-shadow(0 0 0.2rem rgba(45, 140, 255, 0.2))`;
+  } else if (svgSelected) {
+    // Art object is selected — show operation colors at medium intensity
+    element.style.stroke = showOperationOutlines
+      ? rgba(operationColor, 0.65)
+      : "rgba(90, 56, 33, 0.50)";
+    element.style.strokeWidth = showOperationOutlines ? "1.3" : "1.0";
+    element.style.fill = showOperationOutlines
+      ? rgba(operationColor, 0.04)
+      : "rgba(86, 53, 31, 0.10)";
+    element.style.filter = SUBTLE_SHADOW;
+  } else if (showOperationOutlines) {
+    // Normal with outlines on — muted operation colors for depth differentiation
+    element.style.stroke = rgba(operationColor, 0.40);
+    element.style.strokeWidth = "1.0";
+    element.style.fill = rgba(operationColor, 0.02);
+    element.style.filter = SUBTLE_SHADOW;
   } else {
-    element.style.filter =
-      showOperationOutlines
-        ? "drop-shadow(0 1px 0 rgba(255,255,255,0.04)) drop-shadow(0 -1.4px 1.1px rgba(28,38,51,0.18)) drop-shadow(0 1.6px 1.8px rgba(17,24,39,0.1))"
-        : "drop-shadow(0 0.5px 0 rgba(255,255,255,0.04)) drop-shadow(0 -1.2px 0.9px rgba(40,24,13,0.24)) drop-shadow(0 1px 1.4px rgba(60,36,20,0.14))";
+    // Normal with outlines off — subtle wood tone
+    element.style.stroke = "rgba(90, 56, 33, 0.40)";
+    element.style.strokeWidth = "0.7";
+    element.style.fill = "rgba(86, 53, 31, 0.10)";
+    element.style.filter = "drop-shadow(0 0.5px 0 rgba(255,255,255,0.04)) drop-shadow(0 -1px 0.7px rgba(40,24,13,0.20)) drop-shadow(0 0.8px 1px rgba(60,36,20,0.12))";
   }
 }
 
@@ -391,7 +362,7 @@ export function SvgHitLayer({
     >
       <div
         ref={hostRef}
-        className="h-full w-full"
+        className="hit-layer-host h-full w-full"
         style={{ pointerEvents: interactive ? "auto" : "none" }}
       />
     </div>

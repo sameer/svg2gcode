@@ -25,6 +25,7 @@ import type {
   AlignmentAction,
   ArtObject,
   DesignSelectionSnapshot,
+  DistributionAction,
   DiveRootScope,
   EditorSelection,
   ElementAssignment,
@@ -138,6 +139,22 @@ function App() {
   const activeArtObject = selectedArtObjectId
     ? artObjects.find((artObject) => artObject.id === selectedArtObjectId) ?? null
     : null;
+  const selectedArtObjectIds = useMemo(() => {
+    if (selection.type === "art-object") {
+      return [selection.artObjectId];
+    }
+    if (selection.type === "art-objects") {
+      return selection.artObjectIds;
+    }
+    if (selection.type === "elements") {
+      return [selection.artObjectId];
+    }
+    return [];
+  }, [selection]);
+  const selectedArtObjects = useMemo(
+    () => artObjects.filter((artObject) => selectedArtObjectIds.includes(artObject.id)),
+    [artObjects, selectedArtObjectIds],
+  );
   const allElementIds = useMemo(
     () => artObjects.flatMap((artObject) => getArtObjectElementIds(artObject)),
     [artObjects],
@@ -478,6 +495,31 @@ function App() {
     );
   };
 
+  const handleArtObjectsTransformChange = (
+    transforms: { artObjectId: string; x: number; y: number; width: number; height: number }[],
+  ) => {
+    if (!settings || transforms.length === 0) {
+      return;
+    }
+
+    const byId = new Map(transforms.map((transform) => [transform.artObjectId, transform]));
+    setArtObjects((current) =>
+      current.map((artObject) => {
+        const next = byId.get(artObject.id);
+        if (!next) {
+          return artObject;
+        }
+        return {
+          ...artObject,
+          placementX: next.x,
+          placementY: next.y,
+          widthMm: next.width,
+          heightMm: next.height,
+        };
+      }),
+    );
+  };
+
   const handleSvgDimensionChange = (dimension: "width" | "height", value: number | null) => {
     if (!activeArtObject || !settings) {
       return;
@@ -524,34 +566,110 @@ function App() {
   };
 
   const handleAlign = (action: AlignmentAction) => {
-    if (!settings || !activeArtObject) {
+    if (!settings) {
       return;
     }
 
-    const geometry = getCanvasGeometry({
-      artboardWidthMm: settings.engraving.material_width,
-      artboardHeightMm: settings.engraving.material_height,
-      placementX: activeArtObject.placementX,
-      placementY: activeArtObject.placementY,
-      paddingMm,
-      svgWidthMm: activeArtObject.widthMm,
-      svgHeightMm: activeArtObject.heightMm,
-    });
-    const nextPlacement = getAlignedPlacement(
-      action,
-      geometry,
-      settings.engraving.material_width,
-      settings.engraving.material_height,
-      activeArtObject.placementX,
-      activeArtObject.placementY,
-      paddingMm,
+    if (selectedArtObjects.length === 0) {
+      return;
+    }
+
+    if (selectedArtObjects.length === 1) {
+      const [artObject] = selectedArtObjects;
+      const geometry = getCanvasGeometry({
+        artboardWidthMm: settings.engraving.material_width,
+        artboardHeightMm: settings.engraving.material_height,
+        placementX: artObject.placementX,
+        placementY: artObject.placementY,
+        paddingMm,
+        svgWidthMm: artObject.widthMm,
+        svgHeightMm: artObject.heightMm,
+      });
+      const nextPlacement = getAlignedPlacement(
+        action,
+        geometry,
+        settings.engraving.material_width,
+        settings.engraving.material_height,
+        artObject.placementX,
+        artObject.placementY,
+        paddingMm,
+      );
+
+      if (!nextPlacement) {
+        return;
+      }
+
+      handlePlacementChange(nextPlacement.x, nextPlacement.y);
+      return;
+    }
+
+    const bounds = getSelectionBounds(selectedArtObjects);
+    setArtObjects((current) =>
+      current.map((artObject) => {
+        if (!selectedArtObjectIds.includes(artObject.id)) {
+          return artObject;
+        }
+
+        const next = getAlignedArtObjectPlacement(action, artObject, bounds);
+        return {
+          ...artObject,
+          placementX: next.x,
+          placementY: next.y,
+        };
+      }),
     );
+  };
 
-    if (!nextPlacement) {
+  const handleDistribute = (action: DistributionAction) => {
+    if (selectedArtObjects.length < 2) {
       return;
     }
 
-    handlePlacementChange(nextPlacement.x, nextPlacement.y);
+    const ordered = [...selectedArtObjects].sort((a, b) =>
+      action === "horizontal"
+        ? a.placementX + a.widthMm / 2 - (b.placementX + b.widthMm / 2)
+        : a.placementY + a.heightMm / 2 - (b.placementY + b.heightMm / 2),
+    );
+    if (ordered.length <= 2) {
+      return;
+    }
+
+    const firstCenter =
+      action === "horizontal"
+        ? ordered[0].placementX + ordered[0].widthMm / 2
+        : ordered[0].placementY + ordered[0].heightMm / 2;
+    const lastCenter =
+      action === "horizontal"
+        ? ordered.at(-1)!.placementX + ordered.at(-1)!.widthMm / 2
+        : ordered.at(-1)!.placementY + ordered.at(-1)!.heightMm / 2;
+    const step = (lastCenter - firstCenter) / (ordered.length - 1);
+    const planned = new Map<string, { x: number; y: number }>();
+
+    ordered.forEach((artObject, index) => {
+      if (index === 0 || index === ordered.length - 1) {
+        planned.set(artObject.id, { x: artObject.placementX, y: artObject.placementY });
+        return;
+      }
+
+      const center = firstCenter + step * index;
+      planned.set(artObject.id, {
+        x: action === "horizontal" ? center - artObject.widthMm / 2 : artObject.placementX,
+        y: action === "vertical" ? center - artObject.heightMm / 2 : artObject.placementY,
+      });
+    });
+
+    setArtObjects((current) =>
+      current.map((artObject) => {
+        const next = planned.get(artObject.id);
+        return next
+          ? {
+              ...artObject,
+              placementX: next.x,
+              placementY: next.y,
+            }
+          : artObject;
+      }),
+    );
   };
 
   const handleToolShapeChange = (value: "Flat" | "Ball" | "V") => {
@@ -1061,10 +1179,12 @@ function App() {
                   onSelectMaterial={selectMaterial}
                     onEnterSvgDiveMode={enterSvgDiveMode}
                     onExitSvgDiveMode={exitSvgDiveMode}
+                    onActivateDiveRoot={activateDiveRoot}
                     onImportClick={() => fileInputRef.current?.click()}
                     onMaterialSizeChange={handleMaterialDimensionChange}
                     onArtObjectPlacementChange={handleArtObjectPlacementChange}
                     onArtObjectSizeChange={handleArtObjectSizeChange}
+                    onArtObjectsTransformChange={handleArtObjectsTransformChange}
                     onShowOperationOutlinesChange={setShowOperationOutlines}
                   />
                 </div>
@@ -1081,10 +1201,13 @@ function App() {
                       settings={settings}
                       materialPreset={materialPreset}
                       paddingMm={paddingMm}
+                      selectedArtObjectCount={selectedArtObjects.length}
                       recommendedAdvanced={recommendedAdvanced}
                       advancedOverrides={advancedOverrides}
                       onMaterialSizeChange={handleMaterialDimensionChange}
                       onPaddingChange={handlePaddingChange}
+                      onAlign={handleAlign}
+                      onDistribute={handleDistribute}
                       onNumberChange={handleSettingsNumberChange}
                       onToolShapeChange={handleToolShapeChange}
                       onMaterialPresetChange={handleMaterialPresetChange}
@@ -1317,6 +1440,44 @@ function artObjectMetrics(normalizedSvg: string) {
 function splitCompositeOwner(compositeId: string) {
   const [owner] = compositeId.split("::");
   return owner;
+}
+
+function getSelectionBounds(artObjects: ArtObject[]) {
+  const left = Math.min(...artObjects.map((artObject) => artObject.placementX));
+  const right = Math.max(...artObjects.map((artObject) => artObject.placementX + artObject.widthMm));
+  const bottom = Math.min(...artObjects.map((artObject) => artObject.placementY));
+  const top = Math.max(...artObjects.map((artObject) => artObject.placementY + artObject.heightMm));
+  return {
+    left,
+    right,
+    bottom,
+    top,
+    centerX: (left + right) / 2,
+    centerY: (bottom + top) / 2,
+  };
+}
+
+function getAlignedArtObjectPlacement(
+  action: AlignmentAction,
+  artObject: ArtObject,
+  bounds: ReturnType<typeof getSelectionBounds>,
+) {
+  if (action === "left") {
+    return { x: bounds.left, y: artObject.placementY };
+  }
+  if (action === "right") {
+    return { x: bounds.right - artObject.widthMm, y: artObject.placementY };
+  }
+  if (action === "center-x") {
+    return { x: bounds.centerX - artObject.widthMm / 2, y: artObject.placementY };
+  }
+  if (action === "bottom") {
+    return { x: artObject.placementX, y: bounds.bottom };
+  }
+  if (action === "top") {
+    return { x: artObject.placementX, y: bounds.top - artObject.heightMm };
+  }
+  return { x: artObject.placementX, y: bounds.centerY - artObject.heightMm / 2 };
 }
 
 function roundMm(value: number) {

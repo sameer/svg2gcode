@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
-import { Button, Chip, Input, Label } from "@heroui/react";
+import { Button, ButtonGroup, Chip, Input, Label } from "@heroui/react";
 import { AppIcon, Icons } from "@/lib/icons";
-import type { Settings } from "@/lib/types";
+import type { AlignmentAction, DistributionAction, Settings } from "@/lib/types";
 import { MATERIAL_PRESET_LIST, type MaterialPresetId } from "@/lib/material-presets";
 import flatRouterBit from "@/assets/router bits/flat_router_bit.png";
 import roundRouterBit from "@/assets/router bits/round_router_bit.png";
@@ -11,10 +11,13 @@ interface MaterialInspectorProps {
   settings: Settings | null;
   materialPreset: MaterialPresetId;
   paddingMm: number;
+  selectedArtObjectCount: number;
   recommendedAdvanced: Record<string, number>;
   advancedOverrides: Record<string, boolean>;
   onMaterialSizeChange: (dimension: "width" | "height", value: number | null) => void;
   onPaddingChange: (value: number | null) => void;
+  onAlign: (value: AlignmentAction) => void;
+  onDistribute: (value: DistributionAction) => void;
   onNumberChange: (
     path: string,
     value: number | null,
@@ -29,10 +32,13 @@ export function MaterialInspector({
   settings,
   materialPreset,
   paddingMm,
+  selectedArtObjectCount,
   recommendedAdvanced,
   advancedOverrides,
   onMaterialSizeChange,
   onPaddingChange,
+  onAlign,
+  onDistribute,
   onNumberChange,
   onToolShapeChange,
   onMaterialPresetChange,
@@ -162,6 +168,45 @@ export function MaterialInspector({
             }}
           />
           <ReadOnlyField className="w-[10.5rem]" label="Per pass" value={`${mmPerPass} mm`} />
+        </div>
+        <div className="rounded-md border border-border bg-content1 px-3 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">Arrange selection</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {selectedArtObjectCount > 1
+                  ? `${selectedArtObjectCount} art objects selected`
+                  : "Select multiple art objects to align or distribute them"}
+              </p>
+            </div>
+            <Chip size="sm" variant="soft">
+              {selectedArtObjectCount}
+            </Chip>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-3">
+            <ArrangeCluster
+              title="Align"
+              disabled={selectedArtObjectCount < 2}
+              actions={[
+                { label: "Left", value: "left", icon: Icons.alignLeft },
+                { label: "Center X", value: "center-x", icon: Icons.alignCenterHorizontal },
+                { label: "Right", value: "right", icon: Icons.alignRight },
+                { label: "Top", value: "top", icon: Icons.alignTop },
+                { label: "Center Y", value: "center-y", icon: Icons.alignCenterVertical },
+                { label: "Bottom", value: "bottom", icon: Icons.alignBottom },
+              ]}
+              onPress={(value) => onAlign(value as AlignmentAction)}
+            />
+            <ArrangeCluster
+              title="Distribute"
+              disabled={selectedArtObjectCount < 2}
+              actions={[
+                { label: "Horizontal", value: "horizontal", icon: Icons.alignCenterHorizontal },
+                { label: "Vertical", value: "vertical", icon: Icons.alignCenterVertical },
+              ]}
+              onPress={(value) => onDistribute(value as DistributionAction)}
+            />
+          </div>
         </div>
       </section>
 
@@ -419,6 +464,34 @@ function NumberField({
         </span>
       </div>
       {helper ? <p className="text-[11px] text-muted-foreground">{helper}</p> : null}
+    </div>
+  );
+}
+
+function ArrangeCluster({
+  title,
+  actions,
+  disabled,
+  onPress,
+}: {
+  title: string;
+  actions: { label: string; value: string; icon: React.ComponentProps<typeof AppIcon>["icon"] }[];
+  disabled: boolean;
+  onPress: (value: string) => void;
+}) {
+  return (
+    <div className="grid gap-2">
+      <Label className="text-xs text-muted-foreground">{title}</Label>
+      <div className="flex flex-wrap gap-2">
+        {actions.map(({ label, value, icon }) => (
+          <ButtonGroup key={value} size="sm" variant="secondary" isDisabled={disabled}>
+            <Button onPress={() => onPress(value)}>
+              <AppIcon icon={icon} className="h-4 w-4" />
+              {label}
+            </Button>
+          </ButtonGroup>
+        ))}
+      </div>
     </div>
   );
 }

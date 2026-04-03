@@ -14,6 +14,7 @@ interface UseSvgCanvasControllerOptions {
   materialHeight: number;
   panToolActive?: boolean;
   onSelectionChange: (value: EditorSelection) => void;
+  onNonPanMouseDown?: (event: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 export function useSvgCanvasController({
@@ -23,6 +24,7 @@ export function useSvgCanvasController({
   materialHeight,
   panToolActive = false,
   onSelectionChange,
+  onNonPanMouseDown,
 }: UseSvgCanvasControllerOptions) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const panSessionRef = useRef<{ x: number; y: number; startPanX: number; startPanY: number } | null>(null);
@@ -192,6 +194,13 @@ export function useSvgCanvasController({
 
       const isPanGesture = event.button === 1 || (event.button === 0 && (spacePressed || panToolActive));
       if (!isPanGesture) {
+        // Skip for Konva canvas events — Konva's own handlers (handleStageMouseDown,
+        // Rect onMouseDown) already handle those. The viewport-level handler is only
+        // needed for clicks that land on HTML elements above the canvas (e.g. empty
+        // space inside an interactive hit-layer host) that Konva never sees.
+        if (event.button === 0 && !(event.target instanceof HTMLCanvasElement)) {
+          onNonPanMouseDown?.(event);
+        }
         return;
       }
 
@@ -225,7 +234,7 @@ export function useSvgCanvasController({
       window.addEventListener("mousemove", handleMouseMove);
       window.addEventListener("mouseup", handleMouseUp);
     },
-    [hasContent, pan.x, pan.y, panToolActive, spacePressed],
+    [hasContent, onNonPanMouseDown, pan.x, pan.y, panToolActive, spacePressed],
   );
 
   return {
