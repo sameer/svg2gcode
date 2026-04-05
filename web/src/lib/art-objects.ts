@@ -1,9 +1,11 @@
 import { buildElementColorMap } from "@/lib/color-detection";
+import { engraveTypeLabel, engraveTypeToFillMode, fillModeToEngraveType } from "@/editor/engraving";
 import { clampPlacementToArtboard, parseSvgDocumentMetrics } from "@/lib/editor-geometry";
 import { groupAssignmentsForIds } from "@/lib/profile-groups";
 import type {
   ArtObject,
   ElementAssignment,
+  EngraveType,
   FrontendOperation,
   PreparedSvgDocument,
   Settings,
@@ -30,6 +32,7 @@ export function createArtObject(params: {
   name: string;
   preparedSvg: PreparedSvgDocument;
   settings: Settings | null;
+  defaultEngraveType: EngraveType;
   existingArtObjects: ArtObject[];
 }) {
   const svgMetrics = parseSvgDocumentMetrics(params.preparedSvg.normalized_svg);
@@ -40,7 +43,7 @@ export function createArtObject(params: {
   const widthMm = roundMm(svgMetrics.width);
   const heightMm = roundMm(svgMetrics.height);
   const defaultDepth = params.settings?.engraving.target_depth ?? 5;
-  const defaultFillMode = params.settings?.engraving.fill_mode ?? "Pocket";
+  const defaultFillMode = engraveTypeToFillMode(params.defaultEngraveType) ?? params.settings?.engraving.fill_mode ?? "Pocket";
   const elementAssignments = Object.fromEntries(
     params.preparedSvg.selectable_element_ids.map((elementId) => {
       const compositeId = buildCompositeElementId(params.artObjectId, elementId);
@@ -49,6 +52,7 @@ export function createArtObject(params: {
         {
           elementId: compositeId,
           targetDepthMm: defaultDepth,
+          engraveType: params.defaultEngraveType,
           fillMode: defaultFillMode,
         } satisfies ElementAssignment,
       ];
@@ -106,10 +110,13 @@ export function getDerivedOperationsForArtObjects(artObjects: ArtObject[]) {
 
   return groups.map((group): FrontendOperation => ({
     id: `profile-${group.key}`,
-    name: `${roundMm(group.targetDepthMm)}mm${group.fillMode ? ` · ${group.fillMode}` : ""}`,
+    name: `${roundMm(group.targetDepthMm)}mm${
+      group.engraveType ? ` · ${engraveTypeLabel(group.engraveType)}` : group.fillMode ? ` · ${group.fillMode}` : ""
+    }`,
     target_depth_mm: group.targetDepthMm,
     assigned_element_ids: group.elementIds,
     color: group.color,
+    engrave_type: group.engraveType,
     fill_mode: group.fillMode,
   }));
 }
@@ -134,6 +141,7 @@ export function composeArtObjectsSvg(artObjects: ArtObject[], settings: Settings
     }
 
     rewriteCompositeIds(svgElement, artObject.id);
+    annotateAssignmentMetadata(svgElement, artObject);
     const placement = clampPlacementToArtboard({
       artboardWidthMm: settings.engraving.material_width,
       artboardHeightMm: settings.engraving.material_height,
@@ -263,6 +271,22 @@ function rewriteCompositeIds(svgElement: SVGSVGElement, artObjectId: string) {
       continue;
     }
     element.setAttribute("data-s2g-id", buildCompositeElementId(artObjectId, localId));
+  }
+}
+
+function annotateAssignmentMetadata(svgElement: SVGSVGElement, artObject: ArtObject) {
+  for (const element of svgElement.querySelectorAll("[data-s2g-id]")) {
+    const compositeId = element.getAttribute("data-s2g-id");
+    if (!compositeId) {
+      continue;
+    }
+    const assignment = artObject.elementAssignments[compositeId];
+    if (!assignment) {
+      continue;
+    }
+    element.setAttribute("data-cut-depth", String(roundMm(assignment.targetDepthMm)));
+    const engraveType = assignment.engraveType ?? fillModeToEngraveType(assignment.fillMode);
+    element.setAttribute("data-engrave-type", engraveType);
   }
 }
 

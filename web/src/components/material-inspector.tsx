@@ -1,46 +1,61 @@
 import { useCallback, useMemo, useState } from "react";
 import { Button, ButtonGroup, Chip, Input, Label } from "@heroui/react";
+import { ENGRAVE_TYPE_OPTIONS, engraveTypeLabel } from "@/editor/engraving";
+import type { AdvancedMachiningField, CuttingSettingsView, MaterialSettingsView } from "@/editor/use-machining-settings";
 import { AppIcon, Icons } from "@/lib/icons";
-import type { AlignmentAction, DistributionAction, Settings } from "@/lib/types";
+import type { AlignmentAction, DistributionAction, EngraveType } from "@/lib/types";
 import { MATERIAL_PRESET_LIST, type MaterialPresetId } from "@/lib/material-presets";
 import flatRouterBit from "@/assets/router bits/flat_router_bit.png";
 import roundRouterBit from "@/assets/router bits/round_router_bit.png";
 import vCarveBit from "@/assets/router bits/v_carve_bit.png";
 
 interface MaterialInspectorProps {
-  settings: Settings | null;
-  materialPreset: MaterialPresetId;
+  material: MaterialSettingsView | null;
+  cutting: CuttingSettingsView | null;
   paddingMm: number;
   selectedArtObjectCount: number;
-  recommendedAdvanced: Record<string, number>;
+  recommendedAdvanced: {
+    maxStepdown?: number;
+    stepover?: number;
+    cutFeedrate?: number;
+    plungeFeedrate?: number;
+  };
   advancedOverrides: Record<string, boolean>;
   onMaterialSizeChange: (dimension: "width" | "height", value: number | null) => void;
+  onMaterialThicknessChange: (value: number | null) => void;
   onPaddingChange: (value: number | null) => void;
   onAlign: (value: AlignmentAction) => void;
   onDistribute: (value: DistributionAction) => void;
-  onNumberChange: (
-    path: string,
-    value: number | null,
-    source: "basic" | "advanced",
-  ) => void;
+  onToolDiameterChange: (value: number | null) => void;
   onToolShapeChange: (value: "Flat" | "Ball" | "V") => void;
+  onDefaultDepthChange: (value: number | null) => void;
+  onDefaultEngraveTypeChange: (value: EngraveType) => void;
+  onPassCountChange: (value: number | null) => void;
+  onAdvancedFieldChange: (field: AdvancedMachiningField, value: number | null) => void;
+  materialPreset: MaterialPresetId;
   onMaterialPresetChange: (value: MaterialPresetId) => void;
   onResetAdvancedRecommendations: () => void;
 }
 
 export function MaterialInspector({
-  settings,
-  materialPreset,
+  material,
+  cutting,
   paddingMm,
   selectedArtObjectCount,
   recommendedAdvanced,
   advancedOverrides,
   onMaterialSizeChange,
+  onMaterialThicknessChange,
   onPaddingChange,
   onAlign,
   onDistribute,
-  onNumberChange,
+  onToolDiameterChange,
   onToolShapeChange,
+  onDefaultDepthChange,
+  onDefaultEngraveTypeChange,
+  onPassCountChange,
+  onAdvancedFieldChange,
+  materialPreset,
   onMaterialPresetChange,
   onResetAdvancedRecommendations,
 }: MaterialInspectorProps) {
@@ -50,24 +65,18 @@ export function MaterialInspector({
     [advancedOverrides],
   );
   const recommendation = useCallback(
-    (path: string, digits: number, unit: string) => {
-      const value = recommendedAdvanced[path];
-      if (!Number.isFinite(value)) {
+    (value: number | undefined, digits: number, unit: string) => {
+      if (value == null || !Number.isFinite(value)) {
         return undefined;
       }
       return `Rec ${value.toFixed(digits)} ${unit}`;
     },
-    [recommendedAdvanced],
+    [],
   );
 
-  if (!settings) {
+  if (!material || !cutting) {
     return <div className="text-sm text-muted-foreground">Loading settings…</div>;
   }
-
-  const depth = settings.engraving.target_depth ?? 1;
-  const stepdown = settings.engraving.max_stepdown ?? 3;
-  const passes = Math.max(1, Math.ceil(depth / stepdown));
-  const mmPerPass = (depth / passes).toFixed(2);
 
   return (
     <div className="space-y-5">
@@ -76,21 +85,21 @@ export function MaterialInspector({
         <div className="flex flex-wrap gap-2">
           <PillField
             label="W"
-            value={settings.engraving.material_width}
+            value={material.width}
             unit="mm"
             onChange={(value) => onMaterialSizeChange("width", value)}
           />
           <PillField
             label="H"
-            value={settings.engraving.material_height}
+            value={material.height}
             unit="mm"
             onChange={(value) => onMaterialSizeChange("height", value)}
           />
           <PillField
             label="T"
-            value={settings.engraving.material_thickness}
+            value={material.thickness}
             unit="mm"
-            onChange={(value) => onNumberChange("engraving.material_thickness", value, "basic")}
+            onChange={onMaterialThicknessChange}
           />
         </div>
         <div className="grid gap-1">
@@ -116,8 +125,15 @@ export function MaterialInspector({
             className="w-[10.5rem]"
             label="Diameter"
             unit="mm"
-            value={settings.engraving.tool_diameter}
-            onChange={(value) => onNumberChange("engraving.tool_diameter", value, "basic")}
+            value={cutting.toolDiameter}
+            onChange={onToolDiameterChange}
+          />
+          <NumberField
+            className="w-[10.5rem]"
+            label="Depth"
+            unit="mm"
+            value={cutting.defaultDepthMm}
+            onChange={onDefaultDepthChange}
           />
         </div>
         <div className="flex flex-wrap gap-3">
@@ -127,21 +143,36 @@ export function MaterialInspector({
               <ToolShapeOption
                 shape="Flat"
                 image={flatRouterBit}
-                isSelected={settings.engraving.tool_shape === "Flat"}
+                isSelected={cutting.toolShape === "Flat"}
                 onClick={() => onToolShapeChange("Flat")}
               />
               <ToolShapeOption
                 shape="Ball"
                 image={roundRouterBit}
-                isSelected={settings.engraving.tool_shape === "Ball"}
+                isSelected={cutting.toolShape === "Ball"}
                 onClick={() => onToolShapeChange("Ball")}
               />
               <ToolShapeOption
                 shape="V"
                 image={vCarveBit}
-                isSelected={settings.engraving.tool_shape === "V"}
+                isSelected={cutting.toolShape === "V"}
                 onClick={() => onToolShapeChange("V")}
               />
+            </div>
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-xs text-muted-foreground">Engrave type</Label>
+            <div className="flex flex-wrap gap-2">
+              {ENGRAVE_TYPE_OPTIONS.map((engraveType) => (
+                <Button
+                  key={engraveType}
+                  size="sm"
+                  variant={cutting.defaultEngraveType === engraveType ? "primary" : "secondary"}
+                  onPress={() => onDefaultEngraveTypeChange(engraveType)}
+                >
+                  {engraveTypeLabel(engraveType)}
+                </Button>
+              ))}
             </div>
           </div>
         </div>
@@ -161,13 +192,10 @@ export function MaterialInspector({
             className="w-[10.5rem]"
             label="Passes"
             unit="x"
-            value={passes}
-            onChange={(value) => {
-              const nextPasses = Math.max(1, Math.round(value ?? passes));
-              onNumberChange("engraving.max_stepdown", depth / nextPasses, "advanced");
-            }}
+            value={cutting.passCount}
+            onChange={onPassCountChange}
           />
-          <ReadOnlyField className="w-[10.5rem]" label="Per pass" value={`${mmPerPass} mm`} />
+          <ReadOnlyField className="w-[10.5rem]" label="Per pass" value={`${cutting.mmPerPass} mm`} />
         </div>
         <div className="rounded-md border border-border bg-content1 px-3 py-3">
           <div className="flex items-center justify-between gap-3">
@@ -252,61 +280,61 @@ export function MaterialInspector({
                 className="w-[10.5rem]"
                 label="Max Stepdown"
                 unit="mm"
-                value={settings.engraving.max_stepdown}
-                helper={recommendation("engraving.max_stepdown", 2, "mm")}
-                onChange={(value) => onNumberChange("engraving.max_stepdown", value, "advanced")}
+                value={cutting.maxStepdown}
+                helper={recommendation(recommendedAdvanced.maxStepdown, 2, "mm")}
+                onChange={(value) => onAdvancedFieldChange("maxStepdown", value)}
               />
               <NumberField
                 className="w-[10.5rem]"
                 label="Stepover"
                 unit="mm"
-                value={settings.engraving.stepover}
-                helper={recommendation("engraving.stepover", 2, "mm")}
-                onChange={(value) => onNumberChange("engraving.stepover", value, "advanced")}
+                value={cutting.stepover}
+                helper={recommendation(recommendedAdvanced.stepover, 2, "mm")}
+                onChange={(value) => onAdvancedFieldChange("stepover", value)}
               />
               <NumberField
                 className="w-[10.5rem]"
                 label="Cut Feed"
                 unit="mm/min"
-                value={settings.engraving.cut_feedrate}
-                helper={recommendation("engraving.cut_feedrate", 0, "mm/min")}
-                onChange={(value) => onNumberChange("engraving.cut_feedrate", value, "advanced")}
+                value={cutting.cutFeedrate}
+                helper={recommendation(recommendedAdvanced.cutFeedrate, 0, "mm/min")}
+                onChange={(value) => onAdvancedFieldChange("cutFeedrate", value)}
               />
               <NumberField
                 className="w-[10.5rem]"
                 label="Plunge Feed"
                 unit="mm/min"
-                value={settings.engraving.plunge_feedrate}
-                helper={recommendation("engraving.plunge_feedrate", 0, "mm/min")}
-                onChange={(value) => onNumberChange("engraving.plunge_feedrate", value, "advanced")}
+                value={cutting.plungeFeedrate}
+                helper={recommendation(recommendedAdvanced.plungeFeedrate, 0, "mm/min")}
+                onChange={(value) => onAdvancedFieldChange("plungeFeedrate", value)}
               />
               <NumberField
                 className="w-[10.5rem]"
                 label="Travel Z"
                 unit="mm"
-                value={settings.machine.travel_z}
-                onChange={(value) => onNumberChange("machine.travel_z", value, "advanced")}
+                value={cutting.travelZ}
+                onChange={(value) => onAdvancedFieldChange("travelZ", value)}
               />
               <NumberField
                 className="w-[10.5rem]"
                 label="Cut Z"
                 unit="mm"
-                value={settings.machine.cut_z}
-                onChange={(value) => onNumberChange("machine.cut_z", value, "advanced")}
+                value={cutting.cutZ}
+                onChange={(value) => onAdvancedFieldChange("cutZ", value)}
               />
               <NumberField
                 className="w-[10.5rem]"
                 label="Machine Width"
                 unit="mm"
-                value={settings.engraving.machine_width}
-                onChange={(value) => onNumberChange("engraving.machine_width", value, "advanced")}
+                value={cutting.machineWidth}
+                onChange={(value) => onAdvancedFieldChange("machineWidth", value)}
               />
               <NumberField
                 className="w-[10.5rem]"
                 label="Machine Height"
                 unit="mm"
-                value={settings.engraving.machine_height}
-                onChange={(value) => onNumberChange("engraving.machine_height", value, "advanced")}
+                value={cutting.machineHeight}
+                onChange={(value) => onAdvancedFieldChange("machineHeight", value)}
               />
             </div>
           </div>

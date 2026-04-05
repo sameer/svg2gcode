@@ -1,11 +1,18 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Button, Input } from "@heroui/react";
 import ChevronDownIcon from "@gravity-ui/icons/esm/ChevronDown.js";
 import ChevronRightIcon from "@gravity-ui/icons/esm/ChevronRight.js";
 
 import { cloneTreeWithCompositeIds, localElementColor } from "@/lib/art-objects";
+import { buildGroupUnitId, buildTreeNodeKey } from "@/lib/editor-selection";
 import { AppIcon, Icons } from "@/lib/icons";
-import type { ArtObject, DiveRootScope, EditorSelection, SvgTreeNode } from "@/lib/types";
+import type {
+  ArtObject,
+  EditorFocusScope,
+  EditorInteractionMode,
+  EditorSelection,
+  SvgTreeNode,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface LayerTreeProps {
@@ -14,11 +21,16 @@ interface LayerTreeProps {
   onProjectNameChange: (name: string) => void;
   selection: EditorSelection;
   activeDiveRootId: string | null;
+  focusScope: EditorFocusScope | null;
+  interactionMode: EditorInteractionMode;
+  selectedUnitIds: string[];
   onSelectMaterial: () => void;
   onSelectArtObject: (artObjectId: string) => void;
   onSelectArtObjects?: (artObjectIds: string[], additive: boolean) => void;
   onSelectIds: (artObjectId: string, ids: string[], additive: boolean) => void;
-  onActivateDiveRoot: (scope: DiveRootScope | null) => void;
+  onFocusTreeScope: (artObjectId: string, scopeNodeId: string) => void;
+  onEnterSvgDiveMode: (artObjectId: string) => void;
+  onDrillIntoElement: (artObjectId: string, elementId: string) => boolean;
   onHoverIdsChange: (ids: string[]) => void;
   onAddClick: () => void;
 }
@@ -29,11 +41,16 @@ export function LayerTree({
   onProjectNameChange,
   selection,
   activeDiveRootId,
+  focusScope,
+  interactionMode,
+  selectedUnitIds,
   onSelectMaterial,
   onSelectArtObject,
   onSelectArtObjects,
   onSelectIds,
-  onActivateDiveRoot,
+  onFocusTreeScope,
+  onEnterSvgDiveMode,
+  onDrillIntoElement,
   onHoverIdsChange,
   onAddClick,
 }: LayerTreeProps) {
@@ -151,10 +168,15 @@ export function LayerTree({
                         query={query}
                         selection={selection}
                         activeDiveRootId={activeDiveRootId}
+                        focusScope={focusScope}
+                        interactionMode={interactionMode}
+                        selectedUnitIds={selectedUnitIds}
                         onSelectArtObject={onSelectArtObject}
                         onSelectArtObjects={onSelectArtObjects}
                         onSelectIds={onSelectIds}
-                        onActivateDiveRoot={onActivateDiveRoot}
+                        onFocusTreeScope={onFocusTreeScope}
+                        onEnterSvgDiveMode={onEnterSvgDiveMode}
+                        onDrillIntoElement={onDrillIntoElement}
                         onHoverIdsChange={onHoverIdsChange}
                       />
                     </div>
@@ -175,31 +197,43 @@ function TreeNode({
   query,
   selection,
   activeDiveRootId,
+  focusScope,
+  interactionMode,
+  selectedUnitIds,
   onSelectArtObject,
   onSelectArtObjects,
   onSelectIds,
-  onActivateDiveRoot,
+  onFocusTreeScope,
+  onEnterSvgDiveMode,
+  onDrillIntoElement,
   onHoverIdsChange,
   depth = 0,
+  nodePath = [],
 }: {
   node: SvgTreeNode;
   artObject: ArtObject;
   query: string;
   selection: EditorSelection;
   activeDiveRootId: string | null;
+  focusScope: EditorFocusScope | null;
+  interactionMode: EditorInteractionMode;
+  selectedUnitIds: string[];
   onSelectArtObject: (artObjectId: string) => void;
   onSelectArtObjects?: (artObjectIds: string[], additive: boolean) => void;
   onSelectIds: (artObjectId: string, ids: string[], additive: boolean) => void;
-  onActivateDiveRoot: (scope: DiveRootScope | null) => void;
+  onFocusTreeScope: (artObjectId: string, scopeNodeId: string) => void;
+  onEnterSvgDiveMode: (artObjectId: string) => void;
+  onDrillIntoElement: (artObjectId: string, elementId: string) => boolean;
   onHoverIdsChange: (ids: string[]) => void;
   depth?: number;
+  nodePath?: number[];
 }) {
   const normalizedQuery = query.trim().toLowerCase();
   const matchesSelf = !normalizedQuery
     ? true
     : `${node.label} ${node.tag_name} ${node.id ?? ""}`.toLowerCase().includes(normalizedQuery);
   const children = node.children
-    .map((child) => (
+    .map((child, childIndex) => (
       <TreeNode
         key={child.id ?? `${node.id}-${child.label}`}
         node={child}
@@ -207,11 +241,18 @@ function TreeNode({
         query={query}
         selection={selection}
         activeDiveRootId={activeDiveRootId}
+        focusScope={focusScope}
+        interactionMode={interactionMode}
+        selectedUnitIds={selectedUnitIds}
         onSelectArtObject={onSelectArtObject}
+        onSelectArtObjects={onSelectArtObjects}
         onSelectIds={onSelectIds}
-        onActivateDiveRoot={onActivateDiveRoot}
+        onFocusTreeScope={onFocusTreeScope}
+        onEnterSvgDiveMode={onEnterSvgDiveMode}
+        onDrillIntoElement={onDrillIntoElement}
         onHoverIdsChange={onHoverIdsChange}
         depth={depth + 1}
+        nodePath={[...nodePath, childIndex]}
       />
     ))
     .filter(Boolean);
@@ -220,13 +261,28 @@ function TreeNode({
     return null;
   }
 
+  const nodeKey = nodePath.length > 0 ? buildTreeNodeKey(nodePath) : null;
+  const selectedUnitIdSet = new Set(selectedUnitIds);
+  const activeScopePath = focusScope?.artObjectId === artObject.id && focusScope.scopeNodeId
+    ? focusScope.scopeNodeId.split(".").map(Number)
+    : null;
   const isSelected =
     ((((selection.type === "art-object" && selection.artObjectId === artObject.id) ||
       (selection.type === "art-objects" && selection.artObjectIds.includes(artObject.id))) &&
       node.tag_name === "svg")) ||
-    (selection.type === "elements" && node.id != null && selection.elementIds.includes(node.id));
-  const isActiveDiveRoot = activeDiveRootId === `${artObject.id}:${node.id ?? node.label}`;
+    (interactionMode === "direct"
+      ? Boolean(node.id && selectedUnitIdSet.has(node.id))
+      : Boolean(
+          nodeKey &&
+            isDirectChildOfScope(nodePath, activeScopePath) &&
+            selectedUnitIdSet.has(node.selectable && node.id ? node.id : buildGroupUnitId(artObject.id, nodeKey)),
+        ));
+  const isActiveDiveRoot = activeDiveRootId === (nodeKey ? `${artObject.id}:${nodeKey}` : `${artObject.id}:root`);
   const color = node.id ? localElementColor(artObject, node.id) : null;
+  const additive = (event: ReactMouseEvent<HTMLButtonElement>) =>
+    event.metaKey || event.ctrlKey || event.shiftKey;
+  const representativeIds =
+    node.selectable && node.id ? [node.id] : node.selectable_descendant_ids.slice(0, 1);
 
   return (
     <div className="space-y-1">
@@ -237,7 +293,7 @@ function TreeNode({
         onMouseLeave={() => onHoverIdsChange([])}
         onClick={(event) => {
           if (node.tag_name === "svg") {
-            if (onSelectArtObjects && (event.metaKey || event.ctrlKey || event.shiftKey)) {
+            if (onSelectArtObjects && additive(event)) {
               onSelectArtObjects([artObject.id], true);
               return;
             }
@@ -245,21 +301,30 @@ function TreeNode({
             return;
           }
 
-          if (!node.selectable && node.selectable_descendant_ids.length > 0) {
-            onActivateDiveRoot({
-              id: `${artObject.id}:${node.id ?? node.label}`,
-              label: node.label,
-              elementIds: node.selectable_descendant_ids,
-              artObjectId: artObject.id,
-            });
+          if (representativeIds.length === 0) {
             return;
           }
 
-          onSelectIds(
-            artObject.id,
-            node.selectable ? node.selectable_descendant_ids.slice(0, 1) : node.selectable_descendant_ids,
-            event.metaKey || event.ctrlKey || event.shiftKey,
-          );
+          onSelectIds(artObject.id, representativeIds, additive(event));
+        }}
+        onDoubleClick={() => {
+          if (node.tag_name === "svg") {
+            onEnterSvgDiveMode(artObject.id);
+            return;
+          }
+
+          if (!node.selectable && node.selectable_descendant_ids.length > 0 && nodeKey) {
+            onFocusTreeScope(artObject.id, nodeKey);
+            return;
+          }
+
+          const firstElementId = representativeIds[0];
+          if (firstElementId) {
+            const didFocus = onDrillIntoElement(artObject.id, firstElementId);
+            if (!didFocus && (!focusScope || focusScope.artObjectId !== artObject.id)) {
+              onEnterSvgDiveMode(artObject.id);
+            }
+          }
         }}
       >
         <span className="flex min-w-0 items-center gap-2">
@@ -274,6 +339,18 @@ function TreeNode({
       {children}
     </div>
   );
+}
+
+function isDirectChildOfScope(nodePath: number[], scopePath: number[] | null) {
+  if (!scopePath) {
+    return nodePath.length === 1;
+  }
+
+  if (nodePath.length !== scopePath.length + 1) {
+    return false;
+  }
+
+  return scopePath.every((segment, index) => nodePath[index] === segment);
 }
 
 function matchesTree(node: SvgTreeNode, query: string): boolean {

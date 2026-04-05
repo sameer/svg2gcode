@@ -1,5 +1,7 @@
 export type ToolShape = "Flat" | "Ball" | "V";
 export type FillMode = "Pocket" | "Contour";
+export type EngraveType = "outline" | "pocket" | "raster" | "skeleton";
+export type EditorInteractionMode = "group" | "direct";
 export type TabId = "prepare" | "preview";
 export type CanvasSelectionTarget = "material" | "svg" | null;
 export type InspectorTab = "design" | "material";
@@ -98,21 +100,29 @@ export interface FrontendOperation {
   target_depth_mm: number;
   assigned_element_ids: string[];
   color: string | null;
+  engrave_type?: EngraveType | null;
   fill_mode?: FillMode | null;
 }
 
 export interface ElementAssignment {
   elementId: string;
   targetDepthMm: number;
+  engraveType: EngraveType | null;
   fillMode: FillMode | null;
 }
 
 export interface AssignmentProfileGroup {
   key: string;
   targetDepthMm: number;
+  engraveType: EngraveType | null;
   fillMode: FillMode | null;
   elementIds: string[];
   color: string;
+}
+
+export interface EditorFocusScope {
+  artObjectId: string;
+  scopeNodeId: string | null;
 }
 
 export interface DiveRootScope {
@@ -120,12 +130,15 @@ export interface DiveRootScope {
   label: string;
   elementIds: string[];
   artObjectId: string;
+  scopeNodeId: string | null;
 }
 
 export interface DesignSelectionSnapshot {
-  selection: EditorSelection;
-  isDiveMode: boolean;
-  activeDiveRoot: DiveRootScope | null;
+  surfaceMode: "design" | "material";
+  selectedArtObjectIds: string[];
+  selectedUnitIds: string[];
+  focusScope: EditorFocusScope | null;
+  interactionMode: EditorInteractionMode;
 }
 
 export type EditorSelection =
