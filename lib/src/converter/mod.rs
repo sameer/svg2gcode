@@ -31,7 +31,7 @@ mod transform;
 mod units;
 mod visit;
 
-pub use cam::{svg2program_engraving, svg2program_engraving_multi};
+pub use cam::{svg2program_engraving, svg2program_engraving_multi, svg2program_engraving_multi_with_progress};
 
 /// High-level output configuration
 #[derive(Debug, Clone, PartialEq)]

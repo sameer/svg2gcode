@@ -4,9 +4,9 @@
     {
       "name": "web-dev",
       "runtimeExecutable": "/usr/local/bin/node",
-      "runtimeArgs": ["node_modules/.bin/vite", "--port", "5175", "--strictPort"],
+      "runtimeArgs": ["node_modules/.bin/vite", "--port", "5177", "--strictPort"],
       "cwd": "web",
-      "port": 5175
+      "port": 5177
     }
   ]
 }

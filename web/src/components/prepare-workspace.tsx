@@ -116,6 +116,8 @@ interface PrepareWorkspaceProps {
   onProfilePreview: (profileKey: string | null) => void;
   onProfilePreviewClear: () => void;
   onProfileSelect: (elementIds: string[]) => void;
+  operationOverrides: Record<string, { allowThickenRouting: boolean }>;
+  onThickenRoutingChange: (groupKey: string, value: boolean) => void;
 }
 
 export function PrepareWorkspace(props: PrepareWorkspaceProps) {
@@ -244,6 +246,8 @@ export function PrepareWorkspace(props: PrepareWorkspaceProps) {
             onProfilePreview={props.onProfilePreview}
             onProfilePreviewClear={props.onProfilePreviewClear}
             onProfileSelect={props.onProfileSelect}
+            operationOverrides={props.operationOverrides}
+            onThickenRoutingChange={props.onThickenRoutingChange}
           />
         </div>
       </Panel>

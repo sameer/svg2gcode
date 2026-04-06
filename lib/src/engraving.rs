@@ -139,6 +139,8 @@ pub struct EngravingOperation {
     pub target_depth: f64,
     #[cfg_attr(feature = "serde", serde(default))]
     pub fill_mode: Option<FillMode>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub allow_thicken_routing: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -148,6 +150,7 @@ pub enum GenerationWarning {
     DepthExceedsMaterialThickness,
     FillDetailLoss,
     ToolTooLargeForFill,
+    ThickenedFeatureRouting,
 }
 
 impl GenerationWarning {
@@ -165,6 +168,9 @@ impl GenerationWarning {
             }
             Self::ToolTooLargeForFill => {
                 "At least one filled region is too small for the selected tool diameter."
+            }
+            Self::ThickenedFeatureRouting => {
+                "Some narrow filled regions are narrower than the router bit. They will be routed at the bit diameter (thicker than the SVG design)."
             }
         }
     }

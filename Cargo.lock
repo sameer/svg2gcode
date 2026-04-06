@@ -684,6 +684,7 @@ version = "0.1.0"
 dependencies = [
  "g-code",
  "getrandom",
+ "js-sys",
  "regex",
  "roxmltree",
  "serde",

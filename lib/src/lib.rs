@@ -17,7 +17,7 @@ mod turtle;
 
 pub use converter::{
     ConversionConfig, ConversionOptions, svg2preview, svg2program, svg2program_engraving,
-    svg2program_engraving_multi,
+    svg2program_engraving_multi, svg2program_engraving_multi_with_progress,
 };
 pub use engraving::{EngravingConfig, EngravingOperation, FillMode, GenerationWarning, ToolShape};
 pub use machine::{Machine, MachineConfig, SupportedFunctionality};

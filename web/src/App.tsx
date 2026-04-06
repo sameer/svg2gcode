@@ -63,6 +63,8 @@ function App() {
     changeBatchFillMode,
     handleProfilePreview,
     handleProfileSelect,
+    operationOverrides,
+    handleThickenRoutingChange,
     handleMakePath,
     downloadNc,
     notifyPreviewRequiresProcessing,
@@ -204,6 +206,8 @@ function App() {
             onProfilePreview={handleProfilePreview}
             onProfilePreviewClear={() => handleProfilePreview(null)}
             onProfileSelect={handleProfileSelect}
+            operationOverrides={operationOverrides}
+            onThickenRoutingChange={handleThickenRoutingChange}
           />
         ) : (
           <PreviewWorkspace

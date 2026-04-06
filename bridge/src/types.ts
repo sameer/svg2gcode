@@ -1,19 +1,6 @@
 export type ToolShape = "Flat" | "Ball" | "V";
 export type FillMode = "Pocket" | "Contour";
 export type EngraveType = "outline" | "pocket" | "raster" | "skeleton";
-export type EditorInteractionMode = "group" | "direct";
-export type TabId = "prepare" | "preview";
-export type CanvasSelectionTarget = "material" | "svg" | null;
-export type InspectorTab = "design" | "material";
-export type LayerGroupingMode = "structure" | "depth" | "fill";
-export type AlignmentAction =
-  | "left"
-  | "center-x"
-  | "right"
-  | "top"
-  | "center-y"
-  | "bottom";
-export type DistributionAction = "horizontal" | "vertical";
 
 export interface Settings {
   conversion: {
@@ -80,6 +67,14 @@ export interface PreparedSvgDocument {
   selectable_element_ids: string[];
 }
 
+export interface SvgDocumentMetrics {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  aspectRatio: number;
+}
+
 export interface ArtObject {
   id: string;
   name: string;
@@ -91,7 +86,7 @@ export interface ArtObject {
   heightMm: number;
   aspectLocked: boolean;
   elementAssignments: Record<string, ElementAssignment>;
-  elementColors: Map<string, string>;
+  elementColors?: Map<string, string>;
 }
 
 export interface FrontendOperation {
@@ -121,73 +116,6 @@ export interface AssignmentProfileGroup {
   color: string;
 }
 
-export interface EditorFocusScope {
-  artObjectId: string;
-  scopeNodeId: string | null;
-}
-
-export interface DiveRootScope {
-  id: string;
-  label: string;
-  elementIds: string[];
-  artObjectId: string;
-  scopeNodeId: string | null;
-}
-
-export interface DesignSelectionSnapshot {
-  surfaceMode: "design" | "material";
-  selectedArtObjectIds: string[];
-  selectedUnitIds: string[];
-  focusScope: EditorFocusScope | null;
-  interactionMode: EditorInteractionMode;
-}
-
-export type EditorSelection =
-  | {
-      type: "none";
-    }
-  | {
-      type: "material";
-    }
-  | {
-      type: "art-object";
-      artObjectId: string;
-    }
-  | {
-      type: "art-objects";
-      artObjectIds: string[];
-    }
-  | {
-      type: "elements";
-      artObjectId: string;
-      elementIds: string[];
-    };
-
-export type InspectorContext =
-  | {
-      type: "none";
-    }
-  | {
-      type: "art-object";
-      artObjectId: string;
-      elementIds: string[];
-      profileGroups: AssignmentProfileGroup[];
-    }
-  | {
-      type: "svg";
-      elementIds: string[];
-      profileGroups: AssignmentProfileGroup[];
-    }
-  | {
-      type: "selection";
-      elementIds: string[];
-      profileGroups: AssignmentProfileGroup[];
-      mixedDepth: boolean;
-      mixedFillMode: boolean;
-      targetDepthMm: number | null;
-      fillMode: FillMode | null;
-    };
-
 export interface GenerateJobRequest {
   normalized_svg: string;
   settings: Settings;
@@ -214,31 +142,8 @@ export interface GenerateJobResponse {
   };
 }
 
-export interface StudioProject {
-  preparedSvg: PreparedSvgDocument | null;
-  settings: Settings | null;
-  operations: FrontendOperation[];
-  selectedIds: string[];
-  activeOperationId: string | null;
-  generated: GenerateJobResponse | null;
-  isGenerating: boolean;
-  error: string | null;
-}
-
-export interface CanvasEditorState {
-  zoom: number;
-  pan: {
-    x: number;
-    y: number;
-  };
-  selection: EditorSelection;
-  paddingMm: number;
-}
-
-export interface SvgDocumentMetrics {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  aspectRatio: number;
+export interface JobProgress {
+  phase: "processing" | "optimizing" | "formatting";
+  current: number;
+  total: number;
 }

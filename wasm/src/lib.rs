@@ -9,10 +9,21 @@ use roxmltree::ParsingOptions;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use svg2gcode::{
-    ConversionOptions, EngravingOperation, Machine, Settings, svg2program_engraving_multi,
+    ConversionOptions, EngravingOperation, Machine, Settings, svg2program_engraving_multi_with_progress,
 };
 use wasm_bindgen::prelude::*;
 use xmltree::{Element, XMLNode};
+
+fn report_progress(callback: &Option<js_sys::Function>, phase: &str, current: usize, total: usize) {
+    if let Some(cb) = callback {
+        let _ = cb.call3(
+            &JsValue::NULL,
+            &JsValue::from_str(phase),
+            &JsValue::from_f64(current as f64),
+            &JsValue::from_f64(total as f64),
+        );
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SvgTreeNode {
@@ -40,6 +51,8 @@ pub struct FrontendOperation {
     pub color: Option<String>,
     #[serde(default)]
     pub fill_mode: Option<String>,
+    #[serde(default)]
+    pub allow_thicken_routing: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,10 +103,10 @@ pub fn prepare_svg_document(svg: &str) -> String {
 }
 
 #[wasm_bindgen]
-pub fn generate_engraving_job(input: &str) -> String {
+pub fn generate_engraving_job(input: &str, on_progress: Option<js_sys::Function>) -> String {
     let request: Result<GenerateJobRequest, _> = serde_json::from_str(input);
     match request {
-        Ok(request) => match generate_job(request) {
+        Ok(request) => match generate_job(request, &on_progress) {
             Ok(response) => serialize_ok(response),
             Err(error) => serialize_error(error),
         },
@@ -139,7 +152,7 @@ fn prepare_svg(svg: &str) -> Result<PreparedSvgDocument, String> {
     })
 }
 
-fn generate_job(request: GenerateJobRequest) -> Result<GenerateJobResponse, String> {
+fn generate_job(request: GenerateJobRequest, on_progress: &Option<js_sys::Function>) -> Result<GenerateJobResponse, String> {
     let document = roxmltree::Document::parse_with_options(
         request.normalized_svg.as_str(),
         ParsingOptions {
@@ -196,6 +209,9 @@ fn generate_job(request: GenerateJobRequest) -> Result<GenerateJobResponse, Stri
             .map_err(|err| err.to_string())?,
     );
 
+    let total_ops = request.operations.iter().filter(|op| !op.assigned_element_ids.is_empty()).count();
+    report_progress(on_progress, "processing", 0, total_ops);
+
     let operations = request
         .operations
         .iter()
@@ -209,16 +225,27 @@ fn generate_job(request: GenerateJobRequest) -> Result<GenerateJobResponse, Stri
                 .fill_mode
                 .as_deref()
                 .and_then(|s| s.parse().ok()),
+            allow_thicken_routing: operation.allow_thicken_routing,
         })
         .collect::<Vec<_>>();
 
-    let (program, warnings) = svg2program_engraving_multi(
+    let progress_cb: Option<Box<dyn Fn(usize, usize, &str)>> = if on_progress.is_some() {
+        let cb = on_progress.clone().unwrap();
+        Some(Box::new(move |current: usize, total: usize, phase: &str| {
+            report_progress(&Some(cb.clone()), phase, current, total);
+        }))
+    } else {
+        None
+    };
+
+    let (program, warnings) = svg2program_engraving_multi_with_progress(
         &document,
         &request.settings.conversion,
         ConversionOptions::default(),
         machine,
         &request.settings.engraving,
         &operations,
+        progress_cb.as_ref().map(|cb| cb.as_ref()),
     )?;
 
     let mut gcode = String::new();
@@ -261,39 +288,62 @@ fn extract_operation_ranges(
     gcode: &str,
     operations: &[FrontendOperation],
 ) -> Vec<OperationLineRange> {
-    let operation_map = operations
+    // Build a color map keyed by operation ID for fast lookup.
+    let color_map: HashMap<&str, Option<String>> = operations
         .iter()
-        .map(|operation| (operation.id.as_str(), operation))
-        .collect::<HashMap<_, _>>();
+        .map(|op| (op.id.as_str(), op.color.clone()))
+        .collect();
+
     let mut ranges = Vec::new();
-    let mut active_operation: Option<(&FrontendOperation, usize)> = None;
+    // Track the active block: (operation_id, operation_name, color, start_line)
+    let mut active: Option<(String, String, Option<String>, usize)> = None;
 
     for (index, line) in gcode.lines().enumerate() {
         let line_number = index + 1;
-        if let Some(rest) = line.trim().strip_prefix(";operation:start:") {
-            let operation_id = rest.split_once(':').map(|(id, _)| id).unwrap_or(rest);
-            if let Some(operation) = operation_map.get(operation_id) {
-                active_operation = Some((operation, line_number + 1));
+        let trimmed = line.trim();
+
+        if let Some(rest) = trimmed.strip_prefix(";operation:start:") {
+            // Format: operation:start:{id}:{name}
+            let (op_id, op_name) = rest
+                .split_once(':')
+                .map(|(id, name)| (id.to_string(), name.to_string()))
+                .unwrap_or_else(|| (rest.to_string(), rest.to_string()));
+
+            // Look up color by exact ID; fall back to parent color for "-thickened" suffix.
+            let color = color_map
+                .get(op_id.as_str())
+                .cloned()
+                .flatten()
+                .or_else(|| {
+                    op_id
+                        .strip_suffix("-thickened")
+                        .and_then(|parent_id| color_map.get(parent_id))
+                        .cloned()
+                        .flatten()
+                });
+
+            active = Some((op_id, op_name, color, line_number + 1));
+        } else if let Some(end_id) = trimmed.strip_prefix(";operation:end:") {
+            if let Some((op_id, op_name, color, start_line)) = active.take() {
+                if op_id == end_id {
+                    ranges.push(OperationLineRange {
+                        operation_id: op_id,
+                        operation_name: op_name,
+                        color,
+                        start_line,
+                        end_line: line_number.saturating_sub(1),
+                    });
+                }
             }
-        } else if let Some(operation_id) = line.trim().strip_prefix(";operation:end:")
-            && let Some((operation, start_line)) = active_operation.take()
-            && operation.id == operation_id
-        {
-            ranges.push(OperationLineRange {
-                operation_id: operation.id.clone(),
-                operation_name: operation.name.clone(),
-                color: operation.color.clone(),
-                start_line,
-                end_line: line_number.saturating_sub(1),
-            });
         }
     }
 
-    if let Some((operation, start_line)) = active_operation.take() {
+    // Handle an unclosed block at end of GCode.
+    if let Some((op_id, op_name, color, start_line)) = active {
         ranges.push(OperationLineRange {
-            operation_id: operation.id.clone(),
-            operation_name: operation.name.clone(),
-            color: operation.color.clone(),
+            operation_id: op_id,
+            operation_name: op_name,
+            color,
             start_line,
             end_line: gcode.lines().count(),
         });

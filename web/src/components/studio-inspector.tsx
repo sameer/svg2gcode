@@ -34,6 +34,8 @@ interface StudioInspectorProps {
   onProfilePreview: (profileKey: string | null) => void;
   onProfilePreviewClear: () => void;
   onProfileSelect: (elementIds: string[]) => void;
+  operationOverrides: Record<string, { allowThickenRouting: boolean }>;
+  onThickenRoutingChange: (groupKey: string, value: boolean) => void;
 }
 
 export function StudioInspector({
@@ -55,6 +57,8 @@ export function StudioInspector({
   onProfilePreview,
   onProfilePreviewClear,
   onProfileSelect,
+  operationOverrides,
+  onThickenRoutingChange,
 }: StudioInspectorProps) {
   const selectionCount = context.type === "none" ? 0 : context.elementIds.length;
   const selectionActive = context.type === "selection";
@@ -172,6 +176,8 @@ export function StudioInspector({
                 onSelect={onProfileSelect}
                 onDepthChange={onBatchDepthChange}
                 onFillModeChange={onBatchFillModeChange}
+                operationOverrides={operationOverrides}
+                onThickenRoutingChange={onThickenRoutingChange}
               />
             </section>
 
@@ -192,6 +198,8 @@ function ProfileGroupsSection({
   onSelect,
   onDepthChange,
   onFillModeChange,
+  operationOverrides,
+  onThickenRoutingChange,
 }: {
   groups: AssignmentProfileGroup[];
   selectionActive: boolean;
@@ -201,6 +209,8 @@ function ProfileGroupsSection({
   onSelect: (elementIds: string[]) => void;
   onDepthChange: (elementIds: string[], value: number) => void;
   onFillModeChange: (elementIds: string[], value: FillMode) => void;
+  operationOverrides: Record<string, { allowThickenRouting: boolean }>;
+  onThickenRoutingChange: (groupKey: string, value: boolean) => void;
 }) {
   if (groups.length === 0) {
     return (
@@ -284,6 +294,23 @@ function ProfileGroupsSection({
               onChange={(value) => onFillModeChange(group.elementIds, value)}
             />
           </div>
+          {(group.fillMode === "Pocket" || group.fillMode == null) ? (
+            <div className="mt-2 flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+              <input
+                type="checkbox"
+                id={`thicken-${group.key}`}
+                checked={operationOverrides[group.key]?.allowThickenRouting ?? false}
+                onChange={(e) => onThickenRoutingChange(group.key, e.target.checked)}
+                className="h-3.5 w-3.5 cursor-pointer accent-primary"
+              />
+              <label
+                htmlFor={`thicken-${group.key}`}
+                className="cursor-pointer text-xs text-muted-foreground"
+              >
+                Route thin features (may widen cut)
+              </label>
+            </div>
+          ) : null}
         </div>
         );
       })}

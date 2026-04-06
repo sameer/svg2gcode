@@ -277,23 +277,32 @@ fn build_stroke_groups(paths: Vec<PolylinePath>, depths: &[f64]) -> Vec<Operatio
         .collect()
 }
 
+struct FillGroupsResult {
+    normal_groups: Vec<OperationGroup>,
+    thickened_groups: Vec<OperationGroup>,
+}
+
 fn build_fill_groups(
     fill_shapes: &[Shape],
     depths: &[f64],
     tool_radius: f64,
     stepover: f64,
+    allow_thicken_routing: bool,
     warnings: &mut Vec<GenerationWarning>,
-) -> Vec<OperationGroup> {
-    let mut groups = vec![];
+) -> FillGroupsResult {
+    let mut normal_groups = vec![];
+    let mut thickened_groups = vec![];
+
     for shape in fill_shapes {
         let mut paths = vec![];
         let mut had_any_paths = false;
+        let mut too_thin = false;
 
         for depth in depths.iter().copied() {
             let mut current = inset_shapes(std::slice::from_ref(shape), tool_radius);
             if current.is_empty() {
                 if !had_any_paths {
-                    warnings.push(GenerationWarning::ToolTooLargeForFill);
+                    too_thin = true;
                 }
                 break;
             }
@@ -312,13 +321,27 @@ fn build_fill_groups(
         }
 
         if !paths.is_empty() {
-            groups.push(OperationGroup {
+            normal_groups.push(OperationGroup {
                 paths,
                 reversible: false,
             });
+        } else if too_thin {
+            if allow_thicken_routing {
+                // Route the thin shape in contour mode: bit traces the perimeter.
+                // The bit is wider than the feature so the cut thickens it.
+                let contour_groups =
+                    build_fill_contour_groups(std::slice::from_ref(shape), depths);
+                thickened_groups.extend(contour_groups);
+            } else {
+                warnings.push(GenerationWarning::ToolTooLargeForFill);
+            }
         }
     }
-    groups
+
+    FillGroupsResult {
+        normal_groups,
+        thickened_groups,
+    }
 }
 
 fn build_fill_contour_groups(fill_shapes: &[Shape], depths: &[f64]) -> Vec<OperationGroup> {
@@ -604,7 +627,8 @@ fn collect_engraving_groups<'a>(
     config: &ConversionConfig,
     engraving: &EngravingConfig,
     options: ConversionOptions,
-) -> Result<(Vec<OperationGroup>, Vec<GenerationWarning>), String> {
+    allow_thicken_routing: bool,
+) -> Result<(Vec<OperationGroup>, Vec<OperationGroup>, Vec<GenerationWarning>), String> {
     validate_engraving_config(engraving)?;
     let options = apply_dimension_overrides(options, engraving);
     let selector_filter = config
@@ -682,6 +706,8 @@ fn collect_engraving_groups<'a>(
     }
 
     let mut groups = build_stroke_groups(cam_turtle.stroke_paths, &depths);
+    let mut thickened_groups: Vec<OperationGroup> = vec![];
+
     match engraving.fill_mode {
         FillMode::Pocket => {
             if fill_shapes
@@ -691,20 +717,26 @@ fn collect_engraving_groups<'a>(
                 warnings.push(GenerationWarning::FillDetailLoss);
             }
 
-            groups.extend(build_fill_groups(
+            let fill_result = build_fill_groups(
                 &fill_shapes,
                 &depths,
                 tool_radius,
                 engraving.stepover,
+                allow_thicken_routing,
                 &mut warnings,
-            ));
+            );
+            groups.extend(fill_result.normal_groups);
+            if !fill_result.thickened_groups.is_empty() {
+                warnings.push(GenerationWarning::ThickenedFeatureRouting);
+                thickened_groups.extend(fill_result.thickened_groups);
+            }
         }
         FillMode::Contour => {
             groups.extend(build_fill_contour_groups(&fill_shapes, &depths));
         }
     }
 
-    if groups.is_empty() {
+    if groups.is_empty() && thickened_groups.is_empty() {
         return Err(empty_engraving_geometry_error(
             has_fill_shapes,
             has_stroke_paths,
@@ -735,7 +767,7 @@ fn collect_engraving_groups<'a>(
         }
     }
 
-    Ok((optimize_operation_groups(groups), collect_warnings(warnings)))
+    Ok((optimize_operation_groups(groups), thickened_groups, collect_warnings(warnings)))
 }
 
 fn append_engraving_program_header<'input>(
@@ -817,7 +849,8 @@ pub fn svg2program_engraving<'a, 'input: 'a>(
     machine: Machine<'input>,
     engraving: &EngravingConfig,
 ) -> Result<(Vec<Token<'input>>, Vec<GenerationWarning>), String> {
-    let (groups, warnings) = collect_engraving_groups(doc, config, engraving, options)?;
+    let (groups, _thickened, warnings) =
+        collect_engraving_groups(doc, config, engraving, options, false)?;
     if groups.is_empty() {
         return Err("No engravable SVG geometry was found. Add fills and/or strokes.".into());
     }
@@ -839,6 +872,18 @@ pub fn svg2program_engraving_multi<'a, 'input: 'a>(
     engraving: &EngravingConfig,
     operations: &[EngravingOperation],
 ) -> Result<(Vec<Token<'input>>, Vec<GenerationWarning>), String> {
+    svg2program_engraving_multi_with_progress(doc, config, options, machine, engraving, operations, None)
+}
+
+pub fn svg2program_engraving_multi_with_progress<'a, 'input: 'a>(
+    doc: &'a Document,
+    config: &ConversionConfig,
+    options: ConversionOptions,
+    machine: Machine<'input>,
+    engraving: &EngravingConfig,
+    operations: &[EngravingOperation],
+    on_progress: Option<&dyn Fn(usize, usize, &str)>,
+) -> Result<(Vec<Token<'input>>, Vec<GenerationWarning>), String> {
     validate_engraving_config(engraving)?;
 
     let mut machine = machine;
@@ -846,12 +891,17 @@ pub fn svg2program_engraving_multi<'a, 'input: 'a>(
     let mut warnings = Vec::new();
     let mut emitted_any_geometry = false;
     let mut scheduled_groups = BTreeMap::<u64, Vec<ScheduledOperationGroup>>::new();
+    let total_ops = operations.len();
 
     append_engraving_program_header(&mut program, &mut machine);
 
-    for operation in operations {
+    for (op_index, operation) in operations.iter().enumerate() {
         if operation.selector_filter.trim().is_empty() {
             continue;
+        }
+
+        if let Some(cb) = &on_progress {
+            cb(op_index, total_ops, "processing");
         }
 
         let mut operation_config = config.clone();
@@ -863,27 +913,45 @@ pub fn svg2program_engraving_multi<'a, 'input: 'a>(
             operation_engraving.fill_mode = fm;
         }
 
-        let (groups, operation_warnings) =
-            collect_engraving_groups(doc, &operation_config, &operation_engraving, options.clone())?;
+        let (groups, thickened_groups, operation_warnings) =
+            collect_engraving_groups(doc, &operation_config, &operation_engraving, options.clone(), operation.allow_thicken_routing)?;
 
         warnings.extend(operation_warnings);
-        if groups.is_empty() {
-            continue;
+
+        if !groups.is_empty() {
+            emitted_any_geometry = true;
+            for (depth_key, depth_groups) in
+                schedule_operation_groups_by_depth(&operation.id, &operation.name, groups)
+            {
+                scheduled_groups
+                    .entry(depth_key)
+                    .or_default()
+                    .extend(depth_groups);
+            }
         }
 
-        emitted_any_geometry = true;
-        for (depth_key, depth_groups) in
-            schedule_operation_groups_by_depth(&operation.id, &operation.name, groups)
-        {
-            scheduled_groups
-                .entry(depth_key)
-                .or_default()
-                .extend(depth_groups);
+        if !thickened_groups.is_empty() {
+            emitted_any_geometry = true;
+            let thickened_id = format!("{}-thickened", operation.id);
+            let thickened_name = format!("{} (thickened)", operation.name);
+            let optimized = optimize_operation_groups(thickened_groups);
+            for (depth_key, depth_groups) in
+                schedule_operation_groups_by_depth(&thickened_id, &thickened_name, optimized)
+            {
+                scheduled_groups
+                    .entry(depth_key)
+                    .or_default()
+                    .extend(depth_groups);
+            }
         }
     }
 
     if !emitted_any_geometry {
         return Err("No engravable SVG geometry was found. Add fills and/or strokes.".into());
+    }
+
+    if let Some(cb) = &on_progress {
+        cb(0, 0, "optimizing");
     }
 
     let mut current = Point::new(0.0, 0.0);
@@ -903,6 +971,10 @@ pub fn svg2program_engraving_multi<'a, 'input: 'a>(
     }
 
     append_engraving_program_footer(&mut program, &mut machine);
+
+    if let Some(cb) = &on_progress {
+        cb(0, 0, "formatting");
+    }
 
     Ok((program, collect_warnings(warnings)))
 }

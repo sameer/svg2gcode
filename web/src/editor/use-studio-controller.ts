@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 
 import {
   collectAssignmentsForArtObjects,
@@ -72,6 +72,7 @@ export function useStudioController() {
   const [projectName, setProjectName] = useState("3D Dog Character");
   const [materialPreset, setMaterialPreset] = useState<MaterialPresetId>("Oak");
   const [defaultEngraveType, setDefaultEngraveType] = useState<EngraveType>("pocket");
+  const [operationOverrides, setOperationOverrides] = useState<Record<string, { allowThickenRouting: boolean }>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const previewBlockedNoticeTimerRef = useRef<number | null>(null);
   const artObjectCounterRef = useRef(1);
@@ -251,8 +252,9 @@ export function useStudioController() {
       color: group.color,
       engrave_type: group.engraveType,
       fill_mode: group.fillMode,
+      allow_thicken_routing: operationOverrides[group.key]?.allowThickenRouting ?? false,
     }));
-  }, [allProfileGroups]);
+  }, [allProfileGroups, operationOverrides]);
   const activeArtObjectElementIds = useMemo(
     () => (activeArtObject ? getArtObjectElementIds(activeArtObject) : []),
     [activeArtObject],
@@ -969,6 +971,13 @@ export function useStudioController() {
     setFocusScope(null);
   };
 
+  const handleThickenRoutingChange = useCallback((groupKey: string, value: boolean) => {
+    setOperationOverrides((prev) => ({
+      ...prev,
+      [groupKey]: { ...prev[groupKey], allowThickenRouting: value },
+    }));
+  }, []);
+
   const handleMakePath = async () => {
     if (!generationInput || !generationInputSignature) {
       return;
@@ -1094,6 +1103,8 @@ export function useStudioController() {
     changeBatchFillMode,
     handleProfilePreview,
     handleProfileSelect,
+    operationOverrides,
+    handleThickenRoutingChange,
     handleMakePath,
     downloadNc,
     notifyPreviewRequiresProcessing,
