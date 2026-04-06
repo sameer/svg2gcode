@@ -264,7 +264,7 @@ mod test {
             .iter_emit_tokens()
             .collect::<Vec<_>>();
 
-        let file = if cfg!(debug) {
+        let file = if cfg!(debug_assertions) {
             include_str!("../tests/smooth_curves_circular_interpolation.gcode")
         } else {
             include_str!("../tests/smooth_curves_circular_interpolation_release.gcode")
