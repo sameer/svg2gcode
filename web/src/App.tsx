@@ -130,8 +130,9 @@ function App() {
               onImport={() => fileInputRef.current?.click()}
               onGenerateGcode={handleGenerateGcode}
               isGenerating={gcode.isGenerating}
+              progress={gcode.progress}
             />
-            {(gcode.isGenerating || gcode.result || gcode.error) && (
+            {(gcode.result || gcode.error) && (
               <div className="pointer-events-none absolute inset-x-0 top-24 z-30 flex justify-center px-4">
                 <GenerateGcodePanel
                   state={gcode}

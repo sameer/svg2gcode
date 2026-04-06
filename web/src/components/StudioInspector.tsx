@@ -3,6 +3,7 @@ import { Button, Tabs } from '@heroui/react'
 
 import { normalizeEngraveType } from '../lib/cncVisuals'
 import { isGroupNode } from '../lib/editorTree'
+import { getNodeSize, getNodeOffsetMm, offsetMmToCanvasY } from '../lib/nodeDimensions'
 import { useEditorStore } from '../store'
 import type { CanvasNode, CncMetadata, EngraveType, MachiningSettings, RouterBitShape } from '../types/editor'
 import { MATERIAL_PRESETS } from '../lib/materialPresets'
@@ -75,12 +76,24 @@ export function StudioInspector({ activeTab, onTabChange, materialPreset, onMate
 function DesignTabContent() {
   const selectedIds = useEditorStore((s) => s.selectedIds)
   const nodesById = useEditorStore((s) => s.nodesById)
+  const artboard = useEditorStore((s) => s.artboard)
+  const updateNodeTransform = useEditorStore((s) => s.updateNodeTransform)
   const updateCncMetadata = useEditorStore((s) => s.updateCncMetadata)
   const selectMany = useEditorStore((s) => s.selectMany)
 
   const firstNode = selectedIds.length > 0 ? nodesById[selectedIds[0]] : null
   const meta: CncMetadata = firstNode?.cncMetadata ?? {}
   const allCutDepthGroups = useMemo(() => buildCutDepthGroups(nodesById), [nodesById])
+
+  // Compute dimensions and offset for the selected node
+  const nodeSize = useMemo(
+    () => (firstNode ? getNodeSize(firstNode, nodesById) : null),
+    [firstNode, nodesById],
+  )
+  const nodeOffset = useMemo(
+    () => (firstNode && nodeSize ? getNodeOffsetMm(firstNode, nodeSize, artboard) : null),
+    [firstNode, nodeSize, artboard],
+  )
 
   const applyAll = (patch: Partial<CncMetadata>) => {
     selectedIds.forEach((id) => updateCncMetadata(id, patch))
@@ -115,6 +128,85 @@ function DesignTabContent() {
           </div>
         )}
       </section>
+
+      {/* Dimensions & offset */}
+      {firstNode && nodeSize && nodeOffset && (
+        <section className="space-y-4">
+          <SectionHeading title="Dimensions" />
+          <div className="flex flex-wrap gap-2">
+            <NumberPill
+              label="W"
+              value={round2(nodeSize.width)}
+              unit="mm"
+              onChange={(v) => {
+                if (v === null || v <= 0 || nodeSize.baseWidth <= 0) return
+                const ratio = v / nodeSize.baseWidth
+                selectedIds.forEach((id) => {
+                  const node = nodesById[id]
+                  if (!node) return
+                  const ns = getNodeSize(node, nodesById)
+                  if (ns.baseWidth <= 0) return
+                  if (node.type === 'rect') {
+                    const aspectRatio = ns.baseHeight / ns.baseWidth
+                    updateNodeTransform(id, { width: v, height: v * aspectRatio } as Partial<CanvasNode>)
+                  } else {
+                    updateNodeTransform(id, { scaleX: ratio, scaleY: ratio } as Partial<CanvasNode>)
+                  }
+                })
+              }}
+            />
+            <NumberPill
+              label="H"
+              value={round2(nodeSize.height)}
+              unit="mm"
+              onChange={(v) => {
+                if (v === null || v <= 0 || nodeSize.baseHeight <= 0) return
+                const ratio = v / nodeSize.baseHeight
+                selectedIds.forEach((id) => {
+                  const node = nodesById[id]
+                  if (!node) return
+                  const ns = getNodeSize(node, nodesById)
+                  if (ns.baseHeight <= 0) return
+                  if (node.type === 'rect') {
+                    const aspectRatio = ns.baseWidth / ns.baseHeight
+                    updateNodeTransform(id, { height: v, width: v * aspectRatio } as Partial<CanvasNode>)
+                  } else {
+                    updateNodeTransform(id, { scaleY: ratio, scaleX: ratio } as Partial<CanvasNode>)
+                  }
+                })
+              }}
+            />
+          </div>
+          <SectionHeading title="Offset" />
+          <div className="flex flex-wrap gap-2">
+            <NumberPill
+              label="X"
+              value={round2(nodeOffset.x)}
+              unit="mm"
+              onChange={(v) => {
+                if (v === null) return
+                selectedIds.forEach((id) => {
+                  updateNodeTransform(id, { x: v } as Partial<CanvasNode>)
+                })
+              }}
+            />
+            <NumberPill
+              label="Y"
+              value={round2(nodeOffset.y)}
+              unit="mm"
+              onChange={(v) => {
+                if (v === null) return
+                selectedIds.forEach((id) => {
+                  const node = nodesById[id]
+                  if (!node) return
+                  const ns = getNodeSize(node, nodesById)
+                  updateNodeTransform(id, { y: offsetMmToCanvasY(v, ns.height, artboard) } as Partial<CanvasNode>)
+                })
+              }}
+            />
+          </div>
+        </section>
+      )}
 
       {/* Cut depths */}
       <section className="space-y-4">
@@ -677,4 +769,8 @@ function depthToColor(depth: number): string {
   const ratio = Math.min(1, Math.max(0, depth / 20))
   const hue = 60 - ratio * 60
   return `hsl(${hue}, 90%, 55%)`
+}
+
+function round2(v: number): number {
+  return Math.round(v * 100) / 100
 }

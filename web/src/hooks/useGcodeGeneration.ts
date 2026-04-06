@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react"
-import { generateEngravingJob, type JobProgress, type GenerateJobResponse } from "@svg2gcode/bridge"
+import type { GenerateJobRequest, JobProgress, GenerateJobResponse } from "@svg2gcode/bridge"
 
 import { useEditorStore } from "../store"
 import { initBridge } from "../lib/bridge"
@@ -12,6 +12,23 @@ export interface GcodeGenerationState {
   error: string | null
 }
 
+type GcodeWorkerResponse =
+  | { type: "progress"; jobId: number; progress: JobProgress }
+  | { type: "result"; jobId: number; result: GenerateJobResponse }
+  | { type: "error"; jobId: number; error: string }
+
+let workerInstance: Worker | null = null
+let nextJobId = 1
+
+function getGcodeWorker() {
+  if (!workerInstance) {
+    workerInstance = new Worker(new URL("../workers/gcodeWorker.ts", import.meta.url), {
+      type: "module",
+    })
+  }
+  return workerInstance
+}
+
 export function useGcodeGeneration() {
   const [state, setState] = useState<GcodeGenerationState>({
     isGenerating: false,
@@ -20,11 +37,40 @@ export function useGcodeGeneration() {
     error: null,
   })
 
+  const runGenerationInWorker = useCallback((request: GenerateJobRequest) => {
+    const worker = getGcodeWorker()
+    const jobId = nextJobId++
+
+    return new Promise<GenerateJobResponse>((resolve, reject) => {
+      const handleMessage = (event: MessageEvent<GcodeWorkerResponse>) => {
+        const message = event.data
+        if (message.jobId !== jobId) return
+
+        if (message.type === "progress") {
+          setState((prev) => ({ ...prev, progress: message.progress }))
+          return
+        }
+
+        worker.removeEventListener("message", handleMessage)
+
+        if (message.type === "result") {
+          resolve(message.result)
+          return
+        }
+
+        reject(new Error(message.error))
+      }
+
+      worker.addEventListener("message", handleMessage)
+      worker.postMessage({ type: "generate", jobId, request })
+    })
+  }, [])
+
   const generate = useCallback(async () => {
     setState({ isGenerating: true, progress: null, result: null, error: null })
 
     try {
-      // Ensure WASM is ready and get base settings
+      // Ensure the main-thread bridge is ready for input preparation.
       const baseSettings = await initBridge()
 
       const { nodesById, rootIds, artboard, machiningSettings } = useEditorStore.getState()
@@ -37,9 +83,7 @@ export function useGcodeGeneration() {
         baseSettings,
       )
 
-      const result = await generateEngravingJob(request, (progress) => {
-        setState((prev) => ({ ...prev, progress }))
-      })
+      const result = await runGenerationInWorker(request)
 
       setState({ isGenerating: false, progress: null, result, error: null })
       return result
@@ -48,7 +92,7 @@ export function useGcodeGeneration() {
       setState({ isGenerating: false, progress: null, result: null, error: message })
       return null
     }
-  }, [])
+  }, [runGenerationInWorker])
 
   const downloadGcode = useCallback((gcode: string, filename = "output.gcode") => {
     const blob = new Blob([gcode], { type: "text/plain" })

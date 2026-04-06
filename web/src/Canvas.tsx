@@ -491,11 +491,13 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
         if (otherNode && otherStart) {
           otherNode.x(otherStart.x + dx)
           otherNode.y(otherStart.y + dy)
+          updateNodeTransform(id, { x: otherStart.x + dx, y: otherStart.y + dy })
         }
       })
     }
 
     applyObjectSnapping(nodeId)
+    updateNodeTransform(nodeId, { x: konvaNode.x(), y: konvaNode.y() })
   }
 
   const handleNodeDragEnd = (nodeId: string, konvaNode: Konva.Node) => {
