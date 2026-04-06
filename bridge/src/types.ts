@@ -68,10 +68,18 @@ export interface PreparedSvgDocument {
 }
 
 export interface SvgDocumentMetrics {
+  /** viewBox x origin (internal coordinate system) */
   x: number;
+  /** viewBox y origin (internal coordinate system) */
   y: number;
+  /** viewBox width (internal coordinate units, for scaling) */
   width: number;
+  /** viewBox height (internal coordinate units, for scaling) */
   height: number;
+  /** Physical width in millimeters */
+  widthMm: number;
+  /** Physical height in millimeters */
+  heightMm: number;
   aspectRatio: number;
 }
 

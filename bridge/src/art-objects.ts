@@ -47,8 +47,8 @@ export function createArtObject(params: {
     throw new Error("Could not read SVG dimensions.");
   }
 
-  const widthMm = roundMm(svgMetrics.width);
-  const heightMm = roundMm(svgMetrics.height);
+  const widthMm = roundMm(svgMetrics.widthMm);
+  const heightMm = roundMm(svgMetrics.heightMm);
   const defaultDepth = params.settings?.engraving.target_depth ?? 5;
   const defaultFillMode = engraveTypeToFillMode(params.defaultEngraveType) ?? params.settings?.engraving.fill_mode ?? "Pocket";
   const elementAssignments = Object.fromEntries(

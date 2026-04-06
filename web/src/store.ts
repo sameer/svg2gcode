@@ -13,6 +13,9 @@ import type {
   PendingSvgImport,
   ViewportState,
 } from './types/editor'
+import { parseGcodeProgram } from '@svg2gcode/bridge/viewer'
+import { segmentsToToolpaths } from './components/preview/segmentsToToolpaths'
+import type { CameraType, PreviewState, ViewMode } from './types/preview'
 
 type HistorySnapshot = {
   nodesById: Record<string, CanvasNode>
@@ -75,6 +78,21 @@ export interface EditorStore {
   clearPendingImport: () => void
   placePendingImport: (position: { x: number; y: number }) => void
   setImportStatus: (status: ImportStatus | null) => void
+
+  // Preview state
+  preview: PreviewState
+  setViewMode: (mode: ViewMode) => void
+  setCameraType: (type: CameraType) => void
+  setPlaybackDistance: (distance: number) => void
+  setIsPlaying: (playing: boolean) => void
+  togglePlayback: () => void
+  setPlaybackRate: (rate: number) => void
+  setLoopPlayback: (loop: boolean) => void
+  setShowSvgOverlay: (show: boolean) => void
+  setShowStock: (show: boolean) => void
+  setShowRapidMoves: (show: boolean) => void
+  initPreview: (result: import('@svg2gcode/bridge').GenerateJobResponse) => void
+  clearPreview: () => void
 }
 
 function generateId(): string {
@@ -139,143 +157,9 @@ const createBaseNode = <T extends CanvasNodeSeed>(node: T): T & BaseNodeDefaults
   ...node,
 })
 
-const initialNodes: Record<string, CanvasNode> = {
-  'frame-group': createBaseNode({
-    id: 'frame-group',
-    type: 'group',
-    name: 'Frame Group',
-    x: 120,
-    y: 120,
-    childIds: ['frame-body', 'frame-detail-group'],
-  }),
-  'frame-body': createBaseNode({
-    id: 'frame-body',
-    type: 'rect',
-    name: 'Frame Body',
-    x: 0,
-    y: 0,
-    width: 260,
-    height: 160,
-    fill: '#f3ede2',
-    stroke: '#31241b',
-    strokeWidth: 2,
-    cornerRadius: 18,
-    parentId: 'frame-group',
-  }),
-  'frame-detail-group': createBaseNode({
-    id: 'frame-detail-group',
-    type: 'group',
-    name: 'Frame Detail Group',
-    x: 154,
-    y: 42,
-    childIds: ['frame-detail-circle', 'frame-detail-path'],
-    parentId: 'frame-group',
-  }),
-  'frame-detail-circle': createBaseNode({
-    id: 'frame-detail-circle',
-    type: 'circle',
-    name: 'Frame Detail Circle',
-    x: 0,
-    y: 0,
-    radius: 28,
-    fill: '#d46f4d',
-    stroke: '#31241b',
-    strokeWidth: 2,
-    parentId: 'frame-detail-group',
-  }),
-  'frame-detail-path': createBaseNode({
-    id: 'frame-detail-path',
-    type: 'path',
-    name: 'Frame Detail Path',
-    x: -18,
-    y: 34,
-    data: 'M0 8 L22 0 L44 8 L28 28 L16 28 Z',
-    fill: '#4c8a67',
-    stroke: '#20352a',
-    strokeWidth: 1.5,
-    parentId: 'frame-detail-group',
-  }),
-  'guide-line': createBaseNode({
-    id: 'guide-line',
-    type: 'line',
-    name: 'Guide Line',
-    x: 430,
-    y: 134,
-    points: [0, 0, 180, 24, 220, 96],
-    stroke: '#285c63',
-    strokeWidth: 5,
-    lineCap: 'round',
-    lineJoin: 'round',
-  }),
-  'fixture-group': createBaseNode({
-    id: 'fixture-group',
-    type: 'group',
-    name: 'Fixture Group',
-    x: 410,
-    y: 330,
-    childIds: ['fixture-base', 'fixture-cutout-group'],
-  }),
-  'fixture-base': createBaseNode({
-    id: 'fixture-base',
-    type: 'rect',
-    name: 'Fixture Base',
-    x: 0,
-    y: 0,
-    width: 210,
-    height: 100,
-    fill: '#dfe7f2',
-    stroke: '#25415a',
-    strokeWidth: 2,
-    cornerRadius: 14,
-    parentId: 'fixture-group',
-  }),
-  'fixture-cutout-group': createBaseNode({
-    id: 'fixture-cutout-group',
-    type: 'group',
-    name: 'Fixture Cutout Group',
-    x: 124,
-    y: 24,
-    childIds: ['fixture-cutout-circle', 'fixture-cutout-path'],
-    parentId: 'fixture-group',
-  }),
-  'fixture-cutout-circle': createBaseNode({
-    id: 'fixture-cutout-circle',
-    type: 'circle',
-    name: 'Fixture Cutout Circle',
-    x: 16,
-    y: 16,
-    radius: 22,
-    fill: '#ffffff',
-    stroke: '#25415a',
-    strokeWidth: 2,
-    parentId: 'fixture-cutout-group',
-  }),
-  'fixture-cutout-path': createBaseNode({
-    id: 'fixture-cutout-path',
-    type: 'path',
-    name: 'Fixture Cutout Path',
-    x: 52,
-    y: 0,
-    data: 'M0 0 L34 0 L34 34 L17 22 L0 34 Z',
-    fill: '#7fb3d5',
-    stroke: '#25415a',
-    strokeWidth: 2,
-    parentId: 'fixture-cutout-group',
-  }),
-  'solo-circle': createBaseNode({
-    id: 'solo-circle',
-    type: 'circle',
-    name: 'Solo Circle',
-    x: 710,
-    y: 210,
-    radius: 44,
-    fill: '#f9c74f',
-    stroke: '#7d4c10',
-    strokeWidth: 2,
-  }),
-}
+const initialNodes: Record<string, CanvasNode> = {}
 
-const initialRootIds = ['frame-group', 'guide-line', 'fixture-group', 'solo-circle']
+const initialRootIds: string[] = []
 const initialViewport: ViewportState = {
   x: 0,
   y: 0,
@@ -716,6 +600,118 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       ui: {
         ...state.ui,
         importStatus,
+      },
+    }))
+  },
+
+  // Preview state
+  preview: {
+    viewMode: 'design',
+    cameraType: 'perspective',
+    playbackDistance: 0,
+    isPlaying: false,
+    playbackRate: 60,
+    loopPlayback: true,
+    showSvgOverlay: true,
+    showStock: true,
+    showRapidMoves: false,
+    parsedProgram: null,
+    toolpaths: null,
+    stockBounds: null,
+    gcodeText: null,
+    previewSnapshot: null,
+  },
+  setViewMode: (mode) => {
+    set((state) => ({
+      preview: { ...state.preview, viewMode: mode, isPlaying: false },
+    }))
+  },
+  setCameraType: (type) => {
+    set((state) => ({
+      preview: { ...state.preview, cameraType: type },
+    }))
+  },
+  setPlaybackDistance: (distance) => {
+    set((state) => ({
+      preview: { ...state.preview, playbackDistance: distance },
+    }))
+  },
+  setIsPlaying: (playing) => {
+    set((state) => ({
+      preview: { ...state.preview, isPlaying: playing },
+    }))
+  },
+  togglePlayback: () => {
+    set((state) => {
+      const { preview } = state
+      if (!preview.parsedProgram) return {}
+      // If at end, reset to beginning
+      if (!preview.isPlaying && preview.playbackDistance >= preview.parsedProgram.totalDistance) {
+        return { preview: { ...preview, isPlaying: true, playbackDistance: 0 } }
+      }
+      return { preview: { ...preview, isPlaying: !preview.isPlaying } }
+    })
+  },
+  setPlaybackRate: (rate) => {
+    set((state) => ({
+      preview: { ...state.preview, playbackRate: rate },
+    }))
+  },
+  setLoopPlayback: (loop) => {
+    set((state) => ({
+      preview: { ...state.preview, loopPlayback: loop },
+    }))
+  },
+  setShowSvgOverlay: (show) => {
+    set((state) => ({
+      preview: { ...state.preview, showSvgOverlay: show },
+    }))
+  },
+  setShowStock: (show) => {
+    set((state) => ({
+      preview: { ...state.preview, showStock: show },
+    }))
+  },
+  setShowRapidMoves: (show) => {
+    set((state) => ({
+      preview: { ...state.preview, showRapidMoves: show },
+    }))
+  },
+  initPreview: (result) => {
+    const program = parseGcodeProgram(result.gcode, result.operation_ranges)
+    const { toolpaths, stockBounds } = segmentsToToolpaths(
+      program.segments,
+      result.preview_snapshot.tool_diameter / 2,
+      result.preview_snapshot.material_width,
+      result.preview_snapshot.material_height,
+    )
+
+    set((state) => ({
+      preview: {
+        ...state.preview,
+        viewMode: 'preview',
+        parsedProgram: program,
+        toolpaths,
+        stockBounds,
+        gcodeText: result.gcode,
+        previewSnapshot: result.preview_snapshot,
+        playbackDistance: 0,
+        isPlaying: false,
+      },
+    }))
+  },
+  clearPreview: () => {
+    set((state) => ({
+      preview: {
+        ...state.preview,
+        viewMode: 'design',
+        parsedProgram: null,
+        toolpaths: null,
+        stockBounds: null,
+        gcodeText: null,
+        previewSnapshot: null,
+        playbackDistance: 0,
+        isPlaying: false,
       },
     }))
   },

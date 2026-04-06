@@ -16,6 +16,7 @@ import type {
   MachiningSettings,
 } from "../types/editor"
 import { getSubtreeIds, isGroupNode } from "./editorTree"
+import { getNodeSize } from "./nodeDimensions"
 import { exportToSVG } from "./svgExport"
 import { buildBridgeSettings, resolveEffectiveMaxStepdown } from "./bridgeSettingsAdapter"
 
@@ -59,10 +60,12 @@ export async function editorStateToArtObjects(
       existingArtObjects: artObjects,
     })
 
-    // Override placement from the editor's canvas position
-    const nodeHeight = getNodeHeight(rootNode, nodesById)
+    // Override placement and dimensions from the editor's canvas state
+    const nodeSize = getNodeSize(rootNode, nodesById)
+    artObject.widthMm = nodeSize.width
+    artObject.heightMm = nodeSize.height
     artObject.placementX = rootNode.x
-    artObject.placementY = artboard.height - rootNode.y - nodeHeight
+    artObject.placementY = artboard.height - rootNode.y - nodeSize.height
 
     // Override element assignments from editor CNC metadata
     applyEditorCncMetadata(artObject, rootNode, nodesById, machiningSettings)
@@ -157,30 +160,6 @@ function resolveDefaultEngraveType(node: CanvasNode): BridgeEngraveType {
     return "outline"
   }
   return "pocket"
-}
-
-function getNodeHeight(node: CanvasNode, nodesById: Record<string, CanvasNode>): number {
-  if (isGroupNode(node)) {
-    // Approximate height from children bounds
-    let maxY = 0
-    for (const childId of (node as GroupNode).childIds) {
-      const child = nodesById[childId]
-      if (!child) continue
-      const childBottom = child.y + getNodeHeight(child, nodesById) * child.scaleY
-      maxY = Math.max(maxY, childBottom)
-    }
-    return maxY * node.scaleY
-  }
-
-  switch (node.type) {
-    case "rect":
-      return node.height
-    case "circle":
-      return node.radius * 2
-    case "path":
-    case "line":
-      return 0 // Bounds already baked into position during import
-  }
 }
 
 /**
