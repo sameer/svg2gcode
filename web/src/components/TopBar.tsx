@@ -1,5 +1,6 @@
 import { Button, Label, ProgressBar } from '@heroui/react'
 import type { JobProgress } from '@svg2gcode/bridge'
+import SparklesIcon from '@gravity-ui/icons/esm/Sparkles.js'
 
 import { AppIcon, Icons } from '../lib/icons'
 import type { ViewMode } from '../types/preview'
@@ -115,30 +116,19 @@ export function TopBar({
 
           {/* Generate GCode — immediately after tabs */}
           <Button
-            className="rounded-full bg-emerald-600 text-[14px] font-medium text-white hover:bg-emerald-500"
+            className="rounded-full bg-emerald-600 text-[14px] font-medium text-white hover:bg-emerald-500 px-3 gap-1.5"
             size="sm"
             isDisabled={isGenerating}
             onPress={onGenerateGcode}
           >
-            {isGenerating ? 'Generating…' : 'Generate GCode'}
+            <AppIcon icon={SparklesIcon} className="h-4 w-4" />
+            GCode
           </Button>
 
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Right: Import SVG | Export SVG */}
-          <Button
-            className="rounded-full text-[14px] text-white"
-            size="sm"
-            variant="secondary"
-            onPress={onImport}
-          >
-            <AppIcon icon={Icons.fileUpload} className="h-4 w-4" />
-            Import SVG
-          </Button>
-
-          <div className="h-6 w-px bg-white/10" />
-
+          {/* Right: Export SVG | Import SVG */}
           <Button
             className="rounded-full text-[14px] text-white"
             size="sm"
@@ -147,6 +137,18 @@ export function TopBar({
           >
             <AppIcon icon={Icons.export} className="h-4 w-4" />
             Export SVG
+          </Button>
+
+          <div className="h-6 w-px bg-white/10" />
+
+          <Button
+            className="rounded-full text-[14px] text-white"
+            size="sm"
+            variant="secondary"
+            onPress={onImport}
+          >
+            <AppIcon icon={Icons.fileUpload} className="h-4 w-4" />
+            Import SVG
           </Button>
         </div>
 
