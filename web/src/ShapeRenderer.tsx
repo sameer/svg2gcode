@@ -45,6 +45,7 @@ interface SharedShapeProps {
   outlineOnly?: boolean
   hitboxOnly?: boolean
   parentCncMetadata?: CncMetadata
+  toolDiameter?: number
   registerNodeRef: (nodeId: string, node: Konva.Node | null) => void
   onPointerDown: (event: KonvaEventObject<MouseEvent | TouchEvent>) => void
   onClick: (event: KonvaEventObject<MouseEvent | TouchEvent>) => void
@@ -63,6 +64,7 @@ function SvgPathNode({
   showCncOverrides,
   outlineOnly,
   parentCncMetadata,
+  toolDiameter,
   registerNodeRef,
   onPointerDown,
   onClick,
@@ -74,8 +76,11 @@ function SvgPathNode({
   const cncOverrides = showCncOverrides !== false
     ? getCncVisualOverrides(node.cncMetadata, parentCncMetadata)
     : {}
+  const isOpenPath = toolDiameter != null && !/[Zz]/.test(node.data)
+  const baseStrokeWidth = isOpenPath ? toolDiameter! : node.strokeWidth
+  const baseStroke = isOpenPath && !node.stroke ? 'rgba(30, 20, 10, 0.65)' : node.stroke
   const visualProps = Object.assign(
-    { fill: outlineOnly ? '' : node.fill, stroke: node.stroke, strokeWidth: node.strokeWidth },
+    { fill: outlineOnly ? '' : node.fill, stroke: baseStroke, strokeWidth: baseStrokeWidth },
     cncOverrides,
   )
   if (outlineOnly) {
@@ -95,7 +100,7 @@ function SvgPathNode({
       visible={node.visible}
       opacity={opacity}
       listening={listening}
-      hitStrokeWidth={Math.max((node.strokeWidth ?? 2) * 2, 12)}
+      hitStrokeWidth={Math.max((baseStrokeWidth ?? 2) * 2, 12)}
       shadowColor={isSelected ? '#73bbff' : undefined}
       shadowBlur={isSelected ? 10 : 0}
       {...visualProps}
@@ -131,6 +136,7 @@ export function ShapeRenderer({
   const interactionMode = useEditorStore((state) => state.interactionMode)
   const directSelectionModifierActive = useEditorStore((state) => state.directSelectionModifierActive)
   const pendingImport = useEditorStore((state) => state.ui.pendingImport)
+  const toolDiameter = useEditorStore((state) => state.machiningSettings.toolDiameter)
   const updateNodeTransform = useEditorStore((state) => state.updateNodeTransform)
   const { enterFocusMode, isSelected, selectNode } = useSelection()
 
@@ -224,6 +230,7 @@ export function ShapeRenderer({
     outlineOnly,
     hitboxOnly,
     parentCncMetadata,
+    toolDiameter,
     registerNodeRef,
     onPointerDown,
     onClick,
@@ -361,10 +368,20 @@ export function ShapeRenderer({
     const cncOverrides = showCncOverrides
       ? getCncVisualOverrides(node.cncMetadata, parentCncMetadata)
       : {}
+    const isOpenPath = !node.closed && toolDiameter != null
+    const baseStrokeWidth = isOpenPath ? toolDiameter! : node.strokeWidth
+    const baseStroke = isOpenPath && !node.stroke ? 'rgba(30, 20, 10, 0.65)' : node.stroke
     const visualProps = Object.assign(
-      { stroke: node.stroke, strokeWidth: node.strokeWidth, fill: node.fill },
+      {
+        stroke: baseStroke,
+        strokeWidth: baseStrokeWidth,
+        fill: node.fill,
+        lineCap: isOpenPath ? 'round' : node.lineCap,
+        lineJoin: isOpenPath ? 'round' : node.lineJoin,
+      },
       cncOverrides,
     )
+    const hitWidth = Math.max((baseStrokeWidth ?? 2) * 2, 12)
 
     return (
       <Line
@@ -383,7 +400,7 @@ export function ShapeRenderer({
         visible={node.visible}
         opacity={opacity}
         listening={listening}
-        hitStrokeWidth={Math.max((node.strokeWidth ?? 2) * 2, 12)}
+        hitStrokeWidth={hitWidth}
         shadowColor={commonProps.isSelected ? '#73bbff' : undefined}
         shadowBlur={commonProps.isSelected ? 10 : 0}
         {...visualProps}

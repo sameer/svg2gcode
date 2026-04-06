@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react'
+import { Geo } from '@gravity-ui/icons'
 import { Button, Tabs } from '@heroui/react'
+import GeoFillIcon from '@gravity-ui/icons/svgs/geo-fill.svg'
 
-import { normalizeEngraveType } from '../lib/cncVisuals'
+import { isOpenPathNode, normalizeEngraveType } from '../lib/cncVisuals'
 import { isGroupNode } from '../lib/editorTree'
 import { getNodeSize } from '../lib/nodeDimensions'
 import { useEditorStore } from '../store'
 import type { CanvasNode, CncMetadata, EngraveType } from '../types/editor'
 import type { MaterialPreset } from '../lib/materialPresets'
-import { MaterialTabContent } from './MaterialTabContent'
+import { MaterialTabContent, PreviewTabContent } from './MaterialTabContent'
 
 type InspectorTab = 'design' | 'material'
 type NormalizedCutDepthFill = 'contour' | 'pocket'
@@ -28,6 +30,9 @@ interface StudioInspectorProps {
 }
 
 export function StudioInspector({ activeTab, onTabChange, materialPreset, onMaterialChange }: StudioInspectorProps) {
+  const viewMode = useEditorStore((s) => s.preview.viewMode)
+  const isPreview3d = viewMode === 'preview3d'
+
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
       {/* Header */}
@@ -50,7 +55,7 @@ export function StudioInspector({ activeTab, onTabChange, materialPreset, onMate
                 <Tabs.Indicator />
               </Tabs.Tab>
               <Tabs.Tab id="material">
-                Material
+                {isPreview3d ? 'Camera' : 'Material'}
                 <Tabs.Indicator />
               </Tabs.Tab>
             </Tabs.List>
@@ -62,6 +67,8 @@ export function StudioInspector({ activeTab, onTabChange, materialPreset, onMate
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         {activeTab === 'design' ? (
           <DesignTabContent />
+        ) : isPreview3d ? (
+          <PreviewTabContent />
         ) : (
           <MaterialTabContent materialPreset={materialPreset} onMaterialChange={onMaterialChange} />
         )}
@@ -81,6 +88,13 @@ function DesignTabContent() {
   const firstNode = selectedIds.length > 0 ? nodesById[selectedIds[0]] : null
   const meta: CncMetadata = firstNode?.cncMetadata ?? {}
   const allCutDepthGroups = useMemo(() => buildCutDepthGroups(nodesById), [nodesById])
+  const allOpenPaths = selectedIds.length > 0 && selectedIds.every((id) => {
+    const n = nodesById[id]
+    return n ? isOpenPathNode(n) : false
+  })
+  const availableEngraveTypes: NormalizedCutDepthFill[] = allOpenPaths
+    ? ENGRAVE_TYPES.filter((t) => t === 'contour')
+    : ENGRAVE_TYPES
 
   // Compute union bounding box (in canvas px = mm) for all selected nodes
   const selectionBounds = useMemo(() => {
@@ -306,7 +320,7 @@ function DesignTabContent() {
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">Part fill</p>
               <div className="flex gap-1.5">
-                {ENGRAVE_TYPES.map((type) => {
+                {availableEngraveTypes.map((type) => {
                   const isActive = normalizeEngraveType(meta.engraveType) === type
                   return (
                     <Button
@@ -315,21 +329,18 @@ function DesignTabContent() {
                       variant={isActive ? 'primary' : 'secondary'}
                       onPress={() => applyAll({ engraveType: isActive ? undefined : type })}
                     >
-                      {ENGRAVE_LABEL[type]}
+                      <span className="flex items-center gap-1.5">
+                        <FillModeIcon mode={type} />
+                        <span>{ENGRAVE_LABEL[type]}</span>
+                      </span>
                     </Button>
                   )
                 })}
               </div>
               {/* Engrave type visual legend */}
               <div className="grid grid-cols-2 gap-1 text-xs text-muted-foreground">
-                <div className="flex items-center gap-1.5">
-                  <div className="h-3 w-3 rounded-sm border border-border bg-transparent" />
-                  Contour
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="h-3 w-3 rounded-sm border border-border bg-[#d4d4d4]" />
-                  Pocket
-                </div>
+                <FillModeLegendItem mode="contour" />
+                <FillModeLegendItem mode="pocket" />
               </div>
             </div>
 
@@ -492,12 +503,14 @@ function CutDepthGroupsList({
       {groups.map((group) => (
         <div key={group.key} className="rounded-md border border-border bg-content1 p-3">
           <div className="flex items-start gap-3">
-            <span
-              className="mt-1 h-4 w-4 shrink-0 rounded-[4px]"
-              style={{ backgroundColor: group.color }}
-            />
+            <ColorSwatch color={group.color} className="mt-1" />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-foreground">{formatCutDepth(group.cutDepth)}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium text-foreground">{formatCutDepth(group.cutDepth)}</p>
+                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                  {group.color}
+                </span>
+              </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 {group.partCount} {group.partCount === 1 ? 'part' : 'parts'}
               </p>
@@ -533,7 +546,10 @@ function CutDepthGroupsList({
                       variant={isActive ? 'primary' : 'secondary'}
                       onPress={() => onFillModeChange(group.nodeIds, type)}
                     >
-                      {ENGRAVE_LABEL[type]}
+                      <span className="flex items-center gap-1.5">
+                        <FillModeIcon mode={type} />
+                        <span>{ENGRAVE_LABEL[type]}</span>
+                      </span>
                     </Button>
                   )
                 })}
@@ -541,7 +557,13 @@ function CutDepthGroupsList({
               <p className="text-xs text-muted-foreground">
                 {group.mixedFill
                   ? 'Mixed fill types in this depth group.'
-                  : `Current fill: ${group.fillMode ? ENGRAVE_LABEL[group.fillMode] : 'Not set'}.`}
+                  : group.fillMode ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span>Current fill:</span>
+                      <FillModeIcon mode={group.fillMode} />
+                      <span>{ENGRAVE_LABEL[group.fillMode]}</span>
+                    </span>
+                  ) : 'Current fill: Not set.'}
               </p>
             </div>
           </div>
@@ -602,6 +624,35 @@ function buildCutDepthGroups(nodesById: Record<string, CanvasNode>): CutDepthGro
 
 function formatCutDepth(depth: number): string {
   return `${depth.toFixed(2)} mm`
+}
+
+function ColorSwatch({ color, className = '' }: { color: string; className?: string }) {
+  return (
+    <span
+      className={`h-4 w-4 shrink-0 rounded-[4px] border border-border ${className}`.trim()}
+      style={{ backgroundColor: color }}
+      title={color}
+    />
+  )
+}
+
+function FillModeIcon({ mode }: { mode: NormalizedCutDepthFill }) {
+  if (mode === 'contour') {
+    return <Geo className="h-4 w-4 shrink-0" aria-hidden="true" />
+  }
+
+  return <img src={GeoFillIcon} alt="" className="h-4 w-4 shrink-0" aria-hidden="true" />
+}
+
+function FillModeLegendItem({ mode }: { mode: NormalizedCutDepthFill }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <FillModeIcon mode={mode} />
+      <div
+        className={`h-3 w-3 rounded-sm border border-border ${mode === 'pocket' ? 'bg-[#d4d4d4]' : 'bg-transparent'}`}
+      />
+    </div>
+  )
 }
 
 function depthToColor(depth: number): string {

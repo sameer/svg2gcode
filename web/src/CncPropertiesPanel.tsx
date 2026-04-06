@@ -1,10 +1,10 @@
 import { Button, Input } from '@heroui/react'
 
-import { normalizeEngraveType } from './lib/cncVisuals'
+import { isOpenPathNode, normalizeEngraveType } from './lib/cncVisuals'
 import { useEditorStore } from './store'
 import type { CncMetadata, EngraveType } from './types/editor'
 
-const ENGRAVE_TYPES: EngraveType[] = ['contour', 'pocket']
+const ALL_ENGRAVE_TYPES: EngraveType[] = ['contour', 'pocket']
 
 const ENGRAVE_LABEL: Record<EngraveType, string> = {
   contour: 'Contour',
@@ -32,6 +32,13 @@ export function CncPropertiesPanel() {
   // Derive values from the first selected node for pre-filling inputs.
   const firstNode = nodesById[selectedIds[0]]
   const representativeMeta: CncMetadata = firstNode?.cncMetadata ?? {}
+  const allOpenPaths = selectedIds.every((id) => {
+    const n = nodesById[id]
+    return n ? isOpenPathNode(n) : false
+  })
+  const availableEngraveTypes = allOpenPaths
+    ? ALL_ENGRAVE_TYPES.filter((t) => t === 'contour')
+    : ALL_ENGRAVE_TYPES
 
   const applyAll = (patch: Partial<CncMetadata>) => {
     selectedIds.forEach((id) => {
@@ -117,7 +124,7 @@ export function CncPropertiesPanel() {
           Engrave Type
         </label>
         <div className="flex gap-1.5">
-          {ENGRAVE_TYPES.map((type) => {
+          {availableEngraveTypes.map((type) => {
             const isActive = normalizeEngraveType(representativeMeta.engraveType) === type
             return (
               <Button

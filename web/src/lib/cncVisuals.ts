@@ -1,6 +1,13 @@
-import type { CncMetadata, EngraveType } from '../types/editor'
+import type { CanvasNode, CncMetadata, EngraveType } from '../types/editor'
 
 const MAX_CUT_DEPTH = 20
+
+/** Returns true if the node is an open (non-closed) path that cannot be pocket-filled. */
+export function isOpenPathNode(node: CanvasNode): boolean {
+  if (node.type === 'line') return !node.closed
+  if (node.type === 'path') return !/[Zz]/.test(node.data)
+  return false
+}
 export type NormalizedEngraveType = 'contour' | 'pocket'
 
 export interface CncVisualOverrides {

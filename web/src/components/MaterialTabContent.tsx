@@ -4,7 +4,6 @@ import { Button } from '@heroui/react'
 import { resolveEffectiveMaxStepdown } from '../lib/bridgeSettingsAdapter'
 import { useEditorStore } from '../store'
 import type { MachiningSettings, RouterBitShape } from '../types/editor'
-import type { CameraType } from '../types/preview'
 import { MATERIAL_PRESETS } from '../lib/materialPresets'
 import type { MaterialPreset } from '../lib/materialPresets'
 import flatRouterBitImg from '../assets/router_bits/flat_router_bit.png'
@@ -23,15 +22,6 @@ export function MaterialTabContent({ materialPreset, onMaterialChange }: Materia
   const machiningSettings = useEditorStore((s) => s.machiningSettings)
   const setMachiningSettings = useEditorStore((s) => s.setMachiningSettings)
   const nodesById = useEditorStore((s) => s.nodesById)
-  const viewMode = useEditorStore((s) => s.preview.viewMode)
-  const cameraType = useEditorStore((s) => s.preview.cameraType)
-  const showStock = useEditorStore((s) => s.preview.showStock)
-  const showSvgOverlay = useEditorStore((s) => s.preview.showSvgOverlay)
-  const showRapidMoves = useEditorStore((s) => s.preview.showRapidMoves)
-  const setCameraType = useEditorStore((s) => s.setCameraType)
-  const setShowStock = useEditorStore((s) => s.setShowStock)
-  const setShowSvgOverlay = useEditorStore((s) => s.setShowSvgOverlay)
-  const setShowRapidMoves = useEditorStore((s) => s.setShowRapidMoves)
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
   const setField = (patch: Partial<MachiningSettings>) => setMachiningSettings(patch)
@@ -214,56 +204,6 @@ export function MaterialTabContent({ materialPreset, onMaterialChange }: Materia
         )}
       </section>
 
-      {/* 3D Preview controls - only visible in preview mode */}
-      {viewMode === 'preview3d' && (
-        <section className="space-y-3">
-          <SectionHeading title="3D Camera" />
-          <div className="flex gap-2">
-            {(['perspective', 'orthographic'] as CameraType[]).map((type) => (
-              <Button
-                key={type}
-                size="sm"
-                variant={cameraType === type ? 'primary' : 'secondary'}
-                onPress={() => setCameraType(type)}
-              >
-                {type === 'perspective' ? 'Perspective' : 'Ortho'}
-              </Button>
-            ))}
-          </div>
-
-          <SectionHeading title="View options" />
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-sm text-foreground">
-              <input
-                type="checkbox"
-                checked={showStock}
-                onChange={(e) => setShowStock(e.target.checked)}
-                className="rounded border-border"
-              />
-              Stock view (vs sweep volumes)
-            </label>
-            <label className="flex items-center gap-2 text-sm text-foreground">
-              <input
-                type="checkbox"
-                checked={showSvgOverlay}
-                onChange={(e) => setShowSvgOverlay(e.target.checked)}
-                className="rounded border-border"
-              />
-              SVG path overlay
-            </label>
-            <label className="flex items-center gap-2 text-sm text-foreground">
-              <input
-                type="checkbox"
-                checked={showRapidMoves}
-                onChange={(e) => setShowRapidMoves(e.target.checked)}
-                className="rounded border-border"
-              />
-              Show rapid moves
-            </label>
-          </div>
-        </section>
-      )}
-
       {/* Artboard position info */}
       <section className="space-y-3">
         <SectionHeading title="Artboard" />
@@ -279,6 +219,70 @@ export function MaterialTabContent({ materialPreset, onMaterialChange }: Materia
           {selectedStage
             ? 'Artboard selected — drag or resize on canvas.'
             : 'Click the stage to select the artboard.'}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+export function PreviewTabContent() {
+  const cameraType = useEditorStore((s) => s.preview.cameraType)
+  const showStock = useEditorStore((s) => s.preview.showStock)
+  const showSvgOverlay = useEditorStore((s) => s.preview.showSvgOverlay)
+  const showRapidMoves = useEditorStore((s) => s.preview.showRapidMoves)
+  const setCameraType = useEditorStore((s) => s.setCameraType)
+  const setShowStock = useEditorStore((s) => s.setShowStock)
+  const setShowSvgOverlay = useEditorStore((s) => s.setShowSvgOverlay)
+  const setShowRapidMoves = useEditorStore((s) => s.setShowRapidMoves)
+
+  return (
+    <div className="space-y-5">
+      <section className="space-y-3">
+        <SectionHeading title="3D Camera" />
+        <div className="flex gap-2">
+          {(['perspective', 'orthographic'] as const).map((type) => (
+            <Button
+              key={type}
+              size="sm"
+              variant={cameraType === type ? 'primary' : 'secondary'}
+              onPress={() => setCameraType(type)}
+            >
+              {type === 'perspective' ? 'Perspective' : 'Ortho'}
+            </Button>
+          ))}
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <SectionHeading title="View options" />
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              checked={showStock}
+              onChange={(e) => setShowStock(e.target.checked)}
+              className="rounded border-border"
+            />
+            Stock view (vs sweep volumes)
+          </label>
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              checked={showSvgOverlay}
+              onChange={(e) => setShowSvgOverlay(e.target.checked)}
+              className="rounded border-border"
+            />
+            SVG path overlay
+          </label>
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              checked={showRapidMoves}
+              onChange={(e) => setShowRapidMoves(e.target.checked)}
+              className="rounded border-border"
+            />
+            Show rapid moves
+          </label>
         </div>
       </section>
     </div>
