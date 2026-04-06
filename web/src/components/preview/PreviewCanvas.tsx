@@ -94,6 +94,45 @@ export function PreviewCanvas() {
     requestRender()
   }, [sceneRef, toolpaths, stockBounds, previewSnapshot, requestRender])
 
+  // Auto-fit camera to toolpath bounding box when GCode is generated
+  useEffect(() => {
+    const state = sceneRef.current
+    if (!state || !toolpaths || toolpaths.length === 0 || !previewSnapshot) return
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const tp of toolpaths) {
+      for (const pt of tp.pathPoints) {
+        if (pt.x < minX) minX = pt.x
+        if (pt.x > maxX) maxX = pt.x
+        if (pt.y < minY) minY = pt.y
+        if (pt.y > maxY) maxY = pt.y
+      }
+    }
+    if (!isFinite(minX)) return
+
+    const cx = (minX + maxX) / 2
+    const cy = (minY + maxY) / 2
+    const fitDim = Math.max(maxX - minX, maxY - minY, 10) * 1.4
+
+    state.controls.target.set(cx, cy, -previewSnapshot.material_thickness / 2)
+    state.perspectiveCamera.position.set(cx + fitDim * 0.3, cy - fitDim * 0.6, fitDim * 0.5)
+    state.orthographicCamera.position.set(cx + fitDim * 0.3, cy - fitDim * 0.6, fitDim * 0.5)
+
+    // Adjust orthographic zoom to fit the toolpath area
+    const container = containerRef.current
+    if (container) {
+      const aspect = container.clientWidth / container.clientHeight
+      const frustumSize = 400
+      const zoomX = (frustumSize * aspect) / fitDim
+      const zoomY = frustumSize / fitDim
+      state.orthographicCamera.zoom = Math.min(zoomX, zoomY)
+      state.orthographicCamera.updateProjectionMatrix()
+    }
+
+    state.controls.update()
+    requestRender()
+  }, [sceneRef, toolpaths, previewSnapshot, containerRef, requestRender])
+
   // Toggle stock/sweep visibility
   useEffect(() => {
     const state = sceneRef.current

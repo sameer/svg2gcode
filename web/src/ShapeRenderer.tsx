@@ -27,6 +27,7 @@ export interface ShapeRendererProps {
   parentDimmed?: boolean
   interactionBlocked?: boolean
   showCncOverrides?: boolean
+  outlineOnly?: boolean
   hitboxOnly?: boolean
   parentCncMetadata?: CncMetadata
   onNodeDragStart?: (nodeId: string, konvaNode: Konva.Node) => void
@@ -41,6 +42,7 @@ interface SharedShapeProps {
   draggable: boolean
   isSelected: boolean
   showCncOverrides?: boolean
+  outlineOnly?: boolean
   hitboxOnly?: boolean
   parentCncMetadata?: CncMetadata
   registerNodeRef: (nodeId: string, node: Konva.Node | null) => void
@@ -59,6 +61,7 @@ function SvgPathNode({
   draggable,
   isSelected,
   showCncOverrides,
+  outlineOnly,
   parentCncMetadata,
   registerNodeRef,
   onPointerDown,
@@ -72,9 +75,12 @@ function SvgPathNode({
     ? getCncVisualOverrides(node.cncMetadata, parentCncMetadata)
     : {}
   const visualProps = Object.assign(
-    { fill: node.fill, stroke: node.stroke, strokeWidth: node.strokeWidth },
+    { fill: outlineOnly ? '' : node.fill, stroke: node.stroke, strokeWidth: node.strokeWidth },
     cncOverrides,
   )
+  if (outlineOnly) {
+    delete visualProps.fill
+  }
 
   return (
     <Path
@@ -112,6 +118,7 @@ export function ShapeRenderer({
   parentDimmed = false,
   interactionBlocked = false,
   showCncOverrides = true,
+  outlineOnly = false,
   hitboxOnly = false,
   parentCncMetadata,
   onNodeDragStart,
@@ -214,6 +221,7 @@ export function ShapeRenderer({
     draggable,
     isSelected: isSelected(node.id),
     showCncOverrides,
+    outlineOnly,
     hitboxOnly,
     parentCncMetadata,
     registerNodeRef,
@@ -258,6 +266,7 @@ export function ShapeRenderer({
             parentDimmed={isDimmed}
             interactionBlocked={interactionBlocked}
             showCncOverrides={showCncOverrides}
+            outlineOnly={outlineOnly}
             parentCncMetadata={groupNode.cncMetadata}
             onNodeDragStart={onNodeDragStart}
             onNodeDragMove={onNodeDragMove}
@@ -274,9 +283,10 @@ export function ShapeRenderer({
       ? getCncVisualOverrides(node.cncMetadata, parentCncMetadata)
       : {}
     const visualProps = Object.assign(
-      { fill: node.fill, stroke: node.stroke, strokeWidth: node.strokeWidth },
+      { fill: outlineOnly ? '' : node.fill, stroke: node.stroke, strokeWidth: node.strokeWidth },
       cncOverrides,
     )
+    if (outlineOnly) delete visualProps.fill
 
     return (
       <Rect
@@ -400,6 +410,7 @@ export interface EngravePreviewStackProps {
   registerNodeRef: (nodeId: string, node: Konva.Node | null) => void
   interactionBlocked?: boolean
   showCncOverrides?: boolean
+  outlineOnly?: boolean
   onNodeDragStart?: (nodeId: string, konvaNode: Konva.Node) => void
   onNodeDragMove?: (nodeId: string, konvaNode: Konva.Node) => void
   onNodeDragEnd?: (nodeId: string, konvaNode: Konva.Node) => void
@@ -412,6 +423,7 @@ export function EngravePreviewStack({
   registerNodeRef,
   interactionBlocked,
   showCncOverrides = true,
+  outlineOnly = false,
   onNodeDragStart,
   onNodeDragMove,
   onNodeDragEnd,
@@ -474,6 +486,7 @@ export function EngravePreviewStack({
           registerNodeRef={registerNodeRef}
           interactionBlocked={interactionBlocked}
           showCncOverrides={showCncOverrides}
+          outlineOnly={outlineOnly}
           onNodeDragStart={onNodeDragStart}
           onNodeDragMove={onNodeDragMove}
           onNodeDragEnd={onNodeDragEnd}

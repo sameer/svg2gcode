@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useCallback } from 'react'
 import type { ChangeEvent, DragEvent } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 
+import { Label, ProgressBar } from '@heroui/react'
 import { Canvas } from './Canvas'
 import { GenerateGcodePanel } from './components/GenerateGcodePanel'
 import { LayerTree } from './components/LayerTree'
@@ -39,6 +40,7 @@ function App() {
   const [projectName, setProjectName] = useState('Untitled project')
   const [materialPreset, setMaterialPreset] = useState<MaterialPreset>(DEFAULT_MATERIAL)
   const [isDragOver, setIsDragOver] = useState(false)
+  const [isInitializingPreview, setIsInitializingPreview] = useState(false)
 
   const isCanvasEmpty = rootIds.length === 0
 
@@ -139,21 +141,21 @@ function App() {
     }
   }
 
-  const handleViewModeChange = (mode: ViewMode) => {
-    if (mode === 'preview' && gcode.result) {
-      initPreview(gcode.result)
+  const handleViewModeChange = useCallback((mode: ViewMode) => {
+    if (mode === 'preview3d' && gcode.result) {
+      setIsInitializingPreview(true)
+      // Defer the heavy synchronous work so the loading UI can paint first
+      setTimeout(() => {
+        initPreview(gcode.result!)
+        setIsInitializingPreview(false)
+      }, 0)
     } else {
       setViewMode(mode)
     }
-  }
+  }, [gcode.result, initPreview, setViewMode])
 
-  const handlePreview = () => {
-    if (gcode.result) {
-      initPreview(gcode.result)
-    }
-  }
-
-  const isPreview = viewMode === 'preview'
+  const isPreview3d = viewMode === 'preview3d'
+  const isPreview2d = viewMode === 'preview2d'
 
   return (
     <div
@@ -174,7 +176,7 @@ function App() {
         {/* Left sidebar */}
         <Panel defaultSize="20%" minSize="14%" maxSize="30%">
           <div className="h-full overflow-hidden border-r border-border bg-background">
-            {isPreview ? (
+            {isPreview3d ? (
               <GcodeViewer />
             ) : (
               <LayerTree
@@ -198,12 +200,11 @@ function App() {
               onExport={handleSvgExport}
               onImport={() => fileInputRef.current?.click()}
               onGenerateGcode={handleGenerateGcode}
-              onPreview={handlePreview}
               isGenerating={gcode.isGenerating}
               progress={gcode.progress}
               hasGcodeResult={!!gcode.result}
             />
-            {!isPreview && (gcode.result || gcode.error) && (
+            {!isPreview3d && !isInitializingPreview && (gcode.result || gcode.error) && (
               <div className="pointer-events-none absolute inset-x-0 top-24 z-30 flex justify-center px-4">
                 <GenerateGcodePanel
                   state={gcode}
@@ -213,17 +214,31 @@ function App() {
               </div>
             )}
             <div className="min-h-0 flex-1 relative">
-              {isPreview ? (
+              {isInitializingPreview ? (
+                <div className="flex h-full items-center justify-center bg-[#232323]">
+                  <div className="flex w-72 flex-col gap-3">
+                    <ProgressBar isIndeterminate aria-label="Creating 3D CNC preview" className="w-full">
+                      <div className="mb-2 flex items-center justify-between">
+                        <Label className="text-sm font-medium text-white">Creating 3D CNC preview</Label>
+                      </div>
+                      <ProgressBar.Track className="h-2 overflow-hidden rounded-full bg-white/10">
+                        <ProgressBar.Fill className="rounded-full bg-emerald-500" />
+                      </ProgressBar.Track>
+                    </ProgressBar>
+                  </div>
+                </div>
+              ) : isPreview3d ? (
                 <PreviewCanvas />
               ) : (
                 <Canvas
                   allowStageSelection={inspectorTab === 'material'}
                   materialPreset={materialPreset}
+                  forceEngravePreview={isPreview2d}
                 />
               )}
 
               {/* Empty-state drop zone — only shown when the artboard has no content */}
-              {!isPreview && isCanvasEmpty && !isDragOver && (
+              {!isPreview3d && !isPreview2d && isCanvasEmpty && !isDragOver && (
                 <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
                   <div
                     className="pointer-events-auto flex flex-col items-center gap-4 rounded-2xl border-2 border-dashed border-border bg-background/80 px-12 py-10 text-center backdrop-blur-sm"
@@ -285,8 +300,8 @@ function App() {
               )}
             </div>
 
-            {/* Playback timeline at bottom in preview mode */}
-            {isPreview && <PlaybackTimeline />}
+            {/* Playback timeline at bottom in 3D preview mode */}
+            {isPreview3d && <PlaybackTimeline />}
           </div>
         </Panel>
 

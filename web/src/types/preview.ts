@@ -3,7 +3,7 @@ import type { ParsedProgram, ParsedSegment } from '@svg2gcode/bridge/viewer'
 import type { GenerateJobResponse } from '@svg2gcode/bridge'
 
 export type CameraType = 'perspective' | 'orthographic'
-export type ViewMode = 'design' | 'preview'
+export type ViewMode = 'design' | 'preview2d' | 'preview3d'
 
 export interface StockBounds {
   minX: number

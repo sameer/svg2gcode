@@ -57,5 +57,14 @@ export function buildBridgeSettings(
       ...(machining.travelZ != null && { travel_z: machining.travelZ }),
       ...(machining.cutZ != null && { cut_z: machining.cutZ }),
     },
+    // Tab settings — scaffolded for future bridge/WASM consumption
+    ...(machining.tabsEnabled && {
+      tabs: {
+        enabled: true,
+        width: machining.tabWidth,
+        height: machining.tabHeight,
+        spacing: machining.tabSpacing,
+      },
+    }),
   }
 }

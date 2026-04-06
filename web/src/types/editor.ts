@@ -26,6 +26,10 @@ export interface MachiningSettings {
   cutZ: number | null
   machineWidth: number | null
   machineHeight: number | null
+  tabsEnabled: boolean
+  tabWidth: number
+  tabHeight: number
+  tabSpacing: number
 }
 
 export interface ViewportState {

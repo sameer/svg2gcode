@@ -148,6 +148,35 @@ export function MaterialTabContent({ materialPreset, onMaterialChange }: Materia
         </div>
       </section>
 
+      {/* Tabs */}
+      <section className="space-y-3">
+        <SectionHeading title="Tabs" />
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input
+            type="checkbox"
+            checked={machiningSettings.tabsEnabled}
+            onChange={(e) => setField({ tabsEnabled: e.target.checked })}
+            className="rounded border-border"
+          />
+          Apply tabs on through-cuts
+        </label>
+        {machiningSettings.tabsEnabled && (
+          <>
+            <p className="text-xs text-muted-foreground">
+              Tabs hold the part in place when cutting all the way through. Sand or snap them off after machining.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <NumberField label="Width" unit="mm" value={machiningSettings.tabWidth}
+                onChange={(v) => { if (v !== null && v > 0) setField({ tabWidth: v }) }} />
+              <NumberField label="Height" unit="mm" value={machiningSettings.tabHeight}
+                onChange={(v) => { if (v !== null && v > 0) setField({ tabHeight: v }) }} />
+              <NumberField label="Spacing" unit="mm" value={machiningSettings.tabSpacing}
+                onChange={(v) => { if (v !== null && v > 0) setField({ tabSpacing: v }) }} />
+            </div>
+          </>
+        )}
+      </section>
+
       {/* Advanced */}
       <section className="rounded-md border border-border bg-content1 px-3 py-3">
         <button
@@ -186,7 +215,7 @@ export function MaterialTabContent({ materialPreset, onMaterialChange }: Materia
       </section>
 
       {/* 3D Preview controls - only visible in preview mode */}
-      {viewMode === 'preview' && (
+      {viewMode === 'preview3d' && (
         <section className="space-y-3">
           <SectionHeading title="3D Camera" />
           <div className="flex gap-2">

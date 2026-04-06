@@ -10,7 +10,6 @@ interface TopBarProps {
   onExport: () => void
   onImport: () => void
   onGenerateGcode: () => void
-  onPreview: () => void
   isGenerating?: boolean
   progress?: JobProgress | null
   hasGcodeResult?: boolean
@@ -60,7 +59,6 @@ export function TopBar({
   onExport,
   onImport,
   onGenerateGcode,
-  onPreview,
   isGenerating,
   progress,
   hasGcodeResult,
@@ -68,14 +66,15 @@ export function TopBar({
   const percent = progressPercent(progress)
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-4 z-30 flex justify-center px-4">
-      <div className="pointer-events-auto flex min-w-[min(100%,52rem)] max-w-[min(100%,52rem)] flex-col rounded-[1.75rem] border border-white/10 bg-[rgba(19,19,23,0.9)] px-3 py-3 text-white shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-2xl transition-all duration-300">
+    <div className="pointer-events-none absolute inset-x-0 top-4 z-30 flex px-4">
+      <div className="pointer-events-auto flex w-full flex-col rounded-[1.75rem] border border-white/10 bg-[rgba(19,19,23,0.9)] px-3 py-3 text-white shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-2xl transition-all duration-300">
         <div className="flex min-h-10 items-center gap-3">
-          {/* Tab — Design / Preview */}
+
+          {/* Tabs: Design / 2D View / 3D View */}
           <div className="flex h-10 items-center rounded-[1.2rem] bg-[#27272A] px-1">
             <button
               type="button"
-              className={`flex h-8 items-center rounded-[0.9rem] px-4 text-sm font-medium transition ${
+              className={`flex h-8 min-w-[80px] items-center justify-center rounded-[0.9rem] px-5 text-sm font-medium transition ${
                 viewMode === 'design'
                   ? 'bg-[#3f3f46] text-white'
                   : 'text-white/40 hover:text-white/60'
@@ -86,8 +85,19 @@ export function TopBar({
             </button>
             <button
               type="button"
-              className={`flex h-8 items-center rounded-[0.9rem] px-4 text-sm font-medium transition ${
-                viewMode === 'preview'
+              className={`flex h-8 min-w-[80px] items-center justify-center rounded-[0.9rem] px-5 text-sm font-medium transition ${
+                viewMode === 'preview2d'
+                  ? 'bg-[#3f3f46] text-white'
+                  : 'text-white/40 hover:text-white/60'
+              }`}
+              onClick={() => onViewModeChange('preview2d')}
+            >
+              2D View
+            </button>
+            <button
+              type="button"
+              className={`flex h-8 min-w-[80px] items-center justify-center rounded-[0.9rem] px-5 text-sm font-medium transition ${
+                viewMode === 'preview3d'
                   ? 'bg-[#3f3f46] text-white'
                   : hasGcodeResult
                     ? 'text-white/40 hover:text-white/60'
@@ -95,69 +105,49 @@ export function TopBar({
               }`}
               onClick={() => {
                 if (hasGcodeResult) {
-                  onViewModeChange('preview')
+                  onViewModeChange('preview3d')
                 }
               }}
             >
-              Preview
+              3D View
             </button>
           </div>
 
-          {viewMode === 'design' ? (
-            <>
-              <Button
-                className="rounded-full text-[14px] text-white"
-                size="sm"
-                variant="secondary"
-                onPress={onImport}
-              >
-                <AppIcon icon={Icons.fileUpload} className="h-4 w-4" />
-                Import SVG
-              </Button>
+          {/* Generate GCode — immediately after tabs */}
+          <Button
+            className="rounded-full bg-emerald-600 text-[14px] font-medium text-white hover:bg-emerald-500"
+            size="sm"
+            isDisabled={isGenerating}
+            onPress={onGenerateGcode}
+          >
+            {isGenerating ? 'Generating…' : 'Generate GCode'}
+          </Button>
 
-              <Button
-                className="rounded-full text-[14px] text-white"
-                size="sm"
-                variant="secondary"
-                onPress={onExport}
-              >
-                <AppIcon icon={Icons.export} className="h-4 w-4" />
-                Export
-              </Button>
+          {/* Spacer */}
+          <div className="flex-1" />
 
-              <div className="mx-1 h-6 w-px bg-white/10" />
+          {/* Right: Import SVG | Export SVG */}
+          <Button
+            className="rounded-full text-[14px] text-white"
+            size="sm"
+            variant="secondary"
+            onPress={onImport}
+          >
+            <AppIcon icon={Icons.fileUpload} className="h-4 w-4" />
+            Import SVG
+          </Button>
 
-              <Button
-                className="rounded-full bg-emerald-600 text-[14px] font-medium text-white hover:bg-emerald-500"
-                size="sm"
-                isDisabled={isGenerating}
-                onPress={onGenerateGcode}
-              >
-                {isGenerating ? 'Generating…' : 'Generate GCode'}
-              </Button>
+          <div className="h-6 w-px bg-white/10" />
 
-              {hasGcodeResult && (
-                <Button
-                  className="rounded-full bg-sky-600 text-[14px] font-medium text-white hover:bg-sky-500"
-                  size="sm"
-                  onPress={onPreview}
-                >
-                  3D Preview
-                </Button>
-              )}
-            </>
-          ) : (
-            <>
-              <Button
-                className="rounded-full text-[14px] text-white"
-                size="sm"
-                variant="secondary"
-                onPress={() => onViewModeChange('design')}
-              >
-                Back to Design
-              </Button>
-            </>
-          )}
+          <Button
+            className="rounded-full text-[14px] text-white"
+            size="sm"
+            variant="secondary"
+            onPress={onExport}
+          >
+            <AppIcon icon={Icons.export} className="h-4 w-4" />
+            Export SVG
+          </Button>
         </div>
 
         {isGenerating && (

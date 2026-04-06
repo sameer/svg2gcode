@@ -196,6 +196,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     cutZ: null,
     machineWidth: null,
     machineHeight: null,
+    tabsEnabled: false,
+    tabWidth: 4,
+    tabHeight: 1.5,
+    tabSpacing: 50,
   },
   viewport: initialViewport,
   ui: {
@@ -689,7 +693,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set((state) => ({
       preview: {
         ...state.preview,
-        viewMode: 'preview',
+        viewMode: 'preview3d',
         parsedProgram: program,
         toolpaths,
         stockBounds,

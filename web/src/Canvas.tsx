@@ -36,6 +36,7 @@ interface CanvasProps {
   allowStageSelection?: boolean
   materialPreset?: MaterialPreset
   onMaterialChange?: (preset: MaterialPreset) => void
+  forceEngravePreview?: boolean
 }
 
 const GUIDELINE_OFFSET = 5
@@ -117,7 +118,7 @@ const scaleViewportFromAnchor = (
   }
 }
 
-export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_MATERIAL }: CanvasProps) {
+export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_MATERIAL, forceEngravePreview = false }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [containerSize, setContainerSize] = useState({ width: 800, height: 600 })
 
@@ -183,7 +184,8 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
   const [isPanning, setIsPanning] = useState(false)
   const [panToolActive, setPanToolActive] = useState(false)
   const [showOutlines, setShowOutlines] = useState(true)
-  const [showEngravePreview, setShowEngravePreview] = useState(false)
+  const [showEngravePreviewState, setShowEngravePreview] = useState(false)
+  const showEngravePreview = forceEngravePreview || showEngravePreviewState
   const [isZoomEditing, setIsZoomEditing] = useState(false)
   const [zoomDraft, setZoomDraft] = useState('')
   const zoomInputRef = useRef<HTMLInputElement | null>(null)
@@ -1125,6 +1127,7 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
                   registerNodeRef={registerNodeRef}
                   interactionBlocked={interactionBlocked}
                   showCncOverrides={showOutlines}
+                  outlineOnly={showOutlines}
                   onNodeDragStart={handleNodeDragStart}
                   onNodeDragMove={handleNodeDragMove}
                   onNodeDragEnd={handleNodeDragEnd}
@@ -1137,6 +1140,7 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
                   registerNodeRef={registerNodeRef}
                   interactionBlocked={interactionBlocked}
                   showCncOverrides={showOutlines}
+                  outlineOnly={showOutlines}
                   onNodeDragStart={handleNodeDragStart}
                   onNodeDragMove={handleNodeDragMove}
                   onNodeDragEnd={handleNodeDragEnd}
