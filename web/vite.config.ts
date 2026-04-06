@@ -1,20 +1,15 @@
-import path from "node:path";
+import path from 'node:path'
 
-import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite'
 
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      '@': path.resolve(__dirname, './src'),
     },
   },
-  server: {
-    watch: {
-      // Polling is required for external/network drives (e.g. /Volumes/…)
-      usePolling: true,
-    },
-  },
-});
+  assetsInclude: ['**/*.wasm'],
+})

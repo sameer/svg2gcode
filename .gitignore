@@ -5,3 +5,4 @@ pkg/
 dist
 lib/approx_circle.svg
 **/out
+bridge/node_modules/

@@ -8,5 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./viewer": "./src/viewer/index.ts"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2"
   }
 }

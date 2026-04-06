@@ -13,7 +13,7 @@ import init, {
   default_settings as wasmDefaultSettings,
   generate_engraving_job as wasmGenerateEngravingJob,
   prepare_svg_document as wasmPrepareSvgDocument,
-} from "../../web/src/wasm/pkg/svg2gcode_wasm";
+} from "../../wasm/pkg/svg2gcode_wasm";
 
 import type {
   GenerateJobRequest,
@@ -68,26 +68,19 @@ export async function generateEngravingJob(
     onProgress({ phase: "processing", current: 0, total: request.operations.length });
   }
 
-  const result = unwrapEnvelope<GenerateJobResponse>(
-    wasmGenerateEngravingJob(
-      JSON.stringify(request),
-      onProgress
-        ? (phaseStr: string, current: number, total: number) => {
-            onProgress({
-              phase: phaseStr as JobProgress["phase"],
-              current,
-              total,
-            });
-          }
-        : undefined,
-    ),
+  const progressFn = onProgress
+    ? (phaseStr: string, current: number, total: number) => {
+        onProgress({
+          phase: phaseStr as JobProgress["phase"],
+          current,
+          total,
+        });
+      }
+    : undefined;
+
+  return unwrapEnvelope<GenerateJobResponse>(
+    wasmGenerateEngravingJob(JSON.stringify(request), progressFn),
   );
-
-  if (onProgress) {
-    onProgress({ phase: "formatting", current: 0, total: 0 });
-  }
-
-  return result;
 }
 
 function unwrapEnvelope<T>(payload: string) {
