@@ -1,11 +1,17 @@
+import init, {
+  default_settings,
+  prepare_svg_document,
+  generate_engraving_job,
+} from "../wasm/pkg/svg2gcode_wasm"
+
+// Vite resolves this to the asset URL at build time
+import wasmUrl from "../wasm/pkg/svg2gcode_wasm_bg.wasm?url"
+
 import {
   ensureWasmReady,
   loadDefaultSettings,
   type Settings,
 } from "@svg2gcode/bridge"
-
-// Vite resolves this to the asset URL at build time
-import wasmUrl from "../wasm/pkg/svg2gcode_wasm_bg.wasm?url"
 
 let bridgeSettings: Settings | null = null
 let initPromise: Promise<Settings> | null = null
@@ -17,7 +23,11 @@ let initPromise: Promise<Settings> | null = null
 export function initBridge(): Promise<Settings> {
   if (!initPromise) {
     initPromise = (async () => {
-      await ensureWasmReady(wasmUrl)
+      await ensureWasmReady(
+        { default_settings, prepare_svg_document, generate_engraving_job },
+        init,
+        wasmUrl,
+      )
       bridgeSettings = await loadDefaultSettings()
       return bridgeSettings
     })()

@@ -1,19 +1,25 @@
 /**
  * WASM bridge — wraps the three core svg2gcode-wasm functions.
  *
- * Before using any function, call `ensureWasmReady()` with a URL pointing to
- * your svg2gcode_wasm_bg.wasm file. The WASM init module must be importable
- * at the path configured by your bundler.
+ * The bridge does NOT import the WASM module directly — the consumer
+ * is responsible for loading it. Call `ensureWasmReady(bindings, wasmUrl)`
+ * once at app startup before using any other bridge function.
  *
- * To wire this up, re-export `ensureWasmReady` from your app entry and call it
- * once during startup with the correct WASM URL for your build setup.
+ * Example setup in your app:
+ *
+ *   import init, {
+ *     default_settings,
+ *     prepare_svg_document,
+ *     generate_engraving_job,
+ *   } from "./wasm/pkg/svg2gcode_wasm"
+ *   import wasmUrl from "./wasm/pkg/svg2gcode_wasm_bg.wasm?url"
+ *
+ *   await ensureWasmReady(
+ *     { default_settings, prepare_svg_document, generate_engraving_job },
+ *     init,
+ *     wasmUrl,
+ *   )
  */
-
-import init, {
-  default_settings as wasmDefaultSettings,
-  generate_engraving_job as wasmGenerateEngravingJob,
-  prepare_svg_document as wasmPrepareSvgDocument,
-} from "../../wasm/pkg/svg2gcode_wasm";
 
 import type {
   GenerateJobRequest,
@@ -23,6 +29,15 @@ import type {
   Settings,
 } from "./types";
 
+export interface WasmBindings {
+  default_settings: () => string;
+  prepare_svg_document: (svg: string) => string;
+  generate_engraving_job: (input: string, on_progress?: Function) => string;
+}
+
+type WasmInitFn = (url?: string | URL) => Promise<unknown>;
+
+let _bindings: WasmBindings | null = null;
 let wasmReadyPromise: Promise<void> | null = null;
 
 interface WasmEnvelope<T> {
@@ -33,36 +48,51 @@ interface WasmEnvelope<T> {
 
 /**
  * Initialize the WASM module. Call once at app startup.
- * @param wasmUrl - URL to the .wasm binary. Your bundler controls where this lives.
+ *
+ * @param bindings - The exported functions from the WASM module.
+ * @param initFn   - The default export (init function) from the WASM module.
+ * @param wasmUrl  - Optional URL to the .wasm binary (passed to init).
  */
-export async function ensureWasmReady(wasmUrl?: string | URL) {
+export async function ensureWasmReady(
+  bindings: WasmBindings,
+  initFn: WasmInitFn,
+  wasmUrl?: string | URL,
+) {
   if (!wasmReadyPromise) {
-    wasmReadyPromise = init(wasmUrl).then(() => undefined);
+    _bindings = bindings;
+    wasmReadyPromise = initFn(wasmUrl).then(() => undefined);
   }
   await wasmReadyPromise;
 }
 
+function bindings(): WasmBindings {
+  if (!_bindings) {
+    throw new Error("WASM not initialized. Call ensureWasmReady() first.");
+  }
+  return _bindings;
+}
+
 export async function loadDefaultSettings() {
-  await ensureWasmReady();
-  return unwrapEnvelope<Settings>(wasmDefaultSettings());
+  await wasmReadyPromise;
+  return unwrapEnvelope<Settings>(bindings().default_settings());
 }
 
 export async function prepareSvgDocument(svg: string) {
-  await ensureWasmReady();
-  return unwrapEnvelope<PreparedSvgDocument>(wasmPrepareSvgDocument(svg));
+  await wasmReadyPromise;
+  return unwrapEnvelope<PreparedSvgDocument>(bindings().prepare_svg_document(svg));
 }
 
 /**
  * Generate a GCode engraving job from an SVG + settings + operations.
  *
- * @param request - The full job request (normalized SVG, settings, operations).
+ * @param request    - The full job request (normalized SVG, settings, operations).
  * @param onProgress - Optional callback for progress updates.
  */
 export async function generateEngravingJob(
   request: GenerateJobRequest,
   onProgress?: (progress: JobProgress) => void,
 ) {
-  await ensureWasmReady();
+  await wasmReadyPromise;
 
   if (onProgress) {
     onProgress({ phase: "processing", current: 0, total: request.operations.length });
@@ -79,7 +109,7 @@ export async function generateEngravingJob(
     : undefined;
 
   return unwrapEnvelope<GenerateJobResponse>(
-    wasmGenerateEngravingJob(JSON.stringify(request), progressFn),
+    bindings().generate_engraving_job(JSON.stringify(request), progressFn),
   );
 }
 
