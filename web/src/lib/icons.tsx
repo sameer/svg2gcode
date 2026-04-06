@@ -3,6 +3,8 @@ import type { ComponentType, SVGProps } from 'react'
 
 import ArrowChevronDownIcon from '@gravity-ui/icons/esm/ArrowChevronDown.js'
 import ArrowChevronRightIcon from '@gravity-ui/icons/esm/ArrowChevronRight.js'
+import ArrowRotateLeftIcon from '@gravity-ui/icons/esm/ArrowRotateLeft.js'
+import ArrowRotateRightIcon from '@gravity-ui/icons/esm/ArrowRotateRight.js'
 import ArrowUpFromSquareIcon from '@gravity-ui/icons/esm/ArrowUpFromSquare.js'
 import CircleXmarkIcon from '@gravity-ui/icons/esm/CircleXmark.js'
 import EyeIcon from '@gravity-ui/icons/esm/Eye.js'
@@ -47,6 +49,8 @@ export const Icons = {
   alignTop: ObjectAlignTopIcon,
   chevronDown: ArrowChevronDownIcon,
   chevronRight: ArrowChevronRightIcon,
+  undo: ArrowRotateLeftIcon,
+  redo: ArrowRotateRightIcon,
   close: CircleXmarkIcon,
   cursor: HandPointUpIcon,
   engravePreview: EngravePreviewIcon,

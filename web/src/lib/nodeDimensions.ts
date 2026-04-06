@@ -1,5 +1,4 @@
 import type { ArtboardState, CanvasNode, GroupNode } from '../types/editor'
-import { isGroupNode } from './editorTree'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 

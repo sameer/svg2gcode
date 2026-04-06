@@ -1,6 +1,26 @@
 import type { Settings } from "@svg2gcode/bridge"
 import type { ArtboardState, MachiningSettings } from "../types/editor"
 
+function roundStepdown(value: number): number {
+  return Math.round(value * 10_000) / 10_000
+}
+
+export function resolveEffectiveMaxStepdown(
+  machining: Pick<MachiningSettings, "passCount" | "maxStepdown">,
+  deepestTargetDepth: number,
+): number | null {
+  if (machining.maxStepdown != null) {
+    return machining.maxStepdown > 0 ? machining.maxStepdown : null
+  }
+
+  if (!Number.isFinite(deepestTargetDepth) || deepestTargetDepth <= 0) {
+    return null
+  }
+
+  const passCount = Math.max(1, Math.round(machining.passCount || 1))
+  return roundStepdown(deepestTargetDepth / passCount)
+}
+
 /**
  * Merge editor state onto a bridge Settings object.
  * Starts from the provided base (typically from loadDefaultSettings()),
@@ -23,7 +43,6 @@ export function buildBridgeSettings(
       tool_shape: machining.toolShape,
       target_depth: machining.defaultDepthMm,
       // Overlay optional fields only when set
-      ...(machining.maxStepdown != null && { max_stepdown: machining.maxStepdown }),
       ...(machining.stepover != null && { stepover: machining.stepover }),
       ...(machining.cutFeedrate != null && { cut_feedrate: machining.cutFeedrate }),
       ...(machining.plungeFeedrate != null && { plunge_feedrate: machining.plungeFeedrate }),

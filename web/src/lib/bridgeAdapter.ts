@@ -17,7 +17,7 @@ import type {
 } from "../types/editor"
 import { getSubtreeIds, isGroupNode } from "./editorTree"
 import { exportToSVG } from "./svgExport"
-import { buildBridgeSettings } from "./bridgeSettingsAdapter"
+import { buildBridgeSettings, resolveEffectiveMaxStepdown } from "./bridgeSettingsAdapter"
 
 /**
  * Convert the editor's canvas state into bridge ArtObjects for GCode generation.
@@ -99,6 +99,18 @@ export async function prepareGenerationInputs(
 
   const composedSvg = composeArtObjectsSvg(artObjects, settings)
   const operations = getDerivedOperationsForArtObjects(artObjects)
+  const deepestTargetDepth = operations.reduce(
+    (max, operation) => Math.max(max, operation.target_depth_mm),
+    0,
+  )
+  const effectiveMaxStepdown = resolveEffectiveMaxStepdown(
+    machiningSettings,
+    deepestTargetDepth,
+  )
+
+  if (effectiveMaxStepdown != null) {
+    settings.engraving.max_stepdown = effectiveMaxStepdown
+  }
 
   return { normalized_svg: composedSvg, settings, operations }
 }

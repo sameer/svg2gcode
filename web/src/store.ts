@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-import { getSubtreeIds, isGroupNode } from './lib/editorTree'
+import { getSelectableIdsInScope, getSubtreeIds, isGroupNode } from './lib/editorTree'
 import type {
   ArtboardState,
   CanvasNode,
@@ -14,6 +14,15 @@ import type {
   ViewportState,
 } from './types/editor'
 
+type HistorySnapshot = {
+  nodesById: Record<string, CanvasNode>
+  rootIds: string[]
+  selectedIds: string[]
+  artboard: ArtboardState
+}
+
+const MAX_HISTORY = 50
+
 export interface EditorStore {
   nodesById: Record<string, CanvasNode>
   rootIds: string[]
@@ -22,6 +31,8 @@ export interface EditorStore {
   focusGroupId: string | null
   interactionMode: InteractionMode
   directSelectionModifierActive: boolean
+  clipboard: { rootIds: string[]; nodesById: Record<string, CanvasNode> } | null
+  history: { past: HistorySnapshot[]; future: HistorySnapshot[] }
   artboard: ArtboardState
   machiningSettings: MachiningSettings
   viewport: ViewportState
@@ -45,7 +56,14 @@ export interface EditorStore {
     patch: Partial<CanvasNode>,
   ) => void
   updateCncMetadata: (nodeId: string, patch: Partial<CncMetadata>) => void
+  pushHistory: () => void
+  undo: () => void
+  redo: () => void
   deleteSelected: () => void
+  copySelected: () => void
+  pasteClipboard: () => void
+  duplicateSelected: (offsetX?: number, offsetY?: number) => void
+  selectAll: () => void
   setArtboardSize: (patch: Partial<ArtboardState>) => void
   setMachiningSettings: (patch: Partial<MachiningSettings>) => void
   setViewport: (patch: Partial<ViewportState>) => void
@@ -56,6 +74,49 @@ export interface EditorStore {
   clearPendingImport: () => void
   placePendingImport: (position: { x: number; y: number }) => void
   setImportStatus: (status: ImportStatus | null) => void
+}
+
+function generateId(): string {
+  return `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+}
+
+function cloneSubtree(
+  rootId: string,
+  nodesById: Record<string, CanvasNode>,
+  dx: number,
+  dy: number,
+  newParentId: string | null,
+): { newRootId: string; clonedNodes: Record<string, CanvasNode> } {
+  const root = nodesById[rootId]
+  if (!root) return { newRootId: rootId, clonedNodes: {} }
+
+  const newRootId = generateId()
+  const clonedNodes: Record<string, CanvasNode> = {}
+
+  if (root.type === 'group') {
+    const childClones = root.childIds.map((childId) =>
+      cloneSubtree(childId, nodesById, 0, 0, newRootId),
+    )
+    childClones.forEach((c) => Object.assign(clonedNodes, c.clonedNodes))
+    clonedNodes[newRootId] = {
+      ...root,
+      id: newRootId,
+      x: root.x + dx,
+      y: root.y + dy,
+      childIds: childClones.map((c) => c.newRootId),
+      parentId: newParentId,
+    }
+  } else {
+    clonedNodes[newRootId] = {
+      ...root,
+      id: newRootId,
+      x: root.x + dx,
+      y: root.y + dy,
+      parentId: newParentId,
+    } as CanvasNode
+  }
+
+  return { newRootId, clonedNodes }
 }
 
 type BaseNodeDefaults = Pick<
@@ -228,6 +289,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   focusGroupId: null,
   interactionMode: 'group',
   directSelectionModifierActive: false,
+  clipboard: null,
+  history: { past: [], future: [] },
   artboard: {
     width: 960,
     height: 640,
@@ -309,6 +372,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     }))
   },
   updateCncMetadata: (nodeId, patch) => {
+    get().pushHistory()
     set((state) => {
       const existing = state.nodesById[nodeId]
       if (!existing) return {}
@@ -323,11 +387,52 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       }
     })
   },
+  pushHistory: () => {
+    const { nodesById, rootIds, selectedIds, artboard } = get()
+    const snapshot: HistorySnapshot = { nodesById, rootIds, selectedIds, artboard }
+    set((state) => ({
+      history: {
+        past: [...state.history.past.slice(-(MAX_HISTORY - 1)), snapshot],
+        future: [],
+      },
+    }))
+  },
+  undo: () => {
+    const { history, nodesById, rootIds, selectedIds, artboard } = get()
+    if (history.past.length === 0) return
+    const past = [...history.past]
+    const snapshot = past.pop()!
+    const current: HistorySnapshot = { nodesById, rootIds, selectedIds, artboard }
+    set({
+      nodesById: snapshot.nodesById,
+      rootIds: snapshot.rootIds,
+      selectedIds: snapshot.selectedIds,
+      artboard: snapshot.artboard,
+      focusGroupId: null,
+      history: { past, future: [current, ...history.future] },
+    })
+  },
+  redo: () => {
+    const { history, nodesById, rootIds, selectedIds, artboard } = get()
+    if (history.future.length === 0) return
+    const [snapshot, ...future] = history.future
+    const current: HistorySnapshot = { nodesById, rootIds, selectedIds, artboard }
+    set({
+      nodesById: snapshot.nodesById,
+      rootIds: snapshot.rootIds,
+      selectedIds: snapshot.selectedIds,
+      artboard: snapshot.artboard,
+      focusGroupId: null,
+      history: { past: [...history.past, current], future },
+    })
+  },
   deleteSelected: () => {
     const { nodesById, rootIds, selectedIds } = get()
     if (selectedIds.length === 0) {
       return
     }
+
+    get().pushHistory()
 
     const idsToDelete = new Set<string>()
     selectedIds.forEach((id) => {
@@ -367,7 +472,95 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
           : get().focusGroupId,
     })
   },
+  copySelected: () => {
+    const { nodesById, selectedIds } = get()
+    if (selectedIds.length === 0) return
+
+    const clipboardNodesById: Record<string, CanvasNode> = {}
+    selectedIds.forEach((id) => {
+      getSubtreeIds(id, nodesById).forEach((subtreeId) => {
+        clipboardNodesById[subtreeId] = { ...nodesById[subtreeId] }
+      })
+    })
+
+    const clipboardRootIds = selectedIds.filter((id) => {
+      const node = nodesById[id]
+      return !node?.parentId || !selectedIds.includes(node.parentId)
+    })
+
+    set({ clipboard: { rootIds: clipboardRootIds, nodesById: clipboardNodesById } })
+  },
+  pasteClipboard: () => {
+    const { nodesById, rootIds, clipboard } = get()
+    if (!clipboard) return
+
+    get().pushHistory()
+
+    const newRootIds: string[] = []
+    const newNodesById: Record<string, CanvasNode> = {}
+
+    clipboard.rootIds.forEach((rootId) => {
+      const { newRootId, clonedNodes } = cloneSubtree(rootId, clipboard.nodesById, 20, 20, null)
+      newRootIds.push(newRootId)
+      Object.assign(newNodesById, clonedNodes)
+    })
+
+    set({
+      nodesById: { ...nodesById, ...newNodesById },
+      rootIds: [...rootIds, ...newRootIds],
+      selectedIds: newRootIds,
+      selectedStage: false,
+    })
+  },
+  duplicateSelected: (offsetX = 20, offsetY = 20) => {
+    const { nodesById, rootIds, selectedIds } = get()
+    if (selectedIds.length === 0) return
+
+    get().pushHistory()
+
+    const topLevelIds = selectedIds.filter((id) => {
+      const node = nodesById[id]
+      return !node?.parentId || !selectedIds.includes(node.parentId)
+    })
+
+    const newRootIds: string[] = []
+    const updatedNodesById: Record<string, CanvasNode> = { ...nodesById }
+    let updatedRootIds = [...rootIds]
+
+    topLevelIds.forEach((id) => {
+      const node = nodesById[id]
+      const parentId = node?.parentId ?? null
+      const { newRootId, clonedNodes } = cloneSubtree(id, nodesById, offsetX, offsetY, parentId)
+      newRootIds.push(newRootId)
+      Object.assign(updatedNodesById, clonedNodes)
+
+      if (!parentId) {
+        updatedRootIds = [...updatedRootIds, newRootId]
+      } else {
+        const parent = updatedNodesById[parentId]
+        if (parent && isGroupNode(parent)) {
+          updatedNodesById[parentId] = {
+            ...parent,
+            childIds: [...parent.childIds, newRootId],
+          }
+        }
+      }
+    })
+
+    set({
+      nodesById: updatedNodesById,
+      rootIds: updatedRootIds,
+      selectedIds: newRootIds,
+      selectedStage: false,
+    })
+  },
+  selectAll: () => {
+    const { rootIds, focusGroupId, nodesById, interactionMode } = get()
+    const ids = getSelectableIdsInScope(rootIds, nodesById, focusGroupId, interactionMode)
+    set({ selectedIds: ids, selectedStage: false })
+  },
   setArtboardSize: (patch) => {
+    get().pushHistory()
     set((state) => ({
       artboard: {
         ...state.artboard,
@@ -442,6 +635,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     if (!pendingImport) {
       return
     }
+
+    get().pushHistory()
 
     const rootNode = pendingImport.nodesById[pendingImport.rootId]
     if (!rootNode || rootNode.type !== 'group') {

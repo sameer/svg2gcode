@@ -153,6 +153,12 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
   const setIsTransforming = useEditorStore((state) => state.setIsTransforming)
   const setArtboardSize = useEditorStore((state) => state.setArtboardSize)
   const updateNodeTransform = useEditorStore((state) => state.updateNodeTransform)
+  const duplicateSelected = useEditorStore((state) => state.duplicateSelected)
+  const pushHistory = useEditorStore((state) => state.pushHistory)
+  const undo = useEditorStore((state) => state.undo)
+  const redo = useEditorStore((state) => state.redo)
+  const canUndo = useEditorStore((state) => state.history.past.length > 0)
+  const canRedo = useEditorStore((state) => state.history.future.length > 0)
   const placePendingImport = useEditorStore((state) => state.placePendingImport)
   const setInteractionMode = useEditorStore((state) => state.setInteractionMode)
   const { getMarqueeCandidateIds, selectMany, selectStage, selectableIds } = useSelection()
@@ -163,6 +169,8 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
   const artboardTargetRef = useRef<Konva.Rect | null>(null)
   const nodeRefs = useRef(new Map<string, Konva.Node>())
   const dragStartPositions = useRef<Record<string, { x: number; y: number }>>({})
+  const isAltKeyDownRef = useRef(false)
+  const isDuplicateDragRef = useRef(false)
   const marqueeStartRef = useRef<Point | null>(null)
   const marqueeRectRef = useRef<MarqueeRect | null>(null)
   const didMarqueeDragRef = useRef(false)
@@ -347,6 +355,10 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Alt') {
+        isAltKeyDownRef.current = true
+      }
+
       if (event.code !== 'Space' || isTypingTarget(event.target)) {
         return
       }
@@ -356,6 +368,10 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
     }
 
     const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Alt') {
+        isAltKeyDownRef.current = false
+      }
+
       if (event.code !== 'Space') {
         return
       }
@@ -363,7 +379,10 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
       setIsSpacePressed(false)
     }
 
-    const onBlur = () => setIsSpacePressed(false)
+    const onBlur = () => {
+      isAltKeyDownRef.current = false
+      setIsSpacePressed(false)
+    }
 
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
@@ -468,6 +487,10 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
       }
     })
     dragStartPositions.current = positions
+    isDuplicateDragRef.current = isAltKeyDownRef.current
+    if (!isDuplicateDragRef.current) {
+      pushHistory()
+    }
     clearSnapGuides()
   }
 
@@ -502,6 +525,28 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
 
   const handleNodeDragEnd = (nodeId: string, konvaNode: Konva.Node) => {
     clearSnapGuides()
+
+    if (isDuplicateDragRef.current) {
+      isDuplicateDragRef.current = false
+
+      const startPos = dragStartPositions.current[nodeId]
+      const dx = startPos ? konvaNode.x() - startPos.x : 0
+      const dy = startPos ? konvaNode.y() - startPos.y : 0
+
+      // Revert all dragged nodes to their original positions
+      Object.entries(dragStartPositions.current).forEach(([id, pos]) => {
+        const node = nodeRefs.current.get(id)
+        if (node) {
+          node.x(pos.x)
+          node.y(pos.y)
+        }
+        updateNodeTransform(id, { x: pos.x, y: pos.y })
+      })
+
+      dragStartPositions.current = {}
+      duplicateSelected(dx, dy)
+      return
+    }
 
     if (selectedIds.length <= 1) {
       updateNodeTransform(nodeId, { x: konvaNode.x(), y: konvaNode.y() })
@@ -739,6 +784,7 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
   }
 
   const onTransformStart = () => {
+    pushHistory()
     clearSnapGuides()
     setIsTransforming(true)
   }
@@ -896,6 +942,27 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
             title="Engrave preview — simulates routed pockets on wood"
           >
             <AppIcon icon={Icons.engravePreview} className="h-5 w-5" />
+          </button>
+
+          {/* Undo / Redo */}
+          <div className="mx-1 h-6 w-px bg-white/10" />
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg transition text-white/75 hover:text-white disabled:opacity-25 disabled:cursor-not-allowed"
+            disabled={!canUndo}
+            onClick={() => undo()}
+            title="Undo (⌘Z)"
+          >
+            <AppIcon icon={Icons.undo} className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg transition text-white/75 hover:text-white disabled:opacity-25 disabled:cursor-not-allowed"
+            disabled={!canRedo}
+            onClick={() => redo()}
+            title="Redo (⌘⇧Z)"
+          >
+            <AppIcon icon={Icons.redo} className="h-5 w-5" />
           </button>
 
           {/* Zoom controls */}

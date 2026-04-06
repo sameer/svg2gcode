@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Button, Tabs } from '@heroui/react'
 
 import { normalizeEngraveType } from '../lib/cncVisuals'
+import { resolveEffectiveMaxStepdown } from '../lib/bridgeSettingsAdapter'
 import { isGroupNode } from '../lib/editorTree'
 import { getNodeSize, getNodeOffsetMm, offsetMmToCanvasY } from '../lib/nodeDimensions'
 import { useEditorStore } from '../store'
@@ -356,6 +357,7 @@ function MaterialTabContent({
     machiningSettings.passCount > 1
       ? Math.round((maxCutDepth / machiningSettings.passCount) * 100) / 100
       : null
+  const effectiveMaxStepdown = resolveEffectiveMaxStepdown(machiningSettings, maxCutDepth)
 
   return (
     <div className="space-y-5">
@@ -445,8 +447,14 @@ function MaterialTabContent({
           </div>
           {depthPerPass !== null && (
             <div className="flex h-8 flex-1 items-center justify-end gap-1 text-sm text-foreground">
-              <span className="font-medium">{depthPerPass} mm</span>
-              <span className="text-xs text-muted-foreground">/ pass of {maxCutDepth} mm</span>
+              <span className="font-medium">
+                {machiningSettings.maxStepdown != null ? effectiveMaxStepdown : depthPerPass} mm
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {machiningSettings.maxStepdown != null
+                  ? `advanced override, total depth ${maxCutDepth} mm`
+                  : `/ pass of ${maxCutDepth} mm`}
+              </span>
             </div>
           )}
         </div>
@@ -466,6 +474,11 @@ function MaterialTabContent({
           <div className="mt-3 flex flex-wrap gap-3">
             <NumberField label="Max Stepdown" unit="mm" value={machiningSettings.maxStepdown}
               onChange={(v) => setField({ maxStepdown: v })} />
+            <div className="w-full -mt-1 text-xs text-muted-foreground">
+              {machiningSettings.maxStepdown != null
+                ? `Bridge uses the advanced max stepdown of ${effectiveMaxStepdown} mm.`
+                : `Bridge derives max stepdown from Passes: ${effectiveMaxStepdown ?? maxCutDepth} mm.`}
+            </div>
             <NumberField label="Stepover" unit="mm" value={machiningSettings.stepover}
               onChange={(v) => setField({ stepover: v })} />
             <NumberField label="Cut Feed" unit="mm/min" value={machiningSettings.cutFeedrate}
