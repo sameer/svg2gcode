@@ -7,7 +7,6 @@ export function useKeyboardShortcuts() {
   const deleteSelected = useEditorStore((state) => state.deleteSelected)
   const copySelected = useEditorStore((state) => state.copySelected)
   const pasteClipboard = useEditorStore((state) => state.pasteClipboard)
-  const duplicateSelected = useEditorStore((state) => state.duplicateSelected)
   const selectAll = useEditorStore((state) => state.selectAll)
   const clearSelection = useEditorStore((state) => state.clearSelection)
   const undo = useEditorStore((state) => state.undo)
@@ -47,7 +46,7 @@ export function useKeyboardShortcuts() {
             return
           case 'd':
             event.preventDefault()
-            duplicateSelected()
+            clearSelection()
             return
           case 'x':
             event.preventDefault()
@@ -107,7 +106,6 @@ export function useKeyboardShortcuts() {
     clearSelection,
     copySelected,
     deleteSelected,
-    duplicateSelected,
     pasteClipboard,
     pendingImport,
     redo,

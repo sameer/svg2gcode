@@ -63,6 +63,7 @@ export interface EditorStore {
   copySelected: () => void
   pasteClipboard: () => void
   duplicateSelected: (offsetX?: number, offsetY?: number) => void
+  duplicateInPlace: () => void
   selectAll: () => void
   setArtboardSize: (patch: Partial<ArtboardState>) => void
   setMachiningSettings: (patch: Partial<MachiningSettings>) => void
@@ -553,6 +554,40 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       selectedIds: newRootIds,
       selectedStage: false,
     })
+  },
+  duplicateInPlace: () => {
+    const { nodesById, rootIds, selectedIds } = get()
+    if (selectedIds.length === 0) return
+
+    const topLevelIds = selectedIds.filter((id) => {
+      const node = nodesById[id]
+      return !node?.parentId || !selectedIds.includes(node.parentId)
+    })
+
+    const updatedNodesById: Record<string, CanvasNode> = { ...nodesById }
+    let updatedRootIds = [...rootIds]
+
+    topLevelIds.forEach((id) => {
+      const node = nodesById[id]
+      const parentId = node?.parentId ?? null
+      const { newRootId, clonedNodes } = cloneSubtree(id, nodesById, 0, 0, parentId)
+      Object.assign(updatedNodesById, clonedNodes)
+
+      if (!parentId) {
+        updatedRootIds = [...updatedRootIds, newRootId]
+      } else {
+        const parent = updatedNodesById[parentId]
+        if (parent && isGroupNode(parent)) {
+          updatedNodesById[parentId] = {
+            ...parent,
+            childIds: [...parent.childIds, newRootId],
+          }
+        }
+      }
+    })
+
+    // Keep selectedIds on the originals so Konva keeps dragging them
+    set({ nodesById: updatedNodesById, rootIds: updatedRootIds })
   },
   selectAll: () => {
     const { rootIds, focusGroupId, nodesById, interactionMode } = get()

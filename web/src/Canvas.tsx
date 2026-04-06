@@ -153,7 +153,7 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
   const setIsTransforming = useEditorStore((state) => state.setIsTransforming)
   const setArtboardSize = useEditorStore((state) => state.setArtboardSize)
   const updateNodeTransform = useEditorStore((state) => state.updateNodeTransform)
-  const duplicateSelected = useEditorStore((state) => state.duplicateSelected)
+  const duplicateInPlace = useEditorStore((state) => state.duplicateInPlace)
   const pushHistory = useEditorStore((state) => state.pushHistory)
   const undo = useEditorStore((state) => state.undo)
   const redo = useEditorStore((state) => state.redo)
@@ -487,9 +487,10 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
       }
     })
     dragStartPositions.current = positions
+    pushHistory()
     isDuplicateDragRef.current = isAltKeyDownRef.current
-    if (!isDuplicateDragRef.current) {
-      pushHistory()
+    if (isDuplicateDragRef.current) {
+      duplicateInPlace()
     }
     clearSnapGuides()
   }
@@ -525,28 +526,7 @@ export function Canvas({ allowStageSelection = false, materialPreset = DEFAULT_M
 
   const handleNodeDragEnd = (nodeId: string, konvaNode: Konva.Node) => {
     clearSnapGuides()
-
-    if (isDuplicateDragRef.current) {
-      isDuplicateDragRef.current = false
-
-      const startPos = dragStartPositions.current[nodeId]
-      const dx = startPos ? konvaNode.x() - startPos.x : 0
-      const dy = startPos ? konvaNode.y() - startPos.y : 0
-
-      // Revert all dragged nodes to their original positions
-      Object.entries(dragStartPositions.current).forEach(([id, pos]) => {
-        const node = nodeRefs.current.get(id)
-        if (node) {
-          node.x(pos.x)
-          node.y(pos.y)
-        }
-        updateNodeTransform(id, { x: pos.x, y: pos.y })
-      })
-
-      dragStartPositions.current = {}
-      duplicateSelected(dx, dy)
-      return
-    }
+    isDuplicateDragRef.current = false
 
     if (selectedIds.length <= 1) {
       updateNodeTransform(nodeId, { x: konvaNode.x(), y: konvaNode.y() })
