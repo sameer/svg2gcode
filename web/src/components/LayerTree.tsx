@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Input } from '@heroui/react'
+import { Button, ButtonGroup, Dropdown, Input } from '@heroui/react'
 
 import { AppIcon, Icons } from '../lib/icons'
 import { useEditorStore } from '../store'
@@ -20,14 +20,16 @@ const NODE_TYPE_LABEL: Record<string, string> = {
 interface LayerTreeProps {
   projectName: string
   onProjectNameChange: (name: string) => void
-  onAddClick: () => void
+  onImportSvg: () => void
+  onExportProject: () => void
   onSelectMaterial: () => void
 }
 
 export function LayerTree({
   projectName,
   onProjectNameChange,
-  onAddClick,
+  onImportSvg,
+  onExportProject,
   onSelectMaterial,
 }: LayerTreeProps) {
   const nodesById = useEditorStore((s) => s.nodesById)
@@ -62,10 +64,27 @@ export function LayerTree({
           onChange={(e) => onProjectNameChange(e.target.value)}
         />
 
-        <Button className="mt-4 w-full justify-start" variant="secondary" onPress={onAddClick}>
-          <AppIcon icon={Icons.plus} className="h-4 w-4" />
-          Add art object
-        </Button>
+        <ButtonGroup className="mt-4 w-full" variant="secondary">
+          <Button className="flex-1 justify-start" onPress={onImportSvg}>
+            <AppIcon icon={Icons.fileUpload} className="h-4 w-4" />
+            Import SVG
+          </Button>
+          <Dropdown>
+            <Button isIconOnly aria-label="More options">
+              <ButtonGroup.Separator />
+              <AppIcon icon={Icons.chevronDown} className="h-3.5 w-3.5" />
+            </Button>
+            <Dropdown.Popover placement="bottom end">
+              <Dropdown.Menu onAction={(key) => {
+                if (key === 'export-project') onExportProject()
+              }}>
+                <Dropdown.Item id="export-project">
+                  Export Project
+                </Dropdown.Item>
+              </Dropdown.Menu>
+            </Dropdown.Popover>
+          </Dropdown>
+        </ButtonGroup>
       </div>
 
       <div className="border-b border-border px-4 py-3">
@@ -81,7 +100,7 @@ export function LayerTree({
         {filteredRootIds.length === 0 ? (
           <div className="rounded-md border border-dashed border-border bg-content1 px-3 py-3 text-sm text-muted-foreground">
             {rootIds.length === 0
-              ? 'Drop an SVG or use Add art object to start.'
+              ? 'Drop an SVG or use Import SVG to start.'
               : 'No results match your search.'}
           </div>
         ) : (

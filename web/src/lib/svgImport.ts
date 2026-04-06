@@ -1,12 +1,15 @@
 import svgpath from 'svgpath'
 
 import type {
+  ArtboardState,
   CanvasFillRule,
   CanvasNode,
   GroupNode,
   LineNode,
+  MachiningSettings,
   PathNode,
   PendingSvgImport,
+  ProjectMetadata,
 } from '../types/editor'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -509,6 +512,36 @@ const normalizeSubtree = (
   return normalized
 }
 
+function readProjectMetadata(rootElement: Element): ProjectMetadata | undefined {
+  if (rootElement.getAttribute('data-engrav-version') !== '1') return undefined
+
+  const meta: ProjectMetadata = {}
+
+  const name = rootElement.getAttribute('data-engrav-project-name')
+  if (name) meta.projectName = name
+
+  const artboardRaw = rootElement.getAttribute('data-engrav-artboard')
+  if (artboardRaw) {
+    try {
+      const parsed = JSON.parse(artboardRaw) as Partial<ArtboardState>
+      if (parsed && typeof parsed === 'object') meta.artboard = parsed
+    } catch { /* ignore malformed */ }
+  }
+
+  const machiningRaw = rootElement.getAttribute('data-engrav-machining')
+  if (machiningRaw) {
+    try {
+      const parsed = JSON.parse(machiningRaw) as Partial<MachiningSettings>
+      if (parsed && typeof parsed === 'object') meta.machiningSettings = parsed
+    } catch { /* ignore malformed */ }
+  }
+
+  const material = rootElement.getAttribute('data-engrav-material')
+  if (material) meta.materialPreset = material
+
+  return meta
+}
+
 export function importSvgToScene({
   artboardWidth,
   artboardHeight,
@@ -525,6 +558,8 @@ export function importSvgToScene({
   if (rootElement.tagName.toLowerCase() !== 'svg') {
     throw new Error('The selected file is not an SVG document.')
   }
+
+  const projectMetadata = readProjectMetadata(rootElement)
 
   const pathMeasure = createPathMeasure()
   const prefix = `svg-${crypto.randomUUID().slice(0, 8)}`
@@ -798,6 +833,7 @@ export function importSvgToScene({
       height: effectiveHeight * fitScale,
       name: rootNode.name,
       originalSvg: svgText,
+      projectMetadata,
     }
   } finally {
     pathMeasure.cleanup()

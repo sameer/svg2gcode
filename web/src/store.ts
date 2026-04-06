@@ -15,6 +15,7 @@ import type {
 } from './types/editor'
 import { parseGcodeProgram } from '@svg2gcode/bridge/viewer'
 import { segmentsToToolpaths } from './components/preview/segmentsToToolpaths'
+import { insertTabs } from './lib/gcodeTabInsertion'
 import type { CameraType, PreviewState, ViewMode } from './types/preview'
 
 type HistorySnapshot = {
@@ -682,7 +683,20 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     }))
   },
   initPreview: (result) => {
-    const program = parseGcodeProgram(result.gcode, result.operation_ranges)
+    const { machiningSettings, artboard } = get()
+
+    // Post-process GCode to insert tabs on through-cuts when enabled
+    let gcode = result.gcode
+    if (machiningSettings.tabsEnabled) {
+      gcode = insertTabs(gcode, {
+        materialThickness: artboard.thickness,
+        tabWidth: machiningSettings.tabWidth,
+        tabHeight: machiningSettings.tabHeight,
+        tabSpacing: machiningSettings.tabSpacing,
+      })
+    }
+
+    const program = parseGcodeProgram(gcode, result.operation_ranges)
     const { toolpaths, stockBounds } = segmentsToToolpaths(
       program.segments,
       result.preview_snapshot.tool_diameter / 2,
@@ -697,7 +711,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         parsedProgram: program,
         toolpaths,
         stockBounds,
-        gcodeText: result.gcode,
+        gcodeText: gcode,
         previewSnapshot: result.preview_snapshot,
         playbackDistance: 0,
         isPlaying: false,

@@ -1,16 +1,16 @@
 import { Button, Label, ProgressBar } from '@heroui/react'
 import type { JobProgress } from '@svg2gcode/bridge'
+import ArrowDownToSquareIcon from '@gravity-ui/icons/esm/ArrowDownToSquare.js'
 import SparklesIcon from '@gravity-ui/icons/esm/Sparkles.js'
 
-import { AppIcon, Icons } from '../lib/icons'
+import { AppIcon } from '../lib/icons'
 import type { ViewMode } from '../types/preview'
 
 interface TopBarProps {
   viewMode: ViewMode
   onViewModeChange: (mode: ViewMode) => void
-  onExport: () => void
-  onImport: () => void
   onGenerateGcode: () => void
+  onDownloadGcode: () => void
   isGenerating?: boolean
   progress?: JobProgress | null
   hasGcodeResult?: boolean
@@ -57,9 +57,8 @@ function progressPercent(progress: JobProgress | null | undefined): number {
 export function TopBar({
   viewMode,
   onViewModeChange,
-  onExport,
-  onImport,
   onGenerateGcode,
+  onDownloadGcode,
   isGenerating,
   progress,
   hasGcodeResult,
@@ -67,8 +66,8 @@ export function TopBar({
   const percent = progressPercent(progress)
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-4 z-30 flex px-4">
-      <div className="pointer-events-auto flex w-full flex-col rounded-[1.75rem] border border-white/10 bg-[rgba(19,19,23,0.9)] px-3 py-3 text-white shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-2xl transition-all duration-300">
+    <div className="pointer-events-none absolute inset-x-0 top-4 z-30 flex justify-center px-4">
+      <div className="pointer-events-auto inline-flex flex-col rounded-[1.75rem] border border-white/10 bg-[rgba(19,19,23,0.9)] px-3 py-3 text-white shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-2xl transition-all duration-300">
         <div className="flex min-h-10 items-center gap-3">
 
           {/* Tabs: Design / 2D View / 3D View */}
@@ -124,31 +123,14 @@ export function TopBar({
             <AppIcon icon={SparklesIcon} className="h-4 w-4" />
             GCode
           </Button>
-
-          {/* Spacer */}
-          <div className="flex-1" />
-
-          {/* Right: Export SVG | Import SVG */}
           <Button
-            className="rounded-full text-[14px] text-white"
+            className="rounded-full bg-emerald-600 px-3 gap-1.5 text-[14px] font-medium text-white hover:bg-emerald-500 disabled:bg-emerald-900/40 disabled:text-white/35"
             size="sm"
-            variant="secondary"
-            onPress={onExport}
+            isDisabled={isGenerating || !hasGcodeResult}
+            onPress={onDownloadGcode}
           >
-            <AppIcon icon={Icons.export} className="h-4 w-4" />
-            Export SVG
-          </Button>
-
-          <div className="h-6 w-px bg-white/10" />
-
-          <Button
-            className="rounded-full text-[14px] text-white"
-            size="sm"
-            variant="secondary"
-            onPress={onImport}
-          >
-            <AppIcon icon={Icons.fileUpload} className="h-4 w-4" />
-            Import SVG
+            <AppIcon icon={ArrowDownToSquareIcon} className="h-4 w-4" />
+            Download
           </Button>
         </div>
 

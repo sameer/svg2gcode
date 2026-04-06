@@ -1,4 +1,4 @@
-import type { ArtboardState, CanvasNode, CircleNode, GroupNode, LineNode, PathNode, RectNode } from '../types/editor'
+import type { ArtboardState, CanvasNode, CircleNode, GroupNode, LineNode, MachiningSettings, PathNode, RectNode } from '../types/editor'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -209,8 +209,6 @@ function serializeNode(
  * - Coordinates are normalized to artboard-relative (0,0 = artboard top-left).
  * - CNC properties are embedded as data-cut-depth / data-engrave-type attributes.
  * - Invisible nodes are omitted.
- * - No Konva-specific UI elements (Transformer, marquee, guides) are included;
- *   the export reads only nodesById, which never contains those imperative objects.
  */
 export function exportToSVG(
   nodesById: Record<string, CanvasNode>,
@@ -232,6 +230,55 @@ export function exportToSVG(
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
     `  <!-- Exported by Konva CNC Editor — artboard origin (${artX}, ${artY}) normalized to 0,0 -->`,
+    `  <g transform="translate(${-artX} ${-artY})">`,
+    rootContent,
+    `  </g>`,
+    `</svg>`,
+  ].join('\n')
+}
+
+/**
+ * Exports the full project as an SVG with all Engrav metadata embedded as
+ * data attributes on the root element, enabling a complete round-trip restore.
+ *
+ * Embedded attributes:
+ *   data-engrav-version       — schema version ("1")
+ *   data-engrav-project-name  — project name
+ *   data-engrav-artboard      — JSON: { width, height, thickness }
+ *   data-engrav-machining     — JSON: full MachiningSettings
+ *   data-engrav-material      — material preset ID string
+ */
+export function exportProjectSVG(
+  nodesById: Record<string, CanvasNode>,
+  rootIds: string[],
+  artboard: ArtboardState,
+  machiningSettings: MachiningSettings,
+  materialPreset: string,
+  projectName: string,
+): string {
+  const { width, height, x: artX, y: artY } = artboard
+
+  const innerIndent = '    '
+  const rootContent = rootIds
+    .map((id) => {
+      const node = nodesById[id]
+      if (!node || !node.visible) return ''
+      return serializeNode(node, nodesById, innerIndent)
+    })
+    .filter(Boolean)
+    .join('\n')
+
+  const artboardJson = JSON.stringify({ width: artboard.width, height: artboard.height, thickness: artboard.thickness })
+  const machiningJson = JSON.stringify(machiningSettings)
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"`,
+    `  data-engrav-version="1"`,
+    `  data-engrav-project-name="${esc(projectName)}"`,
+    `  data-engrav-artboard="${esc(artboardJson)}"`,
+    `  data-engrav-machining="${esc(machiningJson)}"`,
+    `  data-engrav-material="${esc(materialPreset)}">`,
+    `  <!-- Engrav Studio project file -->`,
     `  <g transform="translate(${-artX} ${-artY})">`,
     rootContent,
     `  </g>`,

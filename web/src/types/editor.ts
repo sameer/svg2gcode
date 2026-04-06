@@ -119,6 +119,13 @@ export interface PathNode extends CanvasNodeBase {
 // OpenCV.js alignment metadata, and downstream G-code translation.
 export type CanvasNode = GroupNode | RectNode | CircleNode | LineNode | PathNode
 
+export interface ProjectMetadata {
+  projectName?: string
+  artboard?: Partial<ArtboardState>
+  machiningSettings?: Partial<MachiningSettings>
+  materialPreset?: string
+}
+
 export interface PendingSvgImport {
   nodesById: Record<string, CanvasNode>
   rootId: string
@@ -127,6 +134,8 @@ export interface PendingSvgImport {
   name: string
   /** Raw SVG source text, preserved for bridge processing at GCode generation time. */
   originalSvg: string
+  /** Present when the SVG was exported as a full Engrav project file. */
+  projectMetadata?: ProjectMetadata
 }
 
 export interface ImportStatus {

@@ -14,7 +14,7 @@ import { GcodeViewer } from './components/preview/GcodeViewer'
 import { useGcodeGeneration } from './hooks/useGcodeGeneration'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { importSvgToScene } from './lib/svgImport'
-import { exportToSVG } from './lib/svgExport'
+import { exportProjectSVG } from './lib/svgExport'
 import { DEFAULT_MATERIAL, MATERIAL_PRESETS } from './lib/materialPresets'
 import type { MaterialPreset } from './lib/materialPresets'
 import { useEditorStore } from './store'
@@ -30,7 +30,9 @@ function App() {
   const stagePendingImport = useEditorStore((state) => state.stagePendingImport)
   const placePendingImport = useEditorStore((state) => state.placePendingImport)
   const setImportStatus = useEditorStore((state) => state.setImportStatus)
+  const machiningSettings = useEditorStore((state) => state.machiningSettings)
   const setMachiningSettings = useEditorStore((state) => state.setMachiningSettings)
+  const setArtboardSize = useEditorStore((state) => state.setArtboardSize)
   const viewMode = useEditorStore((state) => state.preview.viewMode)
   const setViewMode = useEditorStore((state) => state.setViewMode)
   const initPreview = useEditorStore((state) => state.initPreview)
@@ -48,13 +50,20 @@ function App() {
 
   useKeyboardShortcuts()
 
-  const handleSvgExport = () => {
-    const svgString = exportToSVG(nodesById, rootIds, artboard)
+  const handleProjectExport = () => {
+    const svgString = exportProjectSVG(
+      nodesById,
+      rootIds,
+      artboard,
+      machiningSettings,
+      materialPreset,
+      projectName,
+    )
     const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = 'cnc-export.svg'
+    anchor.download = `${projectName || 'project'}.svg`
     anchor.click()
     URL.revokeObjectURL(url)
   }
@@ -68,6 +77,16 @@ function App() {
         fileName: file.name,
         svgText,
       })
+
+      // Restore project metadata if this is an Engrav project file
+      const meta = pendingScene.projectMetadata
+      if (meta) {
+        if (meta.projectName) setProjectName(meta.projectName)
+        if (meta.artboard) setArtboardSize(meta.artboard)
+        if (meta.machiningSettings) setMachiningSettings(meta.machiningSettings)
+        if (meta.materialPreset) handleMaterialChange(meta.materialPreset as MaterialPreset)
+      }
+
       if (autoPlace) {
         stagePendingImport(pendingScene)
         placePendingImport({ x: 0, y: 0 })
@@ -122,8 +141,11 @@ function App() {
   }
 
   const handleDownloadGcode = () => {
-    if (gcode.result) {
-      gcode.downloadGcode(gcode.result.gcode, `${projectName || 'output'}.gcode`)
+    // Use the store's gcodeText (which includes tab post-processing) if available
+    const gcodeText = useEditorStore.getState().preview.gcodeText
+    const text = gcodeText ?? gcode.result?.gcode
+    if (text) {
+      gcode.downloadGcode(text, `${projectName || 'output'}.gcode`)
     }
   }
 
@@ -182,7 +204,8 @@ function App() {
               <LayerTree
                 projectName={projectName}
                 onProjectNameChange={setProjectName}
-                onAddClick={() => fileInputRef.current?.click()}
+                onImportSvg={() => fileInputRef.current?.click()}
+                onExportProject={handleProjectExport}
                 onSelectMaterial={handleSelectMaterial}
               />
             )}
@@ -197,9 +220,8 @@ function App() {
             <TopBar
               viewMode={viewMode}
               onViewModeChange={handleViewModeChange}
-              onExport={handleSvgExport}
-              onImport={() => fileInputRef.current?.click()}
               onGenerateGcode={handleGenerateGcode}
+              onDownloadGcode={handleDownloadGcode}
               isGenerating={gcode.isGenerating}
               progress={gcode.progress}
               hasGcodeResult={!!gcode.result}
