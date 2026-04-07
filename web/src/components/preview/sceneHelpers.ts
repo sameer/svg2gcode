@@ -34,13 +34,13 @@ export function clearGroup(group: THREE.Group): void {
 
 export function createLighting(): THREE.Group {
   const group = new THREE.Group()
-  group.add(new THREE.AmbientLight(0xffffff, 0.65))
+  group.add(new THREE.AmbientLight(0xffffff, 0.35))
 
-  const keyLight = new THREE.DirectionalLight(0xffffff, 0.85)
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.1)
   keyLight.position.set(8, -6, 12)
   group.add(keyLight)
 
-  const fillLight = new THREE.DirectionalLight(0x88aaff, 0.35)
+  const fillLight = new THREE.DirectionalLight(0x88aaff, 0.45)
   fillLight.position.set(-10, 8, 7)
   group.add(fillLight)
 

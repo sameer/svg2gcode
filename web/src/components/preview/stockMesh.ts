@@ -55,6 +55,37 @@ export function createStockMeshLayers(
     side: THREE.DoubleSide,
   })
 
+  // Inject world-Z depth darkening: cut floors/walls darken proportionally to depth
+  stockMaterial.onBeforeCompile = (shader) => {
+    shader.uniforms.uMaxDepth = { value: totalDepth }
+
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <common>',
+      `#include <common>
+varying float vWorldZ;`,
+    )
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <fog_vertex>',
+      `#include <fog_vertex>
+vWorldZ = (modelMatrix * vec4(position, 1.0)).z;`,
+    )
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <common>',
+      `#include <common>
+varying float vWorldZ;
+uniform float uMaxDepth;`,
+    )
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <dithering_fragment>',
+      `#include <dithering_fragment>
+if (vWorldZ < -0.05) {
+  float t = clamp(-vWorldZ / max(uMaxDepth, 0.001), 0.0, 1.0);
+  gl_FragColor.rgb *= (1.0 - sqrt(t) * 0.6);
+}`,
+    )
+  }
+
   const totalDepth = Math.max(materialThickness, uniqueDepths[uniqueDepths.length - 1] || 0) || fallbackDepth
   const deepestCut = uniqueDepths[uniqueDepths.length - 1] || 0
 
