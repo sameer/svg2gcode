@@ -16,7 +16,7 @@ use super::{
 };
 use crate::{
     Turtle,
-    converter::node_name,
+    converter::{css::Stylesheet, node_name},
     turtle::{PaintStyle, SvgFillRule},
 };
 
@@ -51,9 +51,15 @@ fn node_presentation_value<'a, 'input>(node: &'a Node<'a, 'input>, key: &str) ->
     node.attribute(key)
 }
 
-fn node_style_value<'a, 'input>(node: &'a Node<'a, 'input>, key: &str) -> Option<&'a str> {
+fn node_style_value<'a, 'input>(
+    node: &'a Node<'a, 'input>,
+    key: &str,
+    stylesheet: &'a Stylesheet,
+) -> Option<&'a str> {
+    // CSS cascade: inline style > stylesheet rules > presentation attributes
     node.attribute("style")
         .and_then(|style| parse_style_value(style, key))
+        .or_else(|| stylesheet.get_property(*node, key))
         .or_else(|| node_presentation_value(node, key))
 }
 
@@ -74,18 +80,30 @@ fn parse_fill_rule(value: &str) -> Option<SvgFillRule> {
     }
 }
 
-fn resolve_paint_style<'a, 'input>(node: Node<'a, 'input>, parent: PaintStyle) -> PaintStyle {
+fn resolve_paint_style<'a, 'input>(
+    node: Node<'a, 'input>,
+    parent: PaintStyle,
+    stylesheet: &'a Stylesheet,
+) -> PaintStyle {
     let mut paint = parent;
-    if let Some(fill) = node_style_value(&node, "fill").and_then(parse_paint_enabled) {
+    if let Some(fill) = node_style_value(&node, "fill", stylesheet).and_then(parse_paint_enabled) {
         paint.fill = fill;
     }
-    if let Some(stroke) = node_style_value(&node, "stroke").and_then(parse_paint_enabled) {
+    if let Some(stroke) =
+        node_style_value(&node, "stroke", stylesheet).and_then(parse_paint_enabled)
+    {
         paint.stroke = stroke;
     }
-    if let Some(fill_rule) = node_style_value(&node, "fill-rule").and_then(parse_fill_rule) {
+    if let Some(fill_rule) =
+        node_style_value(&node, "fill-rule", stylesheet).and_then(parse_fill_rule)
+    {
         paint.fill_rule = fill_rule;
     }
-    if node_style_value(&node, "visibility") == Some("hidden") {
+    if node_style_value(&node, "visibility", stylesheet) == Some("hidden") {
+        paint.fill = false;
+        paint.stroke = false;
+    }
+    if node_style_value(&node, "display", stylesheet) == Some("none") {
         paint.fill = false;
         paint.stroke = false;
     }
@@ -164,7 +182,7 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
         use PathSegment::*;
 
         let inherited_paint = *self.paint_stack.last().unwrap_or(&PaintStyle::default());
-        let resolved_paint = resolve_paint_style(node, inherited_paint);
+        let resolved_paint = resolve_paint_style(node, inherited_paint, &self.stylesheet);
         self.paint_stack.push(resolved_paint);
 
         if node.tag_name().name() == CLIP_PATH_TAG_NAME {

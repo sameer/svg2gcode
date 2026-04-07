@@ -36,6 +36,7 @@ function App() {
   const viewMode = useEditorStore((state) => state.preview.viewMode)
   const setViewMode = useEditorStore((state) => state.setViewMode)
   const initPreview = useEditorStore((state) => state.initPreview)
+  const initProgress = useEditorStore((state) => state.preview.initProgress)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('design')
@@ -166,9 +167,9 @@ function App() {
   const handleViewModeChange = useCallback((mode: ViewMode) => {
     if (mode === 'preview3d' && gcode.result) {
       setIsInitializingPreview(true)
-      // Defer the heavy synchronous work so the loading UI can paint first
-      setTimeout(() => {
-        initPreview(gcode.result!)
+      // Defer so the loading UI can paint, then run async with progress
+      setTimeout(async () => {
+        await initPreview(gcode.result!)
         setIsInitializingPreview(false)
       }, 0)
     } else {
@@ -239,9 +240,10 @@ function App() {
               {isInitializingPreview ? (
                 <div className="flex h-full items-center justify-center bg-[#232323]">
                   <div className="flex w-72 flex-col gap-3">
-                    <ProgressBar isIndeterminate aria-label="Creating 3D CNC preview" className="w-full">
+                    <ProgressBar value={initProgress ?? 0} maxValue={100} aria-label="Creating 3D CNC preview" className="w-full">
                       <div className="mb-2 flex items-center justify-between">
                         <Label className="text-sm font-medium text-white">Creating 3D CNC preview</Label>
+                        <span className="text-xs text-white/60">{initProgress ?? 0}%</span>
                       </div>
                       <ProgressBar.Track className="h-2 overflow-hidden rounded-full bg-white/10">
                         <ProgressBar.Fill className="rounded-full bg-emerald-500" />

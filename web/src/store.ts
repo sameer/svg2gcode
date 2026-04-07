@@ -14,7 +14,7 @@ import type {
   ViewportState,
 } from './types/editor'
 import { parseGcodeProgram } from '@svg2gcode/bridge/viewer'
-import { segmentsToToolpaths } from './components/preview/segmentsToToolpaths'
+import { groupSegments, computeGroupSweep } from './components/preview/segmentsToToolpaths'
 import { insertTabs } from './lib/gcodeTabInsertion'
 import type { CameraType, PreviewState, ViewMode } from './types/preview'
 
@@ -92,7 +92,7 @@ export interface EditorStore {
   setShowSvgOverlay: (show: boolean) => void
   setShowStock: (show: boolean) => void
   setShowRapidMoves: (show: boolean) => void
-  initPreview: (result: import('@svg2gcode/bridge').GenerateJobResponse) => void
+  initPreview: (result: import('@svg2gcode/bridge').GenerateJobResponse) => Promise<void>
   clearPreview: () => void
 }
 
@@ -191,6 +191,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     passCount: 1,
     maxStepdown: null,
     stepover: null,
+    maxFillPasses: null,
     cutFeedrate: null,
     plungeFeedrate: null,
     travelZ: null,
@@ -620,6 +621,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     showSvgOverlay: true,
     showStock: true,
     showRapidMoves: false,
+    initProgress: null,
     parsedProgram: null,
     toolpaths: null,
     stockBounds: null,
@@ -682,8 +684,13 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       preview: { ...state.preview, showRapidMoves: show },
     }))
   },
-  initPreview: (result) => {
+  initPreview: async (result) => {
     const { machiningSettings, artboard } = get()
+
+    const setProgress = (initProgress: number) =>
+      set((state) => ({ preview: { ...state.preview, initProgress } }))
+
+    setProgress(0)
 
     // Post-process GCode to insert tabs on through-cuts when enabled
     let gcode = result.gcode
@@ -696,18 +703,37 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       })
     }
 
+    setProgress(5)
     const program = parseGcodeProgram(gcode, result.operation_ranges)
-    const { toolpaths, stockBounds } = segmentsToToolpaths(
-      program.segments,
-      result.preview_snapshot.tool_diameter / 2,
-      result.preview_snapshot.material_width,
-      result.preview_snapshot.material_height,
-    )
+
+    setProgress(10)
+    const toolRadius = result.preview_snapshot.tool_diameter / 2
+    const rawGroups = groupSegments(program.segments, toolRadius)
+
+    // Compute sweep shapes incrementally, yielding to the event loop for UI updates
+    const toolpaths = []
+    for (let i = 0; i < rawGroups.length; i++) {
+      toolpaths.push(computeGroupSweep(rawGroups[i]))
+      const pct = 10 + Math.round((i + 1) / rawGroups.length * 85)
+      setProgress(pct)
+      // Yield every few groups so the progress bar can repaint
+      if (i % 3 === 0) {
+        await new Promise((r) => setTimeout(r, 0))
+      }
+    }
+
+    const stockBounds = {
+      minX: 0,
+      minY: 0,
+      maxX: result.preview_snapshot.material_width,
+      maxY: result.preview_snapshot.material_height,
+    }
 
     set((state) => ({
       preview: {
         ...state.preview,
         viewMode: 'preview3d',
+        initProgress: null,
         parsedProgram: program,
         toolpaths,
         stockBounds,
@@ -723,6 +749,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       preview: {
         ...state.preview,
         viewMode: 'design',
+        initProgress: null,
         parsedProgram: null,
         toolpaths: null,
         stockBounds: null,

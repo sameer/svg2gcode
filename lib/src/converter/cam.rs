@@ -287,6 +287,7 @@ fn build_fill_groups(
     depths: &[f64],
     tool_radius: f64,
     stepover: f64,
+    max_fill_passes: Option<u32>,
     allow_thicken_routing: bool,
     warnings: &mut Vec<GenerationWarning>,
 ) -> FillGroupsResult {
@@ -308,11 +309,47 @@ fn build_fill_groups(
             }
 
             had_any_paths = true;
-            while !current.is_empty() {
+
+            // When max_fill_passes is set, decide per-shape whether to
+            // clamp or pocket fully.  Count inset *iterations* (not
+            // contour paths — a ring always produces 2 contours per
+            // iteration).  If the shape is "thin" (few iterations) we
+            // collapse it to at most max_fill_passes contour paths.
+            // If it needs many iterations it is a genuine pocket and
+            // we fill it completely.
+            let clamp_paths = if let Some(max) = max_fill_passes {
+                let mut probe = current.clone();
+                let mut iterations: u32 = 0;
+                while !probe.is_empty() {
+                    iterations += 1;
+                    probe = inset_shapes(&probe, stepover);
+                }
+                if iterations <= max {
+                    // Already fits — emit everything
+                    None
+                } else if iterations <= max * 3 {
+                    // Thin feature — collapse to max paths
+                    Some(max)
+                } else {
+                    // Genuine pocket — fill completely
+                    None
+                }
+            } else {
+                None
+            };
+
+            let mut path_count: u32 = 0;
+            'fill: while !current.is_empty() {
                 for inset_shape in &current {
                     for contour in inset_shape {
+                        if let Some(limit) = clamp_paths {
+                            if path_count >= limit {
+                                break 'fill;
+                            }
+                        }
                         if let Some(path) = contour_toolpath(contour, depth) {
                             paths.push(path);
+                            path_count += 1;
                         }
                     }
                 }
@@ -635,6 +672,7 @@ fn collect_engraving_groups<'a>(
         .selector_filter
         .as_deref()
         .map(|s| SelectorList::parse(s).expect("invalid selector_filter"));
+    let stylesheet = super::css::Stylesheet::from_document(doc);
 
     let bounding_box_generator = || {
         let mut visitor = ConversionVisitor {
@@ -648,6 +686,7 @@ fn collect_engraving_groups<'a>(
             paint_stack: vec![PaintStyle::default()],
             viewport_dim_stack: vec![],
             selector_filter: selector_filter.clone(),
+            stylesheet: stylesheet.clone(),
         };
 
         visitor.begin();
@@ -686,6 +725,7 @@ fn collect_engraving_groups<'a>(
         paint_stack: vec![PaintStyle::default()],
         viewport_dim_stack: vec![],
         selector_filter,
+        stylesheet,
     };
     collect_visitor.terrarium.push_transform(origin_transform);
     collect_visitor.begin();
@@ -722,6 +762,7 @@ fn collect_engraving_groups<'a>(
                 &depths,
                 tool_radius,
                 engraving.stepover,
+                engraving.max_fill_passes,
                 allow_thicken_routing,
                 &mut warnings,
             );

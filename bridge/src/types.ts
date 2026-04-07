@@ -24,6 +24,7 @@ export interface Settings {
     cut_feedrate: number;
     plunge_feedrate: number;
     stepover: number;
+    max_fill_passes: number | null;
     fill_mode: FillMode;
     svg_width_override: number | null;
     placement_x: number;

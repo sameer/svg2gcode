@@ -188,6 +188,28 @@ export function MaterialTabContent({ materialPreset, onMaterialChange }: Materia
             </div>
             <NumberField label="Stepover" unit="mm" value={machiningSettings.stepover}
               onChange={(v) => setField({ stepover: v })} />
+            <div className="w-full space-y-1">
+              <label className="text-xs text-muted-foreground">Max Fill Passes</label>
+              <div className="grid grid-cols-4 gap-1">
+                {([1, 2, 3, null] as const).map((v) => (
+                  <button
+                    key={String(v)}
+                    type="button"
+                    className={`rounded-md border px-1 py-1 text-xs transition-colors ${
+                      machiningSettings.maxFillPasses === v
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-border bg-content1 text-foreground hover:bg-content2'
+                    }`}
+                    onClick={() => setField({ maxFillPasses: v })}
+                  >
+                    {v === null ? 'Auto' : v}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Limit lateral pocket passes. Lower values allow thicker single-pass cuts.
+              </p>
+            </div>
             <NumberField label="Cut Feed" unit="mm/min" value={machiningSettings.cutFeedrate}
               onChange={(v) => setField({ cutFeedrate: v })} />
             <NumberField label="Plunge Feed" unit="mm/min" value={machiningSettings.plungeFeedrate}

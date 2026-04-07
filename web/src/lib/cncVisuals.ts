@@ -2,10 +2,24 @@ import type { CanvasNode, CncMetadata, EngraveType } from '../types/editor'
 
 const MAX_CUT_DEPTH = 20
 
-/** Returns true if the node is an open (non-closed) path that cannot be pocket-filled. */
-export function isOpenPathNode(node: CanvasNode): boolean {
+/** Returns true if the node is geometrically open (not closed). */
+export function isGeometricallyOpen(node: CanvasNode): boolean {
   if (node.type === 'line') return !node.closed
   if (node.type === 'path') return !/[Zz]/.test(node.data)
+  return false
+}
+
+/**
+ * Returns true if the node should be treated as a stroke-only path for CNC purposes.
+ * A path is stroke-only if it's geometrically open OR if it has no fill (stroke-only).
+ * Closed paths with `fill: none` (e.g. from Illustrator outlines) should be routed
+ * as contour/outline, not as pockets.
+ */
+export function isOpenPathNode(node: CanvasNode): boolean {
+  if (isGeometricallyOpen(node)) return true
+  // Closed path with no fill — treat as outline, not fillable area
+  if (node.type === 'line') return !node.fill
+  if (node.type === 'path') return !node.fill
   return false
 }
 export type NormalizedEngraveType = 'contour' | 'pocket'

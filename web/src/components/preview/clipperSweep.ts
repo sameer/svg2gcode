@@ -158,8 +158,21 @@ export function clipperPathsToShapes(paths: ClipperPath[]): THREE.Shape[] {
 
   for (const hole of holes) {
     const holePoints = hole.points.slice().reverse()
-    const samplePoint = holePoints[0]
-    const owner = shapes.find((candidate) => isPointInsidePolygon(samplePoint, candidate.points))
+    // Sample multiple points for robust containment test (majority vote)
+    const sampleIndices = [
+      0,
+      Math.floor(holePoints.length / 3),
+      Math.floor((2 * holePoints.length) / 3),
+    ]
+    const owner = shapes.find((candidate) => {
+      let insideCount = 0
+      for (const idx of sampleIndices) {
+        if (isPointInsidePolygon(holePoints[idx], candidate.points)) {
+          insideCount++
+        }
+      }
+      return insideCount > sampleIndices.length / 2
+    })
     if (owner) {
       owner.shape.holes.push(createPathFromPoints(holePoints))
     }
@@ -249,6 +262,7 @@ export function createTrueCncSweepShape(
     ClipperLib.PolyFillType.pftNonZero,
     ClipperLib.PolyFillType.pftNonZero,
   )
+  ClipperLib.Clipper.CleanPolygons(solution, CLIPPER_SCALE * 0.001)
 
   return clipperPathsToShapes(solution)
 }
@@ -274,6 +288,7 @@ export function unionShapes(shapes: THREE.Shape[], divisions = 48): THREE.Shape[
     ClipperLib.PolyFillType.pftNonZero,
     ClipperLib.PolyFillType.pftNonZero,
   )
+  ClipperLib.Clipper.CleanPolygons(solution, CLIPPER_SCALE * 0.001)
 
   return clipperPathsToShapes(solution)
 }
@@ -302,6 +317,7 @@ export function subtractShapes(
     ClipperLib.PolyFillType.pftNonZero,
     ClipperLib.PolyFillType.pftNonZero,
   )
+  ClipperLib.Clipper.CleanPolygons(solution, CLIPPER_SCALE * 0.001)
 
   return clipperPathsToShapes(solution)
 }

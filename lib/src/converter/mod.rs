@@ -23,6 +23,7 @@ use crate::{
 };
 
 mod cam;
+mod css;
 #[cfg(feature = "serde")]
 mod length_serde;
 mod path;
@@ -103,6 +104,8 @@ struct ConversionVisitor<'a, T: Turtle> {
     options: ConversionOptions,
     /// Parsed CSS include selector — only draw elements that match (or are inside a matching ancestor)
     selector_filter: Option<selector::SelectorList>,
+    /// CSS rules parsed from `<style>` blocks in the SVG document
+    stylesheet: css::Stylesheet,
 }
 
 impl<'a, T: Turtle> ConversionVisitor<'a, T> {
@@ -146,6 +149,7 @@ pub fn svg2program<'a, 'input: 'a>(
         .selector_filter
         .as_deref()
         .map(|s| selector::SelectorList::parse(s).expect("invalid selector_filter"));
+    let stylesheet = css::Stylesheet::from_document(doc);
 
     let bounding_box_generator = || {
         let mut visitor = ConversionVisitor {
@@ -159,6 +163,7 @@ pub fn svg2program<'a, 'input: 'a>(
             paint_stack: vec![PaintStyle::default()],
             viewport_dim_stack: vec![],
             selector_filter: selector_filter.clone(),
+            stylesheet: stylesheet.clone(),
         };
 
         visitor.begin();
@@ -206,6 +211,7 @@ pub fn svg2program<'a, 'input: 'a>(
         paint_stack: vec![PaintStyle::default()],
         viewport_dim_stack: vec![],
         selector_filter: selector_filter.clone(),
+        stylesheet: stylesheet.clone(),
     };
 
     conversion_visitor
@@ -243,6 +249,7 @@ pub fn svg2preview(
     options: ConversionOptions,
     selector_filter: Option<SelectorList>,
 ) -> String {
+    let stylesheet = css::Stylesheet::from_document(doc);
     let mut conversion_visitor = ConversionVisitor {
         terrarium: Terrarium::new(DpiConvertingTurtle {
             inner: SvgPreviewTurtle::default(),
@@ -254,6 +261,7 @@ pub fn svg2preview(
         paint_stack: vec![PaintStyle::default()],
         viewport_dim_stack: vec![],
         selector_filter: selector_filter.clone(),
+        stylesheet: stylesheet.clone(),
     };
 
     conversion_visitor
@@ -292,6 +300,7 @@ fn svg2strokes_optimized(
     origin_transform: Transform2D<f64>,
     selector_filter: Option<SelectorList>,
 ) -> Vec<crate::turtle::Stroke> {
+    let stylesheet = css::Stylesheet::from_document(doc);
     let mut collect_visitor = ConversionVisitor {
         terrarium: Terrarium::new(StrokeCollectingTurtle::default()),
         _config: config,
@@ -300,6 +309,7 @@ fn svg2strokes_optimized(
         paint_stack: vec![PaintStyle::default()],
         viewport_dim_stack: vec![],
         selector_filter,
+        stylesheet,
     };
     collect_visitor.terrarium.push_transform(origin_transform);
     collect_visitor.begin();

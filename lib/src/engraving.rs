@@ -93,6 +93,8 @@ pub struct EngravingConfig {
     pub plunge_feedrate: f64,
     pub stepover: f64,
     #[cfg_attr(feature = "serde", serde(default))]
+    pub max_fill_passes: Option<u32>,
+    #[cfg_attr(feature = "serde", serde(default))]
     pub fill_mode: FillMode,
     #[cfg_attr(feature = "serde", serde(default))]
     pub svg_width_override: Option<f64>,
@@ -120,6 +122,7 @@ impl Default for EngravingConfig {
             cut_feedrate: 300.0,
             plunge_feedrate: 120.0,
             stepover: 2.0,
+            max_fill_passes: None,
             fill_mode: FillMode::Pocket,
             svg_width_override: None,
             placement_x: 0.0,

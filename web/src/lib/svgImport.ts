@@ -36,6 +36,7 @@ interface ParseContext {
   transform: Matrix
   paint: PaintContext
   idPrefix: string
+  stylesheet: CssStyleRule[]
 }
 
 interface ImportSvgOptions {
@@ -151,6 +152,91 @@ const parsePoints = (value: string | null): number[] => {
     .filter((entry) => Number.isFinite(entry))
 }
 
+/** A single CSS rule from a `<style>` block: selector string + declarations. */
+interface CssStyleRule {
+  selectorText: string
+  declarations: Map<string, string>
+}
+
+/**
+ * Parse all `<style>` elements in an SVG document and return a flat list of CSS rules.
+ * Only simple selectors (class, type, id) are matched; complex combinators are ignored.
+ */
+const parseSvgStylesheet = (doc: Document): CssStyleRule[] => {
+  const rules: CssStyleRule[] = []
+  const styleElements = doc.querySelectorAll('style')
+
+  for (const styleEl of styleElements) {
+    const cssText = stripCssComments(styleEl.textContent ?? '')
+    let rest = cssText
+    while (rest.length > 0) {
+      const openBrace = rest.indexOf('{')
+      if (openBrace < 0) break
+      const closeBrace = rest.indexOf('}', openBrace)
+      if (closeBrace < 0) break
+
+      const selectorText = rest.slice(0, openBrace).trim()
+      const declarationsText = rest.slice(openBrace + 1, closeBrace).trim()
+      rest = rest.slice(closeBrace + 1)
+
+      if (!selectorText || selectorText.startsWith('@')) continue
+
+      const declarations = new Map<string, string>()
+      for (const entry of declarationsText.split(';')) {
+        const sepIndex = entry.indexOf(':')
+        if (sepIndex < 0) continue
+        const key = entry.slice(0, sepIndex).trim().toLowerCase()
+        const value = entry.slice(sepIndex + 1).trim()
+        if (key && value) {
+          declarations.set(key, value)
+        }
+      }
+
+      if (declarations.size > 0) {
+        rules.push({ selectorText, declarations })
+      }
+    }
+  }
+
+  return rules
+}
+
+/** Strip CSS comments from a string. */
+const stripCssComments = (input: string): string =>
+  input.replace(/\/\*[\s\S]*?\*\//g, '')
+
+/** Check if a simple CSS selector matches an element (class, type, id, or combinations). */
+const selectorMatchesElement = (selector: string, element: Element): boolean => {
+  try {
+    return element.matches(selector)
+  } catch {
+    return false
+  }
+}
+
+/** Look up a CSS property for an element by checking all matching stylesheet rules. */
+const getStylesheetValue = (
+  element: Element,
+  stylesheet: CssStyleRule[],
+  property: string,
+): string | null => {
+  let result: string | null = null
+  for (const rule of stylesheet) {
+    // Handle comma-separated selectors
+    const selectors = rule.selectorText.split(',')
+    for (const sel of selectors) {
+      if (selectorMatchesElement(sel.trim(), element)) {
+        const value = rule.declarations.get(property)
+        if (value !== undefined) {
+          result = value
+        }
+        break
+      }
+    }
+  }
+  return result
+}
+
 const parseStyleMap = (element: Element): Map<string, string> => {
   const style = element.getAttribute('style')
   const styleMap = new Map<string, string>()
@@ -183,14 +269,26 @@ const getStyleValue = (
   element: Element,
   styleMap: Map<string, string>,
   attributeName: string,
+  stylesheet?: CssStyleRule[],
 ): string | null => {
   const normalizedAttribute = attributeName.toLowerCase()
-  const attributeValue = element.getAttribute(normalizedAttribute)
-  if (attributeValue != null) {
-    return attributeValue
+
+  // 1. Inline style (highest priority)
+  const inlineValue = styleMap.get(normalizedAttribute)
+  if (inlineValue != null) {
+    return inlineValue
   }
 
-  return styleMap.get(normalizedAttribute) ?? null
+  // 2. CSS stylesheet rules
+  if (stylesheet) {
+    const sheetValue = getStylesheetValue(element, stylesheet, normalizedAttribute)
+    if (sheetValue != null) {
+      return sheetValue
+    }
+  }
+
+  // 3. Presentation attributes (lowest priority)
+  return element.getAttribute(normalizedAttribute) ?? null
 }
 
 const normalizeColor = (value: string | null | undefined): string | undefined => {
@@ -233,13 +331,13 @@ const resolveStrokeWidth = (
   return parseNumber(value) ?? inherited ?? 1
 }
 
-const isVisible = (element: Element, styleMap: Map<string, string>): boolean => {
-  const display = getStyleValue(element, styleMap, 'display')
+const isVisible = (element: Element, styleMap: Map<string, string>, stylesheet?: CssStyleRule[]): boolean => {
+  const display = getStyleValue(element, styleMap, 'display', stylesheet)
   if (display?.trim().toLowerCase() === 'none') {
     return false
   }
 
-  const visibility = getStyleValue(element, styleMap, 'visibility')
+  const visibility = getStyleValue(element, styleMap, 'visibility', stylesheet)
   return visibility?.trim().toLowerCase() !== 'hidden'
 }
 
@@ -439,12 +537,12 @@ const inferName = (element: Element, fallback: string): string => {
   return id || fallback
 }
 
-const readSvgPaint = (element: Element, inheritedPaint: PaintContext): PaintContext => {
+const readSvgPaint = (element: Element, inheritedPaint: PaintContext, stylesheet?: CssStyleRule[]): PaintContext => {
   const styleMap = parseStyleMap(element)
-  const fillValue = getStyleValue(element, styleMap, 'fill')
-  const strokeValue = getStyleValue(element, styleMap, 'stroke')
-  const strokeWidthValue = getStyleValue(element, styleMap, 'stroke-width')
-  const fillRuleValue = getStyleValue(element, styleMap, 'fill-rule')
+  const fillValue = getStyleValue(element, styleMap, 'fill', stylesheet)
+  const strokeValue = getStyleValue(element, styleMap, 'stroke', stylesheet)
+  const strokeWidthValue = getStyleValue(element, styleMap, 'stroke-width', stylesheet)
+  const fillRuleValue = getStyleValue(element, styleMap, 'fill-rule', stylesheet)
 
   return {
     fill: resolvePaint(fillValue, inheritedPaint.fill, undefined),
@@ -560,6 +658,7 @@ export function importSvgToScene({
   }
 
   const projectMetadata = readProjectMetadata(rootElement)
+  const stylesheet = parseSvgStylesheet(parsedDocument)
 
   const pathMeasure = createPathMeasure()
   const prefix = `svg-${crypto.randomUUID().slice(0, 8)}`
@@ -578,7 +677,8 @@ export function importSvgToScene({
     }
 
     const styleMap = parseStyleMap(element)
-    const ownTransform = parseTransform(getStyleValue(element, styleMap, 'transform'))
+    const { stylesheet } = context
+    const ownTransform = parseTransform(getStyleValue(element, styleMap, 'transform', stylesheet))
     let combinedTransform = multiplyMatrices(context.transform, ownTransform)
 
     if (tagName === 'svg' && parentId != null) {
@@ -588,10 +688,10 @@ export function importSvgToScene({
       combinedTransform = multiplyMatrices(combinedTransform, ownTransform)
     }
 
-    const paint = readSvgPaint(element, context.paint)
+    const paint = readSvgPaint(element, context.paint, stylesheet)
     const nodeId = createNodeId(context.idPrefix, tagName, nodeIndex)
-    const opacity = parseOpacity(getStyleValue(element, styleMap, 'opacity'))
-    const visible = isVisible(element, styleMap)
+    const opacity = parseOpacity(getStyleValue(element, styleMap, 'opacity', stylesheet))
+    const visible = isVisible(element, styleMap, stylesheet)
     nodeIndex += 1
 
     if (tagName === 'svg' || tagName === 'g') {
@@ -789,6 +889,7 @@ export function importSvgToScene({
           fillRule: 'nonzero',
         },
         idPrefix: prefix,
+        stylesheet,
       },
       null,
     )

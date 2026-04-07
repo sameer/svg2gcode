@@ -1,6 +1,6 @@
 import paper from 'paper'
 
-import { resolveEngraveType, type NormalizedEngraveType } from './cncVisuals'
+import { isOpenPathNode, resolveEngraveType, type NormalizedEngraveType } from './cncVisuals'
 import type { CanvasNode } from '../types/editor'
 
 type AreaNode = Extract<CanvasNode, { type: 'rect' | 'circle' | 'path' | 'line' }>
@@ -737,7 +737,44 @@ export function buildDepthPreviewPlan(
     const transforms = [localTransform, ...ancestorTransforms.slice().reverse()]
     interactiveRootIds.add(rootId)
 
-    if (node.type === 'line' && (!node.closed || node.points.length < 6)) {
+    // Stroke-only paths (open paths, or closed paths with no fill) and short lines
+    // should be treated as stroke shapes, not area fills.
+    if (node.type === 'path' && isOpenPathNode(node)) {
+      const s = getScope()
+      s.activate()
+      let pathItem: paper.Path | null = null
+      try {
+        const parsed = new s.CompoundPath(node.data)
+        // Flatten compound paths to individual sub-paths
+        const subPaths = parsed.className === 'CompoundPath'
+          ? ([...(parsed as paper.CompoundPath).children] as paper.Path[])
+          : [parsed as paper.Path]
+        for (const subPath of subPaths) {
+          applyTransformChain(subPath, transforms)
+          const flatPoints: number[] = []
+          const segments = subPath.segments ?? []
+          // Flatten curves to points
+          const flatPath = subPath.clone() as paper.Path
+          flatPath.flatten(1)
+          for (const seg of flatPath.segments) {
+            flatPoints.push(seg.point.x, seg.point.y)
+          }
+          flatPath.remove()
+          if (flatPoints.length >= 4) {
+            strokeShapes.push({
+              depth: effectiveDepth,
+              sourceNodeId: node.id,
+              points: flatPoints,
+              strokeWidth: Math.max(toolDiameter, 1),
+            })
+          }
+        }
+        parsed.remove()
+      } catch { /* ignore parse errors */ }
+      return true
+    }
+
+    if (node.type === 'line' && (isOpenPathNode(node) || node.points.length < 6)) {
       const outlinedPoints = node.points.flatMap((value, index) => {
         if (index % 2 !== 0) {
           return []
@@ -799,12 +836,15 @@ export function buildDepthPreviewPlan(
       return true
     }
 
-    const key = `${effectiveDepth}:${effectiveMode}`
+    // Closed paths with no fill (stroke-only) should be treated as outlines,
+    // not as fillable area shapes. Force contour mode for these.
+    const resolvedMode = isOpenPathNode(node) ? 'contour' as NormalizedEngraveType : effectiveMode
+    const key = `${effectiveDepth}:${resolvedMode}`
     const bucket = areaShapesByKey.get(key) ?? []
 
-    if (effectiveMode === 'contour') {
+    if (resolvedMode === 'contour') {
       const bandShape = expandContourShapeToBand(
-        { depth: effectiveDepth, mode: effectiveMode, sourceNodeId: node.id, node, transforms },
+        { depth: effectiveDepth, mode: resolvedMode, sourceNodeId: node.id, node, transforms },
         Math.max(toolDiameter, 1),
       )
       if (bandShape) {
@@ -814,7 +854,7 @@ export function buildDepthPreviewPlan(
     } else {
       bucket.push({
         depth: effectiveDepth,
-        mode: effectiveMode,
+        mode: resolvedMode,
         sourceNodeId: node.id,
         node,
         transforms,

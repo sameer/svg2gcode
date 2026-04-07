@@ -20,6 +20,7 @@ export interface MachiningSettings {
   passCount: number
   maxStepdown: number | null
   stepover: number | null
+  maxFillPasses: number | null
   cutFeedrate: number | null
   plungeFeedrate: number | null
   travelZ: number | null

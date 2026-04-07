@@ -44,6 +44,7 @@ export function buildBridgeSettings(
       target_depth: machining.defaultDepthMm,
       // Overlay optional fields only when set
       ...(machining.stepover != null && { stepover: machining.stepover }),
+      max_fill_passes: machining.maxFillPasses,
       ...(machining.cutFeedrate != null && { cut_feedrate: machining.cutFeedrate }),
       ...(machining.plungeFeedrate != null && { plunge_feedrate: machining.plungeFeedrate }),
       ...(machining.machineWidth != null && { machine_width: machining.machineWidth }),

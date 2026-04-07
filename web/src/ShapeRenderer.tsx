@@ -16,6 +16,7 @@ import {
   getCncVisualOverrides,
   getEngravePreviewFill,
   getEngravePreviewStroke,
+  isOpenPathNode,
 } from './lib/cncVisuals'
 import { useSelection } from './hooks/useSelection'
 import { useEditorStore } from './store'
@@ -76,9 +77,10 @@ function SvgPathNode({
   const cncOverrides = showCncOverrides !== false
     ? getCncVisualOverrides(node.cncMetadata, parentCncMetadata)
     : {}
-  const isOpenPath = toolDiameter != null && !/[Zz]/.test(node.data)
-  const baseStrokeWidth = isOpenPath ? toolDiameter! : node.strokeWidth
-  const baseStroke = isOpenPath && !node.stroke ? 'rgba(30, 20, 10, 0.65)' : node.stroke
+  const isOpenPath = toolDiameter != null && isOpenPathNode(node)
+  const useCncStroke = isOpenPath && showCncOverrides !== false
+  const baseStrokeWidth = useCncStroke ? toolDiameter! : node.strokeWidth
+  const baseStroke = useCncStroke && !node.stroke ? 'rgba(30, 20, 10, 0.65)' : node.stroke
   const visualProps = Object.assign(
     { fill: outlineOnly ? '' : node.fill, stroke: baseStroke, strokeWidth: baseStrokeWidth },
     cncOverrides,
@@ -368,16 +370,17 @@ export function ShapeRenderer({
     const cncOverrides = showCncOverrides
       ? getCncVisualOverrides(node.cncMetadata, parentCncMetadata)
       : {}
-    const isOpenPath = !node.closed && toolDiameter != null
-    const baseStrokeWidth = isOpenPath ? toolDiameter! : node.strokeWidth
-    const baseStroke = isOpenPath && !node.stroke ? 'rgba(30, 20, 10, 0.65)' : node.stroke
+    const isOpenPath = toolDiameter != null && isOpenPathNode(node)
+    const useCncStroke = isOpenPath && showCncOverrides
+    const baseStrokeWidth = useCncStroke ? toolDiameter! : node.strokeWidth
+    const baseStroke = useCncStroke && !node.stroke ? 'rgba(30, 20, 10, 0.65)' : node.stroke
     const visualProps = Object.assign(
       {
         stroke: baseStroke,
         strokeWidth: baseStrokeWidth,
         fill: node.fill,
-        lineCap: isOpenPath ? 'round' : node.lineCap,
-        lineJoin: isOpenPath ? 'round' : node.lineJoin,
+        lineCap: useCncStroke ? 'round' : node.lineCap,
+        lineJoin: useCncStroke ? 'round' : node.lineJoin,
       },
       cncOverrides,
     )

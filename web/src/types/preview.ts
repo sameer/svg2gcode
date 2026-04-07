@@ -37,6 +37,9 @@ export interface PreviewState {
   showStock: boolean
   showRapidMoves: boolean
 
+  // Init progress (0–100, null when not initializing)
+  initProgress: number | null
+
   // Computed data (set by initPreview)
   parsedProgram: ParsedProgram | null
   toolpaths: ToolpathGroup[] | null
