@@ -157,6 +157,7 @@ function App() {
 
   const handleMaterialChange = (preset: MaterialPreset) => {
     setMaterialPreset(preset)
+    useEditorStore.getState().setMaterialPreset(preset)
 
     const presetDef = MATERIAL_PRESETS.find((entry) => entry.id === preset)
     if (presetDef) {

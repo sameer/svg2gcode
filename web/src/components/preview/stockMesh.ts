@@ -39,6 +39,7 @@ export function createStockMeshLayers(
   bounds: StockBounds,
   toolpaths: ToolpathGroup[],
   materialThickness: number,
+  texture?: THREE.Texture,
   fallbackDepth = 0.01,
 ): THREE.Group {
   const uniqueDepths =
@@ -47,8 +48,15 @@ export function createStockMeshLayers(
       : [fallbackDepth]
 
   const group = new THREE.Group()
+  if (texture) {
+    texture.wrapS = THREE.RepeatWrapping
+    texture.wrapT = THREE.RepeatWrapping
+    texture.repeat.set(1 / 400, 1 / 400)
+  }
+
   const stockMaterial = new THREE.MeshPhongMaterial({
-    color: 0xcdbb8f,
+    color: texture ? 0xffffff : 0xcdbb8f,
+    map: texture ?? null,
     transparent: true,
     opacity: 0.82,
     shininess: 28,

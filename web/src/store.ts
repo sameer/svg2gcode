@@ -17,6 +17,8 @@ import { parseGcodeProgram } from '@svg2gcode/bridge/viewer'
 import { groupSegments, computeGroupSweep } from './components/preview/segmentsToToolpaths'
 import { insertTabs } from './lib/gcodeTabInsertion'
 import type { CameraType, PreviewState, ViewMode } from './types/preview'
+import { DEFAULT_MATERIAL } from './lib/materialPresets'
+import type { MaterialPreset } from './lib/materialPresets'
 
 type HistorySnapshot = {
   nodesById: Record<string, CanvasNode>
@@ -92,6 +94,7 @@ export interface EditorStore {
   setShowSvgOverlay: (show: boolean) => void
   setShowStock: (show: boolean) => void
   setShowRapidMoves: (show: boolean) => void
+  setMaterialPreset: (preset: MaterialPreset) => void
   initPreview: (result: import('@svg2gcode/bridge').GenerateJobResponse) => Promise<void>
   clearPreview: () => void
 }
@@ -621,6 +624,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     showSvgOverlay: true,
     showStock: true,
     showRapidMoves: false,
+    materialPreset: DEFAULT_MATERIAL,
     initProgress: null,
     parsedProgram: null,
     toolpaths: null,
@@ -682,6 +686,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   setShowRapidMoves: (show) => {
     set((state) => ({
       preview: { ...state.preview, showRapidMoves: show },
+    }))
+  },
+  setMaterialPreset: (preset) => {
+    set((state) => ({
+      preview: { ...state.preview, materialPreset: preset },
     }))
   },
   initPreview: async (result) => {

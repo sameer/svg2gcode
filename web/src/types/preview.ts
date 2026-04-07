@@ -1,6 +1,7 @@
 import type { Shape } from 'three'
 import type { ParsedProgram, ParsedSegment } from '@svg2gcode/bridge/viewer'
 import type { GenerateJobResponse } from '@svg2gcode/bridge'
+import type { MaterialPreset } from '../lib/materialPresets'
 
 export type CameraType = 'perspective' | 'orthographic'
 export type ViewMode = 'design' | 'preview2d' | 'preview3d'
@@ -39,6 +40,8 @@ export interface PreviewState {
 
   // Init progress (0–100, null when not initializing)
   initProgress: number | null
+
+  materialPreset: MaterialPreset
 
   // Computed data (set by initPreview)
   parsedProgram: ParsedProgram | null

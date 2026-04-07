@@ -1,8 +1,9 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import * as THREE from 'three'
 import { sampleProgramAtDistance } from '@svg2gcode/bridge/viewer'
 
 import { useEditorStore } from '../../store'
+import { MATERIAL_PRESETS } from '../../lib/materialPresets'
 import { useThreeScene } from './useThreeScene'
 import { clearGroup, createLighting, createGrid, createToolMarker, createActivePathLine } from './sceneHelpers'
 import { createStockMeshLayers } from './stockMesh'
@@ -22,6 +23,21 @@ export function PreviewCanvas() {
   const showStock = useEditorStore((s) => s.preview.showStock)
   const showRapidMoves = useEditorStore((s) => s.preview.showRapidMoves)
   const showSvgOverlay = useEditorStore((s) => s.preview.showSvgOverlay)
+  const materialPreset = useEditorStore((s) => s.preview.materialPreset)
+
+  const [stockTexture, setStockTexture] = useState<THREE.Texture | null>(null)
+
+  useEffect(() => {
+    const presetDef = MATERIAL_PRESETS.find((p) => p.id === materialPreset)
+    if (!presetDef) return
+    const loader = new THREE.TextureLoader()
+    loader.load(presetDef.textureSrc, (tex) => {
+      setStockTexture((prev) => {
+        prev?.dispose()
+        return tex
+      })
+    })
+  }, [materialPreset])
 
   const { sceneRef, requestRender } = useThreeScene(containerRef, cameraType)
 
@@ -85,6 +101,7 @@ export function PreviewCanvas() {
       stockBounds,
       toolpaths,
       previewSnapshot.material_thickness,
+      stockTexture ?? undefined,
     )
     state.stockGroup.add(stockMesh)
 
@@ -92,7 +109,7 @@ export function PreviewCanvas() {
     state.sweepGroup.add(sweepMesh)
 
     requestRender()
-  }, [sceneRef, toolpaths, stockBounds, previewSnapshot, requestRender])
+  }, [sceneRef, toolpaths, stockBounds, previewSnapshot, stockTexture, requestRender])
 
   // Auto-fit camera to toolpath bounding box when GCode is generated
   useEffect(() => {
