@@ -14,9 +14,9 @@ svg2gcode = { path = "../g_code", version = "0.4.0", features = ["serde"] }
 svg2star = { path = "../star", version = "0.4.0", features = ["serde"] }
 roxmltree.workspace = true
 g-code.workspace = true
-codespan-reporting = "0.13"
-serde = "1"
-paste = "1"
+codespan-reporting.workspace = true
+serde = { workspace = true, features = ["derive", "std"] }
+paste.workspace = true
 log.workspace = true
 svgtypes.workspace = true
 serde_json.workspace = true

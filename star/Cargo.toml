@@ -22,9 +22,8 @@ roxmltree.workspace = true
 svgtypes.workspace = true
 
 [dependencies.serde]
-default-features = false
+workspace = true
 optional = true
-version = "1"
 features = ["derive", "std"]
 
 [dev-dependencies]

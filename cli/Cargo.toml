@@ -13,7 +13,7 @@ env_logger = "0.11"
 log.workspace = true
 g-code.workspace = true
 clap = { version = "4", features = ["derive"] }
-codespan-reporting = "0.13"
+codespan-reporting.workspace = true
 roxmltree.workspace = true
 serde_json.workspace = true
 svgtypes.workspace = true
