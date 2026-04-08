@@ -27,8 +27,8 @@ yew = { version = "0.21", features = ["csr"] }
 yewdux = "0.11"
 web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "Url", "Window"] }
 wasm-logger = "0.2"
-gloo-file = { version = "0.3", features = ["futures"] }
-gloo-timers = "0.3"
+gloo-file = { version = "0.4", features = ["futures"] }
+gloo-timers = "0.4"
 base64 = "0.22"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
