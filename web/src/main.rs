@@ -30,7 +30,7 @@ use state::*;
 use ui::*;
 use util::*;
 use yewdux::{YewduxRoot, prelude::use_store, use_dispatch};
-use zip::{CompressionMethod, ZipWriter, write::FileOptions};
+use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 #[function_component(App)]
 fn app() -> Html {
@@ -62,7 +62,7 @@ fn app() -> Html {
         Callback::from(move |_| {
             generating_setter.set(true);
             let mut zip = ZipWriter::new(Cursor::new(vec![]));
-            let opts = FileOptions::default().compression_method(CompressionMethod::Stored);
+            let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
 
             if app_store.svgs.len() > 1 {
                 zip.add_directory("svg2gcode_output", opts).unwrap();
@@ -175,7 +175,8 @@ fn app() -> Html {
                 zip.set_comment(format!(
                     "Created with svg2gcode: https://sameer.github.io/svg2gcode/\n{}",
                     env!("CARGO_PKG_DESCRIPTION")
-                ));
+                ))
+                .expect("can set comment");
                 let output = zip.finish().unwrap();
                 let date = Date::new_0().to_iso_string();
                 prompt_download(
