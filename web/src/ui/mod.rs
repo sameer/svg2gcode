@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use web_sys::{Event, FileList, HtmlInputElement, InputEvent, InputEventInit, MouseEvent};
 use yew::{
-    AttrValue, Callback, Children, Html, NodeRef, Properties, TargetCast, ToHtml, classes,
+    AttrValue, Callback, Children, Html, NodeRef, Properties, TargetCast, classes,
     function_component, html, use_force_update, use_node_ref, use_state,
     virtual_dom::{VChild, VNode},
 };
@@ -198,7 +198,7 @@ pub fn checkbox(props: &CheckboxProps) -> Html {
 pub struct FileUploadProps<T, E>
 where
     T: Clone + PartialEq,
-    E: Display + Clone + PartialEq + ToHtml,
+    E: Display + Clone + PartialEq,
 {
     pub label: &'static str,
     #[prop_or_default]
@@ -219,7 +219,7 @@ where
 pub fn file_upload<T, E>(props: &FileUploadProps<T, E>) -> Html
 where
     T: Clone + PartialEq,
-    E: Display + Clone + PartialEq + ToHtml,
+    E: Display + Clone + PartialEq,
 {
     let success = props.parsed.as_ref().map(|x| x.is_ok()).unwrap_or(false);
     let error = props.parsed.as_ref().map(|x| x.is_err()).unwrap_or(false);
@@ -251,7 +251,7 @@ where
             </div>
             {
                 if let Some(Err(err)) = props.parsed.as_ref() {
-                    html!{ <pre class="form-input-hint">{ err }</pre> }
+                    html!{ <pre class="form-input-hint">{ err.to_string() }</pre> }
                 } else if let Some(desc) = props.desc {
                     html! { <p class="form-input-hint">{ desc }</p> }
                 } else {
@@ -345,7 +345,7 @@ pub fn form_group(props: &FormGroupProps) -> Html {
 pub struct TextAreaProps<T, E>
 where
     T: Display + Clone + PartialEq,
-    E: Display + Clone + PartialEq + ToHtml,
+    E: Display + Clone + PartialEq,
 {
     pub label: &'static str,
     pub desc: Option<&'static str>,
@@ -365,7 +365,7 @@ where
 pub fn text_area<T, E>(props: &TextAreaProps<T, E>) -> Html
 where
     T: Display + Clone + PartialEq,
-    E: Display + Clone + PartialEq + ToHtml,
+    E: Display + Clone + PartialEq,
 {
     let success = props.parsed.as_ref().map(|x| x.is_ok()).unwrap_or(false);
     let error = props.parsed.as_ref().map(|x| x.is_err()).unwrap_or(false);
@@ -435,7 +435,7 @@ where
             </div>
             {
                 if let Some(Err(err)) = props.parsed.as_ref() {
-                    html!{ <pre class="form-input-hint">{ err }</pre> }
+                    html!{ <pre class="form-input-hint">{ err.to_string() }</pre> }
                 } else if let Some(desc) = props.desc {
                     html! { <p class="form-input-hint">{ desc }</p> }
                 } else {

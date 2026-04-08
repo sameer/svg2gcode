@@ -10,6 +10,7 @@ use g_code::{
     emit::{FormatOptions, format_gcode_fmt, format_gcode_io},
     parse::snippet_parser,
 };
+use getrandom as _; // activate wasm_js backend for wasm32-unknown-unknown
 use js_sys::Date;
 use log::Level;
 use roxmltree::{Document, ParsingOptions};

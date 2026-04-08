@@ -9,6 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
 wasm-bindgen = "0.2"
 svg2gcode = { path = "../g_code", version = "0.4.0", features = ["serde"] }
 svg2star = { path = "../star", version = "0.4.0", features = ["serde"] }
@@ -23,8 +24,8 @@ serde_json.workspace = true
 thiserror = "2"
 zip = { version = "8", default-features = false }
 
-yew = { version = "0.21", features = ["csr"] }
-yewdux = "0.11"
+yew = { version = "0.23", features = ["csr"] }
+yewdux = "0.13"
 web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "Url", "Window"] }
 wasm-logger = "0.2"
 gloo-file = { version = "0.4", features = ["futures"] }
