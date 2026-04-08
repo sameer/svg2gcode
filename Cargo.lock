@@ -914,9 +914,9 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "lyon_geom"
-version = "1.0.6"
+version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8af69edc087272df438b3ee436c4bb6d7c04aa8af665cfd398feae627dbd8570"
+checksum = "4336502e29e32af93cf2dad2214ed6003c17ceb5bd499df77b1de663b9042b92"
 dependencies = [
  "arrayvec",
  "euclid",
@@ -1322,17 +1322,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_repr"
-version = "0.1.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "175ee3e80ae9982737ca543e96133087cbd9a485eecc3bc4de9c1a37b47ea59c"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1370,24 +1359,18 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "svg2gcode"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
- "euclid",
  "g-code",
- "log",
  "lyon_geom",
  "paste",
- "peg",
  "pretty_assertions",
- "rand",
  "roxmltree",
  "rust_decimal",
- "rustc-hash",
  "serde",
  "serde_json",
- "serde_repr",
+ "svg2star",
  "svgtypes",
- "uom",
 ]
 
 [[package]]
@@ -1410,7 +1393,6 @@ name = "svg2gcode-web"
 version = "0.0.18"
 dependencies = [
  "base64",
- "codespan",
  "codespan-reporting",
  "g-code",
  "gloo-file 0.3.0",
@@ -1422,6 +1404,7 @@ dependencies = [
  "serde",
  "serde_json",
  "svg2gcode",
+ "svg2star",
  "svgtypes",
  "thiserror",
  "wasm-bindgen",
@@ -1431,6 +1414,23 @@ dependencies = [
  "yew",
  "yewdux",
  "zip",
+]
+
+[[package]]
+name = "svg2star"
+version = "0.4.0"
+dependencies = [
+ "euclid",
+ "log",
+ "lyon_geom",
+ "peg",
+ "rand",
+ "roxmltree",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "svgtypes",
+ "uom",
 ]
 
 [[package]]

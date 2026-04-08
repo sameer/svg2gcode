@@ -6,18 +6,18 @@ use lyon_geom::{
     point, vector,
 };
 
-use crate::arc::Transformed;
+use crate::turtle::elements::Transformed;
 
 mod collect;
 mod dpi;
-mod elements;
-mod g_code;
+/// Intermediate representation of elements used by a [`Turtle`].
+pub mod elements;
 mod preprocess;
 mod svg_preview;
 
 pub use self::{
-    collect::StrokeCollectingTurtle, dpi::DpiConvertingTurtle, elements::Stroke,
-    g_code::GCodeTurtle, preprocess::PreprocessTurtle, svg_preview::SvgPreviewTurtle,
+    collect::StrokeCollectingTurtle, dpi::DpiConvertingTurtle, preprocess::PreprocessTurtle,
+    svg_preview::SvgPreviewTurtle,
 };
 
 /// Abstraction for drawing paths based on [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics)
@@ -32,9 +32,10 @@ pub trait Turtle: Debug {
     fn quadratic_bezier(&mut self, qbs: QuadraticBezierSegment<f64>);
 }
 
-/// Wrapper for [Turtle] that handles transforms, position, offsets, etc.  See https://www.w3.org/TR/SVG/paths.html
+/// Handles SVG complexities outside of [Turtle] scope (transforms, position, offsets, etc.)
+/// <https://www.w3.org/TR/SVG/paths.html>
 #[derive(Debug)]
-pub struct Terrarium<T: Turtle + std::fmt::Debug> {
+pub(crate) struct Terrarium<T: Turtle + std::fmt::Debug> {
     pub turtle: T,
     current_position: Point<f64>,
     initial_position: Point<f64>,
@@ -59,7 +60,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     }
 
     /// Move the turtle to the given absolute/relative coordinates in the current transform
-    /// https://www.w3.org/TR/SVG/paths.html#PathDataMovetoCommands
+    /// <https://www.w3.org/TR/SVG/paths.html#PathDataMovetoCommands>
     pub fn move_to<X, Y>(&mut self, abs: bool, x: X, y: Y)
     where
         X: Into<Option<f64>>,
@@ -100,7 +101,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     }
 
     /// Close an SVG path, cutting back to its initial position
-    /// https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand
+    /// <https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand>
     pub fn close(&mut self) {
         // See https://www.w3.org/TR/SVG/paths.html#Segment-CompletingClosePath
         // which could result in a G91 G1 X0 Y0
@@ -117,7 +118,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     }
 
     /// Draw a line from the current position in the current transform to the specified position
-    /// https://www.w3.org/TR/SVG/paths.html#PathDataLinetoCommands
+    /// <https://www.w3.org/TR/SVG/paths.html#PathDataLinetoCommands>
     pub fn line<X, Y>(&mut self, abs: bool, x: X, y: Y)
     where
         X: Into<Option<f64>>,
@@ -158,7 +159,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     }
 
     /// Draw a cubic curve from the current point to (x, y) with specified control points (x1, y1) and (x2, y2)
-    /// https://www.w3.org/TR/SVG/paths.html#PathDataCubicBezierCommands
+    /// <https://www.w3.org/TR/SVG/paths.html#PathDataCubicBezierCommands>
     pub fn cubic_bezier(
         &mut self,
         abs: bool,
@@ -198,7 +199,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     }
 
     /// Draw a shorthand/smooth cubic bezier segment, where the first control point was already given
-    /// https://www.w3.org/TR/SVG/paths.html#PathDataCubicBezierCommands
+    /// <https://www.w3.org/TR/SVG/paths.html#PathDataCubicBezierCommands>
     pub fn smooth_cubic_bezier(&mut self, abs: bool, mut ctrl2: Point<f64>, mut to: Point<f64>) {
         let from = self.current_position;
         let ctrl1 = self.previous_cubic_control.unwrap_or(self.current_position);
@@ -234,7 +235,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     }
 
     /// Draw a shorthand/smooth cubic bezier segment, where the control point was already given
-    /// https://www.w3.org/TR/SVG/paths.html#PathDataQuadraticBezierCommands
+    /// <https://www.w3.org/TR/SVG/paths.html#PathDataQuadraticBezierCommands>
     pub fn smooth_quadratic_bezier(&mut self, abs: bool, mut to: Point<f64>) {
         let from = self.current_position;
         let ctrl = self
@@ -265,7 +266,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     }
 
     /// Draw a quadratic bezier segment
-    /// https://www.w3.org/TR/SVG/paths.html#PathDataQuadraticBezierCommands
+    /// <https://www.w3.org/TR/SVG/paths.html#PathDataQuadraticBezierCommands>
     pub fn quadratic_bezier(&mut self, abs: bool, mut ctrl: Point<f64>, mut to: Point<f64>) {
         let from = self.current_position;
         if !abs {
@@ -295,7 +296,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     }
 
     /// Draw an elliptical arc segment
-    /// https://www.w3.org/TR/SVG/paths.html#PathDataEllipticalArcCommands
+    /// <https://www.w3.org/TR/SVG/paths.html#PathDataEllipticalArcCommands>
     pub fn elliptical(
         &mut self,
         abs: bool,
@@ -331,7 +332,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
 
     /// Push a generic transform onto the stack
     /// Could be any valid CSS transform https://drafts.csswg.org/css-transforms-1/#typedef-transform-function
-    /// https://www.w3.org/TR/SVG/coords.html#InterfaceSVGTransform
+    /// <https://www.w3.org/TR/SVG/coords.html#InterfaceSVGTransform>
     pub fn push_transform(&mut self, trans: Transform2D<f64>) {
         self.transform_stack.push(self.current_transform);
         // https://stackoverflow.com/questions/18582935/the-applying-order-of-svg-transforms

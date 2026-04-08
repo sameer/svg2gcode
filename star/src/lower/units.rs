@@ -3,7 +3,7 @@ use roxmltree::Node;
 use svgtypes::{Length, LengthListParser};
 
 use super::ConversionVisitor;
-use crate::Turtle;
+use crate::turtle::Turtle;
 
 /// The DPI assumed by CSS is 96.
 ///

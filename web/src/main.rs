@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), deny(unused_crate_dependencies))]
+
 use std::{
     io::Cursor,
     path::{Path, PathBuf},
@@ -11,7 +13,11 @@ use g_code::{
 use js_sys::Date;
 use log::Level;
 use roxmltree::{Document, ParsingOptions};
-use svg2gcode::{ConversionOptions, Machine, svg2preview, svg2program};
+use svg2gcode::{Machine, svg_to_gcode};
+use svg2star::{
+    lower::{ConversionOptions, svg_to_turtle},
+    turtle::SvgPreviewTurtle,
+};
 use yew::prelude::*;
 
 mod forms;
@@ -112,7 +118,7 @@ fn app() -> Html {
                 .unwrap();
 
                 let program =
-                    svg2program(&document, &app_store.settings.conversion, options, machine);
+                    svg_to_gcode(&document, &app_store.settings.conversion, options, machine);
 
                 let filepath = if app_store.svgs.len() > 1 {
                     PathBuf::from("svg2gcode_output")
@@ -223,7 +229,7 @@ fn app() -> Html {
                             .ok()
                             .map(|doc| {
                                 let options = ConversionOptions { dimensions: svg.dimensions };
-                                svg2preview(&doc, &app_store.settings.conversion, options, None)
+                                svg_to_turtle(&doc, &app_store.settings.conversion.inner, options, SvgPreviewTurtle::default()).into_preview()
                             })
                             .unwrap_or_default();
                             let preview_svg_base64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(preview_svg.as_bytes());

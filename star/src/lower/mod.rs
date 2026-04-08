@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use g_code::emit::Token;
 use lyon_geom::euclid::default::Transform2D;
 use roxmltree::{Document, Node};
 #[cfg(feature = "serde")]
@@ -13,12 +12,10 @@ use uom::si::{
 
 use self::units::CSS_DEFAULT_DPI;
 use crate::{
-    Machine, Turtle,
-    converter::selector::SelectorList,
-    tsp,
+    lower::selector::SelectorList,
     turtle::{
-        DpiConvertingTurtle, GCodeTurtle, PreprocessTurtle, StrokeCollectingTurtle,
-        SvgPreviewTurtle, Terrarium,
+        DpiConvertingTurtle, PreprocessTurtle, StrokeCollectingTurtle, Terrarium, Turtle,
+        elements::{Stroke, minimize_travel_time},
     },
 };
 
@@ -34,10 +31,6 @@ mod visit;
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ConversionConfig {
-    /// Curve interpolation tolerance in millimeters
-    pub tolerance: f64,
-    /// Feedrate in millimeters / minute
-    pub feedrate: f64,
     /// Dots per inch for pixels, picas, points, etc.
     pub dpi: f64,
     /// Set the origin point in millimeters for this conversion
@@ -64,8 +57,6 @@ const fn zero_origin() -> [Option<f64>; 2] {
 impl Default for ConversionConfig {
     fn default() -> Self {
         Self {
-            tolerance: 0.002,
-            feedrate: 300.0,
             dpi: 96.0,
             origin: zero_origin(),
             extra_attribute_name: None,
@@ -131,13 +122,22 @@ impl<'a, T: Turtle> ConversionVisitor<'a, T> {
     }
 }
 
-/// Top-level function for converting an SVG [`Document`] into g-code
-pub fn svg2program<'a, 'input: 'a>(
-    doc: &'a Document,
+/// Drives any [`Turtle`] implementation through the full SVG conversion pipeline.
+///
+/// This is the generic entry point for custom backends. The turtle receives resolved,
+/// absolute, world-space geometry in millimeters after all SVG transforms, DPI conversion,
+/// and optional origin alignment have been applied.
+///
+/// Path optimization (TSP reordering) is applied automatically when
+/// [`ConversionConfig::optimize_path_order`] is `true`.
+///
+/// The turtle is returned so callers can extract its internal state (e.g. generated output).
+pub fn svg_to_turtle<T: Turtle>(
+    doc: &Document,
     config: &ConversionConfig,
     options: ConversionOptions,
-    machine: Machine<'input>,
-) -> Vec<Token<'input>> {
+    turtle: T,
+) -> T {
     let selector_filter = config
         .selector_filter
         .as_deref()
@@ -186,12 +186,7 @@ pub fn svg2program<'a, 'input: 'a>(
 
     let mut conversion_visitor = ConversionVisitor {
         terrarium: Terrarium::new(DpiConvertingTurtle {
-            inner: GCodeTurtle {
-                machine,
-                tolerance: config.tolerance,
-                feedrate: config.feedrate,
-                program: vec![],
-            },
+            inner: turtle,
             dpi: config.dpi,
         }),
         _config: config,
@@ -208,7 +203,7 @@ pub fn svg2program<'a, 'input: 'a>(
 
     if config.optimize_path_order {
         let strokes =
-            svg2strokes_optimized(doc, config, options, origin_transform, selector_filter);
+            svg_to_optimized_strokes(doc, config, options, origin_transform, selector_filter);
         let turtle = &mut conversion_visitor.terrarium.turtle;
         for stroke in strokes {
             turtle.move_to(stroke.start_point());
@@ -223,67 +218,16 @@ pub fn svg2program<'a, 'input: 'a>(
     conversion_visitor.end();
     conversion_visitor.terrarium.pop_transform();
 
-    conversion_visitor.terrarium.turtle.inner.program
+    conversion_visitor.terrarium.turtle.inner
 }
 
-/// Converts an SVG [`Document`] into a preview SVG showing expected toolpath moves.
-///
-/// - red: tool-on moves (G1/G2/G3)
-/// - green: rapid tool-off moves (G0)
-pub fn svg2preview(
-    doc: &Document,
-    config: &ConversionConfig,
-    options: ConversionOptions,
-    selector_filter: Option<SelectorList>,
-) -> String {
-    let mut conversion_visitor = ConversionVisitor {
-        terrarium: Terrarium::new(DpiConvertingTurtle {
-            inner: SvgPreviewTurtle::default(),
-            dpi: config.dpi,
-        }),
-        _config: config,
-        options: options.clone(),
-        name_stack: vec![],
-        viewport_dim_stack: vec![],
-        selector_filter: selector_filter.clone(),
-    };
-
-    conversion_visitor
-        .terrarium
-        .push_transform(Transform2D::identity());
-    conversion_visitor.begin();
-
-    if config.optimize_path_order {
-        let strokes = svg2strokes_optimized(
-            doc,
-            config,
-            options,
-            Transform2D::identity(),
-            selector_filter,
-        );
-        let turtle = &mut conversion_visitor.terrarium.turtle;
-        for stroke in strokes {
-            turtle.move_to(stroke.start_point());
-            for cmd in stroke.commands() {
-                cmd.apply(turtle);
-            }
-        }
-    } else {
-        visit::depth_first_visit(doc, &mut conversion_visitor);
-    }
-
-    conversion_visitor.end();
-    conversion_visitor.terrarium.pop_transform();
-    conversion_visitor.terrarium.turtle.inner.into_preview()
-}
-
-fn svg2strokes_optimized(
+fn svg_to_optimized_strokes(
     doc: &Document,
     config: &ConversionConfig,
     options: ConversionOptions,
     origin_transform: Transform2D<f64>,
     selector_filter: Option<SelectorList>,
-) -> Vec<crate::turtle::Stroke> {
+) -> Vec<Stroke> {
     let mut collect_visitor = ConversionVisitor {
         terrarium: Terrarium::new(StrokeCollectingTurtle::default()),
         _config: config,
@@ -298,7 +242,7 @@ fn svg2strokes_optimized(
     collect_visitor.end();
     collect_visitor.terrarium.pop_transform();
     let strokes = collect_visitor.terrarium.turtle.into_strokes();
-    tsp::minimize_travel_time(strokes)
+    minimize_travel_time(strokes)
 }
 
 fn node_name(node: &Node, attr_to_print: &Option<String>) -> String {

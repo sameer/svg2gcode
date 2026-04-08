@@ -4,7 +4,7 @@ use lyon_geom::{ArcFlags, point, vector};
 use svgtypes::PathSegment;
 
 use super::Terrarium;
-use crate::Turtle;
+use crate::turtle::Turtle;
 
 /// Maps [`PathSegment`]s into concrete operations on the [`Terrarium`]
 ///

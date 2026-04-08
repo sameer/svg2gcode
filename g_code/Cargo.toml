@@ -1,6 +1,6 @@
 [package]
 name = "svg2gcode"
-version = "0.3.4"
+version = "0.4.0"
 description = "Convert paths in SVG files to GCode for a pen plotter, laser engraver, or other machine."
 authors.workspace = true
 edition.workspace = true
@@ -8,20 +8,14 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-serde = ["dep:serde", "dep:serde_repr", "g-code/serde"]
+serde = ["dep:serde", "g-code/serde", "svg2star/serde"]
 
 [dependencies]
+svg2star = { path = "../star", version = "0.4.0" }
 g-code.workspace = true
-peg = "0.8"
-rand = "0.8"
-rustc-hash = "1"
 rust_decimal = { version = "1", default-features = false }
-lyon_geom = "=1.0.6"
-euclid = "0.22"
-log.workspace = true
-uom = "0.38"
+lyon_geom.workspace = true
 roxmltree.workspace = true
-svgtypes.workspace = true
 paste = "1"
 
 [dependencies.serde]
@@ -30,10 +24,7 @@ optional = true
 version = "1"
 features = ["derive", "std"]
 
-[dependencies.serde_repr]
-optional = true
-version = "0.1"
-
 [dev-dependencies]
 serde_json.workspace = true
 pretty_assertions = "1.4.1"
+svgtypes.workspace = true

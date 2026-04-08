@@ -6,7 +6,7 @@ use uom::si::{
     length::{inch, millimeter},
 };
 
-use crate::Turtle;
+use super::Turtle;
 
 /// Wrapper turtle that converts from user units to millimeters at a given DPI
 #[derive(Debug)]
