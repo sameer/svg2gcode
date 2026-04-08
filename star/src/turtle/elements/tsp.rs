@@ -9,7 +9,7 @@ use lyon_geom::Point;
 use rand::{Rng, distributions::Standard, prelude::Distribution, thread_rng};
 use rustc_hash::FxHashSet as HashSet;
 
-use crate::turtle::Stroke;
+use crate::turtle::elements::Stroke;
 
 fn dist(a: Point<f64>, b: Point<f64>) -> f64 {
     ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt()

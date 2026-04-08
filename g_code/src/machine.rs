@@ -3,8 +3,8 @@ use g_code::{
     emit::Token,
     parse::{ast::Snippet, snippet_parser},
 };
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
+
+use crate::config::SupportedFunctionality;
 
 /// Whether the tool is active (i.e. cutting)
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -33,25 +33,6 @@ pub struct Machine<'input> {
     program_end_sequence: Snippet<'input>,
     /// Empty snippet used to provide the same iterator type when a sequence must be empty
     empty_snippet: Snippet<'input>,
-}
-
-#[derive(Debug, Default, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct MachineConfig {
-    pub supported_functionality: SupportedFunctionality,
-    pub tool_on_sequence: Option<String>,
-    pub tool_off_sequence: Option<String>,
-    pub begin_sequence: Option<String>,
-    pub end_sequence: Option<String>,
-}
-
-#[derive(Debug, Default, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct SupportedFunctionality {
-    /// Indicates support for G2/G3 circular interpolation.
-    ///
-    /// Most modern machines support this. Old ones like early MakerBot 3D printers do not.
-    pub circular_interpolation: bool,
 }
 
 impl<'input> Machine<'input> {

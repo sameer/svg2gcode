@@ -1,0 +1,31 @@
+[package]
+name = "svg2star"
+version = "0.4.0"
+description = "Convert SVGs to machine commands for pen plotters, laser cutters, and more (*)."
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[features]
+serde = ["dep:serde"]
+
+[dependencies]
+peg = "0.8"
+rand = "0.8"
+rustc-hash = "1"
+lyon_geom.workspace = true
+euclid = "0.22"
+log.workspace = true
+uom = "0.38"
+roxmltree.workspace = true
+svgtypes.workspace = true
+
+[dependencies.serde]
+default-features = false
+optional = true
+version = "1"
+features = ["derive", "std"]
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), deny(unused_crate_dependencies))]
+
 use std::{
     env,
     fs::File,
@@ -14,7 +16,9 @@ use g_code::{
 use log::{error, info};
 use roxmltree::ParsingOptions;
 use svg2gcode::{
-    ConversionOptions, Machine, Settings, SupportedFunctionality, Version, svg2program,
+    Machine,
+    config::{ConversionOptions, Settings, SupportedFunctionality, Version},
+    svg_to_gcode,
 };
 use svgtypes::LengthListParser;
 
@@ -122,7 +126,7 @@ fn main() -> io::Result<()> {
 
         {
             let conversion = &mut settings.conversion;
-            conversion.dpi = opt.dpi.unwrap_or(conversion.dpi);
+            conversion.inner.dpi = opt.dpi.unwrap_or(conversion.inner.dpi);
             conversion.feedrate = opt.feedrate.unwrap_or(conversion.feedrate);
             conversion.tolerance = opt.tolerance.unwrap_or(conversion.tolerance);
         }
@@ -160,7 +164,7 @@ fn main() -> io::Result<()> {
                     .take(2)
                     .enumerate()
                 {
-                    settings.conversion.origin[i] = Some(dimension_origin);
+                    settings.conversion.inner.origin[i] = Some(dimension_origin);
                 }
             }
         }
@@ -177,12 +181,12 @@ fn main() -> io::Result<()> {
             settings.postprocess.newline_before_comment = newline_before_comment;
         }
 
-        settings.conversion.extra_attribute_name = opt.extra_attribute_name;
+        settings.conversion.inner.extra_attribute_name = opt.extra_attribute_name;
         if let Some(optimize_path_order) = opt.optimize_path_order {
-            settings.conversion.optimize_path_order = optimize_path_order;
+            settings.conversion.inner.optimize_path_order = optimize_path_order;
         }
         if let Some(selector_filter) = opt.selector_filter {
-            settings.conversion.selector_filter = Some(selector_filter);
+            settings.conversion.inner.selector_filter = Some(selector_filter);
         }
 
         if let Version::Unknown(ref unknown) = settings.version {
@@ -334,7 +338,7 @@ fn main() -> io::Result<()> {
     )
     .unwrap();
 
-    let program = svg2program(&document, &settings.conversion, options, machine);
+    let program = svg_to_gcode(&document, &settings.conversion, options, machine);
 
     if let Some(out_path) = opt.out {
         format_gcode_io(

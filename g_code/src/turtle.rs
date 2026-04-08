@@ -3,12 +3,12 @@ use std::{borrow::Cow, fmt::Debug};
 use ::g_code::{command, emit::Token};
 use lyon_geom::{CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc};
 use rust_decimal::{Decimal, prelude::*};
-
-use super::Turtle;
-use crate::{
-    arc::{ArcOrLineSegment, FlattenWithArcs},
-    machine::Machine,
+use svg2star::turtle::{
+    Turtle,
+    elements::{ArcOrLineSegment, FlattenWithArcs},
 };
+
+use crate::machine::Machine;
 
 /// Maps path segments into g-code operations
 #[derive(Debug)]

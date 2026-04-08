@@ -14,7 +14,7 @@ use super::{
     transform::{get_viewport_transform, svg_transform_into_euclid_transform},
     units::DimensionHint,
 };
-use crate::{Turtle, converter::node_name};
+use crate::{lower::node_name, turtle::Turtle};
 
 const SVG_TAG_NAME: &str = "svg";
 const CLIP_PATH_TAG_NAME: &str = "clipPath";

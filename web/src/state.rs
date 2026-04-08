@@ -1,7 +1,7 @@
 use std::{convert::TryInto, num::ParseFloatError};
 
 use serde::{Deserialize, Serialize};
-use svg2gcode::{
+use svg2gcode::config::{
     ConversionConfig, MachineConfig, PostprocessConfig, Settings, SupportedFunctionality, Version,
 };
 use svgtypes::Length;
@@ -46,17 +46,19 @@ impl TryInto<Settings> for &FormState {
 
     fn try_into(self) -> Result<Settings, Self::Error> {
         Ok(Settings {
-            conversion: ConversionConfig {
+            conversion: svg2gcode::config::GCodeConfig {
+                inner: ConversionConfig {
+                    dpi: self.dpi.clone()?,
+                    origin: [
+                        self.origin[0].clone().transpose()?,
+                        self.origin[1].clone().transpose()?,
+                    ],
+                    extra_attribute_name: None,
+                    optimize_path_order: self.optimize_path_order,
+                    selector_filter: None,
+                },
                 tolerance: self.tolerance.clone()?,
                 feedrate: self.feedrate.clone()?,
-                dpi: self.dpi.clone()?,
-                origin: [
-                    self.origin[0].clone().transpose()?,
-                    self.origin[1].clone().transpose()?,
-                ],
-                extra_attribute_name: None,
-                optimize_path_order: self.optimize_path_order,
-                selector_filter: None,
             },
             machine: MachineConfig {
                 supported_functionality: SupportedFunctionality {
@@ -102,12 +104,12 @@ impl From<&Settings> for FormState {
                 .machine
                 .supported_functionality
                 .circular_interpolation,
-            optimize_path_order: settings.conversion.optimize_path_order,
+            optimize_path_order: settings.conversion.inner.optimize_path_order,
             origin: [
-                settings.conversion.origin[0].map(Ok),
-                settings.conversion.origin[1].map(Ok),
+                settings.conversion.inner.origin[0].map(Ok),
+                settings.conversion.inner.origin[1].map(Ok),
             ],
-            dpi: Ok(settings.conversion.dpi),
+            dpi: Ok(settings.conversion.inner.dpi),
             tool_on_sequence: settings.machine.tool_on_sequence.clone().map(Ok),
             tool_off_sequence: settings.machine.tool_off_sequence.clone().map(Ok),
             begin_sequence: settings.machine.begin_sequence.clone().map(Ok),

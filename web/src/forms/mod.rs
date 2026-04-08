@@ -6,7 +6,7 @@ use gloo_file::{
 };
 use js_sys::TypeError;
 use roxmltree::{Document, ParsingOptions};
-use svg2gcode::{Settings, Version};
+use svg2gcode::config::{Settings, Version};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Event, FileList, HtmlElement, HtmlInputElement, Response, window};

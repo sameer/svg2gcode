@@ -180,6 +180,8 @@ where
     }
 }
 
+/// Used to move an [`SvgArc`] which, unlike other elements, has a complex
+/// transform implementation.
 pub trait Transformed<S> {
     fn transformed(&self, transform: &Transform<S>) -> Self;
 }
@@ -273,7 +275,7 @@ impl<S: Scalar> Transformed<S> for SvgArc<S> {
 mod tests {
     use lyon_geom::{CubicBezierSegment, point};
 
-    use crate::arc::{ArcOrLineSegment, FlattenWithArcs};
+    use super::{ArcOrLineSegment, FlattenWithArcs};
 
     /// Magic constant for cubic Bézier approximation of a quarter circle: 4(√2-1)/3
     const KAPPA: f64 = 4.0 * (std::f64::consts::SQRT_2 - 1.0) / 3.0;

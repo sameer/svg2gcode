@@ -2,9 +2,19 @@
 
 use std::mem::swap;
 
-use lyon_geom::{CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc};
+pub use lyon_geom::{ArcFlags, CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc, Vector};
 
-use crate::Turtle;
+pub use self::{
+    arc::{ArcOrLineSegment, FlattenWithArcs, Transformed},
+    tsp::minimize_travel_time,
+};
+use crate::turtle::Turtle;
+
+/// Approximate [Bézier curves](https://en.wikipedia.org/wiki/B%C3%A9zier_curve) with [Circular arcs](https://en.wikipedia.org/wiki/Circular_arc)
+mod arc;
+
+/// Reorders strokes to minimize pen-up travel using TSP heuristics
+mod tsp;
 
 /// Atomic unit of a [Stroke].
 #[derive(Debug, Clone)]
@@ -58,7 +68,7 @@ impl DrawCommand {
     }
 }
 
-/// A continuous tool-on sequence with a known start_point.
+/// A continuous tool-on sequence with a known [Self::start_point].
 #[derive(Debug, Clone)]
 pub struct Stroke {
     pub(super) start_point: Point<f64>,
@@ -66,6 +76,13 @@ pub struct Stroke {
 }
 
 impl Stroke {
+    pub fn new(start_point: Point<f64>, commands: Vec<DrawCommand>) -> Self {
+        Self {
+            start_point,
+            commands,
+        }
+    }
+
     pub fn end_point(&self) -> Point<f64> {
         self.commands
             .iter()
@@ -87,5 +104,10 @@ impl Stroke {
 
     pub fn commands(&self) -> impl Iterator<Item = &DrawCommand> {
         self.commands.iter()
+    }
+
+    /// Whether the stroke ends at the start.
+    pub fn is_closed(&self) -> bool {
+        (self.start_point() - self.end_point()).length() < f64::EPSILON
     }
 }

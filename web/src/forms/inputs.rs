@@ -66,18 +66,18 @@ form_input! {
         "Dots per Inch",
         "Used for scaling visual units (pixels, points, picas, etc.)",
         dpi,
-        settings.conversion.dpi,
+        settings.conversion.inner.dpi,
     }
     OriginX {
         "Origin X",
         "X-axis coordinate for the lower left corner of the machine",
         origin => 0,
-        settings.conversion.origin => 0,
+        settings.conversion.inner.origin => 0,
     }
     OriginY {
         "Origin Y",
         "Y-axis coordinate for the lower left corner of the machine",
         origin => 1,
-        settings.conversion.origin => 1,
+        settings.conversion.inner.origin => 1,
     }
 }
