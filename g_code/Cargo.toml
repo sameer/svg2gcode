@@ -16,12 +16,11 @@ g-code.workspace = true
 rust_decimal = { version = "1", default-features = false }
 lyon_geom.workspace = true
 roxmltree.workspace = true
-paste = "1"
+paste.workspace = true
 
 [dependencies.serde]
-default-features = false
+workspace = true
 optional = true
-version = "1"
 features = ["derive", "std"]
 
 [dev-dependencies]

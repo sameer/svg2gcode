@@ -6,7 +6,10 @@ use std::collections::VecDeque;
 
 use log::debug;
 use lyon_geom::Point;
-use rand::{Rng, distributions::Standard, prelude::Distribution, thread_rng};
+use rand::{
+    RngExt,
+    distr::{Distribution, StandardUniform},
+};
 use rustc_hash::FxHashSet as HashSet;
 
 use crate::turtle::elements::Stroke;
@@ -89,11 +92,11 @@ impl Operator {
     const NUM_OPERATORS: usize = 3;
 }
 
-impl Distribution<Operator> for Standard {
+impl Distribution<Operator> for StandardUniform {
     /// Based on productivity results in the paper, link swap is given a chance of 50%
     /// while relocate and 2-opt have 25% each.
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Operator {
-        match rng.gen_range(0..=Operator::NUM_OPERATORS) {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Operator {
+        match rng.random_range(0..=Operator::NUM_OPERATORS) {
             0 => Operator::Relocate,
             1 => Operator::TwoOpt,
             2 | 3 => Operator::LinkSwap,
@@ -138,7 +141,7 @@ fn local_improvement_with_tabu_search(path: &[Stroke]) -> Vec<Stroke> {
     let mut current_sum = best_sum;
 
     const ITERATIONS: usize = 20000;
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
 
     /// 10% of the past moves are considered tabu.
     const TABU_FRACTION: f64 = 0.1;
@@ -162,7 +165,7 @@ fn local_improvement_with_tabu_search(path: &[Stroke]) -> Vec<Stroke> {
             }
         }
 
-        let operator: Operator = rng.r#gen();
+        let operator: Operator = rng.random();
 
         match operator {
             // O(n^2): move stroke i to between j and j+1, trying both orientations.

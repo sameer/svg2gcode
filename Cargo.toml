@@ -10,9 +10,12 @@ repository = "https://github.com/sameer/svg2gcode"
 license = "MIT"
 
 [workspace.dependencies]
+codespan-reporting = "0.13"
 g-code = "0.6.0"
 log = "0"
 lyon_geom = "=1.0.19"
+paste = "1"
 roxmltree = "0.21"
+serde = { version = "1", default-features = false }
 serde_json = "1"
 svgtypes = "0.16"

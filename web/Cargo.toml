@@ -9,26 +9,27 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
 wasm-bindgen = "0.2"
 svg2gcode = { path = "../g_code", version = "0.4.0", features = ["serde"] }
 svg2star = { path = "../star", version = "0.4.0", features = ["serde"] }
 roxmltree.workspace = true
 g-code.workspace = true
-codespan-reporting = "0.13"
-serde = "1"
-paste = "1"
+codespan-reporting.workspace = true
+serde = { workspace = true, features = ["derive", "std"] }
+paste.workspace = true
 log.workspace = true
 svgtypes.workspace = true
 serde_json.workspace = true
-thiserror = "1.0"
-zip = { version = "0.6", default-features = false }
+thiserror = "2"
+zip = { version = "8", default-features = false }
 
-yew = { version = "0.21", features = ["csr"] }
-yewdux = "0.11"
+yew = { version = "0.23", features = ["csr"] }
+yewdux = "0.13"
 web-sys = { version = "0.3", features = ["Blob", "BlobPropertyBag", "Url", "Window"] }
 wasm-logger = "0.2"
-gloo-file = { version = "0.3", features = ["futures"] }
-gloo-timers = "0.3"
+gloo-file = { version = "0.4", features = ["futures"] }
+gloo-timers = "0.4"
 base64 = "0.22"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"

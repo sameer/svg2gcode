@@ -12,8 +12,8 @@ serde = ["dep:serde"]
 
 [dependencies]
 peg = "0.8"
-rand = "0.8"
-rustc-hash = "1"
+rand = "0.10"
+rustc-hash = "2"
 lyon_geom.workspace = true
 euclid = "0.22"
 log.workspace = true
@@ -22,9 +22,8 @@ roxmltree.workspace = true
 svgtypes.workspace = true
 
 [dependencies.serde]
-default-features = false
+workspace = true
 optional = true
-version = "1"
 features = ["derive", "std"]
 
 [dev-dependencies]
