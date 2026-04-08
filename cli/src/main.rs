@@ -65,7 +65,7 @@ struct Opt {
     origin: Option<String>,
     /// Override the width and height of the SVG (i.e. 210mm,297mm)
     ///
-    /// Useful when the SVG does not specify these (see https://github.com/sameer/svg2gcode/pull/16)
+    /// Useful when the SVG does not specify these (see <https://github.com/sameer/svg2gcode/pull/16>)
     ///
     /// Passing "210mm," or ",297mm" calculates the missing dimension to conform to the viewBox aspect ratio.
     #[arg(long)]
