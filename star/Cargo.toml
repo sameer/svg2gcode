@@ -9,6 +9,7 @@ license.workspace = true
 
 [features]
 serde = ["dep:serde"]
+image = ["dep:image", "dep:base64"]
 
 [dependencies]
 peg = "0.8"
@@ -25,6 +26,16 @@ svgtypes.workspace = true
 workspace = true
 optional = true
 features = ["derive", "std"]
+
+[dependencies.image]
+version = "0.25"
+optional = true
+default-features = false
+features = ["png", "jpeg"]
+
+[dependencies.base64]
+version = "0.22"
+optional = true
 
 [dev-dependencies]
 serde_json.workspace = true

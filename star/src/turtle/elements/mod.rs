@@ -16,6 +16,16 @@ mod arc;
 /// Reorders strokes to minimize pen-up travel using TSP heuristics
 mod tsp;
 
+/// Raster image decoded from an inline PNG/JPEG.
+///
+/// <https://www.w3.org/TR/SVG/embedded.html#ImageElement>
+#[cfg(feature = "image")]
+pub struct RasterImage {
+    pub position: Point<f64>,
+    pub dimensions: Vector<f64>,
+    pub image: image::DynamicImage,
+}
+
 /// Atomic unit of a [Stroke].
 #[derive(Debug, Clone)]
 pub enum DrawCommand {
