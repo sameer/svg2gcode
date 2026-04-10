@@ -464,6 +464,54 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
                         }
                     }
                 }
+                #[cfg(feature = "image")]
+                "image" => {
+                    use base64::{Engine, engine::general_purpose::STANDARD};
+
+                    use crate::turtle::elements::RasterImage;
+
+                    let Some(href) = node
+                        .attribute("href")
+                        .or_else(|| node.attribute(("http://www.w3.org/1999/xlink", "href")))
+                    else {
+                        warn!("image element has no href: {node:?}");
+                        return;
+                    };
+                    let Some(b64) = href
+                        .strip_prefix("data:image/png;base64,")
+                        .or_else(|| href.strip_prefix("data:image/jpeg;base64,"))
+                    else {
+                        warn!("Unsupported image href {href}");
+                        return;
+                    };
+
+                    let b64_no_whitespace: String =
+                        b64.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+                    let bytes = match STANDARD.decode(&b64_no_whitespace) {
+                        Ok(bytes) => bytes,
+                        Err(err) => {
+                            warn!("image base64 decode failed: {err}");
+                            return;
+                        }
+                    };
+                    let image = match image::load_from_memory(&bytes) {
+                        Ok(img) => img,
+                        Err(e) => {
+                            warn!("image decode failed: {e}");
+                            return;
+                        }
+                    };
+
+                    let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
+                    let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
+                    let width = self.length_attr_to_user_units(&node, "width").unwrap_or(0.);
+                    let height = self
+                        .length_attr_to_user_units(&node, "height")
+                        .unwrap_or(0.);
+
+                    self.comment(&node);
+                    self.terrarium.image(image, x, y, width, height);
+                }
                 // No-op tags
                 SVG_TAG_NAME | GROUP_TAG_NAME | USE_TAG_NAME | SYMBOL_TAG_NAME => {}
                 _ => {

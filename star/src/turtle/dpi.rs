@@ -96,4 +96,15 @@ impl<T: Turtle> Turtle for DpiConvertingTurtle<T> {
             ctrl: self.point_to_mm(ctrl),
         })
     }
+
+    #[cfg(feature = "image")]
+    fn image(&mut self, img: super::elements::RasterImage) {
+        self.inner.image(super::elements::RasterImage {
+            x: self.to_mm(img.x),
+            y: self.to_mm(img.y),
+            width: self.to_mm(img.width),
+            height: self.to_mm(img.height),
+            image: img.image,
+        })
+    }
 }

@@ -30,6 +30,9 @@ pub trait Turtle: Debug {
     fn arc(&mut self, svg_arc: SvgArc<f64>);
     fn cubic_bezier(&mut self, cbs: CubicBezierSegment<f64>);
     fn quadratic_bezier(&mut self, qbs: QuadraticBezierSegment<f64>);
+    #[cfg(feature = "image")]
+    /// This is the only function with a default as most turtles have no way to handle a raster image.
+    fn image(&mut self, _image: self::elements::RasterImage) {}
 }
 
 /// Handles SVG complexities outside of [Turtle] scope (transforms, position, offsets, etc.)
@@ -328,6 +331,23 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         self.previous_cubic_control = None;
 
         self.turtle.arc(svg_arc);
+    }
+
+    /// <https://www.w3.org/TR/SVG/embedded.html#ImageElement>
+    #[cfg(feature = "image")]
+    pub fn image(&mut self, image: image::DynamicImage, x: f64, y: f64, width: f64, height: f64) {
+        // Transform the corners to get the final x, y, width, height.
+        let t0 = self.current_transform.transform_point(point(x, y));
+        let t1 = self
+            .current_transform
+            .transform_point(point(x, y) + vector(width, height));
+        self.turtle.image(crate::turtle::elements::RasterImage {
+            // After transformation, the corners may be swapped resulting in a new x y.
+            // Also need to pick the larger y because of the G-Code coordinate space swap (?).
+            position: point(t0.x.min(t1.x), t0.y.max(t1.y)),
+            dimensions: (t1 - t0).abs(),
+            image,
+        });
     }
 
     /// Push a generic transform onto the stack
