@@ -14,7 +14,10 @@ use super::{
     transform::{get_viewport_transform, svg_transform_into_euclid_transform},
     units::DimensionHint,
 };
-use crate::{lower::node_name, turtle::Turtle};
+use crate::{
+    lower::node_name,
+    turtle::{CoordinateSystem, Turtle},
+};
 
 const SVG_TAG_NAME: &str = "svg";
 const CLIP_PATH_TAG_NAME: &str = "clipPath";
@@ -168,10 +171,7 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
                 .options
                 .dimensions
                 .map(|l| l.map(|l| self.length_to_user_units(l, DimensionHint::Horizontal)));
-            for (original_dim, override_dim) in viewport_size
-                .iter_mut()
-                .zip(dimensions_override.into_iter())
-            {
+            for (original_dim, override_dim) in viewport_size.iter_mut().zip(dimensions_override) {
                 *original_dim = override_dim.or(*original_dim);
             }
 
@@ -219,11 +219,14 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
                 );
                 flattened_transform = flattened_transform.then(&viewport_transform);
             }
-            // Part 2 of converting from SVG to GCode coordinates
-            flattened_transform = flattened_transform.then(&Transform2D::translation(
-                0.,
-                -(viewport_size[1] + viewport_pos[1].unwrap_or(0.)),
-            ));
+            if self.coordinate_system == CoordinateSystem::YUp {
+                // Part 2 of converting from SVG (Y-down) to output (Y-up) coordinates:
+                // shift the origin from the top-left to the bottom-left of the viewport.
+                flattened_transform = flattened_transform.then(&Transform2D::translation(
+                    0.,
+                    -(viewport_size[1] + viewport_pos[1].unwrap_or(0.)),
+                ));
+            }
         } else if node.has_tag_name(USE_TAG_NAME) {
             // Per SVG spec, <use> x/y translate is appended to the element's transform
             // https://www.w3.org/TR/SVG2/struct.html#UseLayout
@@ -467,8 +470,6 @@ impl<'a, T: Turtle> XmlVisitor for ConversionVisitor<'a, T> {
                 #[cfg(feature = "image")]
                 "image" => {
                     use base64::{Engine, engine::general_purpose::STANDARD};
-
-                    use crate::turtle::elements::RasterImage;
 
                     let Some(href) = node
                         .attribute("href")

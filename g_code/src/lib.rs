@@ -4,7 +4,10 @@
 
 use g_code::emit::Token;
 use roxmltree::Document;
-use svg2star::lower::{ConversionOptions, svg_to_turtle};
+use svg2star::{
+    lower::{ConversionOptions, svg_to_turtle},
+    turtle::CoordinateSystem,
+};
 
 pub use self::{machine::Machine, turtle::GCodeTurtle};
 use crate::config::GCodeConfig;
@@ -31,5 +34,12 @@ pub fn svg_to_gcode<'a, 'input: 'a>(
         feedrate: config.feedrate,
         program: vec![],
     };
-    svg_to_turtle(doc, &config.inner, options, gcode_turtle).program
+    svg_to_turtle(
+        doc,
+        &config.inner,
+        options,
+        gcode_turtle,
+        CoordinateSystem::YUp,
+    )
+    .program
 }

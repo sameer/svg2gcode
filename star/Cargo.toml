@@ -18,7 +18,7 @@ rustc-hash = "2"
 lyon_geom.workspace = true
 euclid = "0.22"
 log.workspace = true
-uom = "0.38"
+uom.workspace = true
 roxmltree.workspace = true
 svgtypes.workspace = true
 

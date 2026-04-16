@@ -27,6 +27,11 @@ impl<T: Turtle> DpiConvertingTurtle<T> {
     fn vector_to_mm(&self, v: Vector<f64>) -> Vector<f64> {
         vector(self.to_mm(v.x), self.to_mm(v.y))
     }
+
+    #[cfg(feature = "image")]
+    fn box_to_mm(&self, b: lyon_geom::Box2D<f64>) -> lyon_geom::Box2D<f64> {
+        lyon_geom::Box2D::new(self.point_to_mm(b.min), self.point_to_mm(b.max))
+    }
 }
 
 impl<T: Turtle> Turtle for DpiConvertingTurtle<T> {
@@ -100,10 +105,7 @@ impl<T: Turtle> Turtle for DpiConvertingTurtle<T> {
     #[cfg(feature = "image")]
     fn image(&mut self, img: super::elements::RasterImage) {
         self.inner.image(super::elements::RasterImage {
-            x: self.to_mm(img.x),
-            y: self.to_mm(img.y),
-            width: self.to_mm(img.width),
-            height: self.to_mm(img.height),
+            dimensions: self.box_to_mm(img.dimensions),
             image: img.image,
         })
     }

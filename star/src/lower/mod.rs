@@ -14,7 +14,8 @@ use self::units::CSS_DEFAULT_DPI;
 use crate::{
     lower::selector::SelectorList,
     turtle::{
-        DpiConvertingTurtle, PreprocessTurtle, StrokeCollectingTurtle, Terrarium, Turtle,
+        CoordinateSystem, DpiConvertingTurtle, PreprocessTurtle, StrokeCollectingTurtle, Terrarium,
+        Turtle,
         elements::{Stroke, minimize_travel_time},
     },
 };
@@ -83,6 +84,8 @@ pub struct ConversionOptions {
 #[derive(Debug)]
 struct ConversionVisitor<'a, T: Turtle> {
     terrarium: Terrarium<T>,
+    /// Whether to flip the Y axis to convert from SVG (Y-down) to the output coordinate system.
+    coordinate_system: CoordinateSystem,
     name_stack: Vec<String>,
     /// Used to convert percentage values
     viewport_dim_stack: Vec<[f64; 2]>,
@@ -111,14 +114,18 @@ impl<'a, T: Turtle> ConversionVisitor<'a, T> {
     }
 
     fn begin(&mut self) {
-        // Part 1 of converting from SVG to GCode coordinates
-        self.terrarium.push_transform(Transform2D::scale(1., -1.));
+        if self.coordinate_system == CoordinateSystem::YUp {
+            // Part 1 of converting from SVG (Y-down) to output (Y-up) coordinates
+            self.terrarium.push_transform(Transform2D::scale(1., -1.));
+        }
         self.terrarium.turtle.begin();
     }
 
     fn end(&mut self) {
         self.terrarium.turtle.end();
-        self.terrarium.pop_transform();
+        if self.coordinate_system == CoordinateSystem::YUp {
+            self.terrarium.pop_transform();
+        }
     }
 }
 
@@ -137,6 +144,7 @@ pub fn svg_to_turtle<T: Turtle>(
     config: &ConversionConfig,
     options: ConversionOptions,
     turtle: T,
+    coordinate_system: CoordinateSystem,
 ) -> T {
     let selector_filter = config
         .selector_filter
@@ -149,6 +157,7 @@ pub fn svg_to_turtle<T: Turtle>(
                 inner: PreprocessTurtle::default(),
                 dpi: config.dpi,
             }),
+            coordinate_system,
             _config: config,
             options: options.clone(),
             name_stack: vec![],
@@ -189,6 +198,7 @@ pub fn svg_to_turtle<T: Turtle>(
             inner: turtle,
             dpi: config.dpi,
         }),
+        coordinate_system,
         _config: config,
         options: options.clone(),
         name_stack: vec![],
@@ -202,8 +212,14 @@ pub fn svg_to_turtle<T: Turtle>(
     conversion_visitor.begin();
 
     if config.optimize_path_order {
-        let strokes =
-            svg_to_optimized_strokes(doc, config, options, origin_transform, selector_filter);
+        let strokes = svg_to_optimized_strokes(
+            doc,
+            config,
+            options,
+            origin_transform,
+            selector_filter,
+            coordinate_system,
+        );
         let turtle = &mut conversion_visitor.terrarium.turtle;
         for stroke in strokes {
             turtle.move_to(stroke.start_point());
@@ -227,9 +243,11 @@ fn svg_to_optimized_strokes(
     options: ConversionOptions,
     origin_transform: Transform2D<f64>,
     selector_filter: Option<SelectorList>,
+    coordinate_system: CoordinateSystem,
 ) -> Vec<Stroke> {
     let mut collect_visitor = ConversionVisitor {
         terrarium: Terrarium::new(StrokeCollectingTurtle::default()),
+        coordinate_system,
         _config: config,
         options,
         name_stack: vec![],

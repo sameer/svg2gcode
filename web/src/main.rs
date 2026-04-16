@@ -17,7 +17,7 @@ use roxmltree::{Document, ParsingOptions};
 use svg2gcode::{Machine, svg_to_gcode};
 use svg2star::{
     lower::{ConversionOptions, svg_to_turtle},
-    turtle::SvgPreviewTurtle,
+    turtle::{CoordinateSystem, SvgPreviewTurtle},
 };
 use yew::prelude::*;
 
@@ -231,7 +231,7 @@ fn app() -> Html {
                             .ok()
                             .map(|doc| {
                                 let options = ConversionOptions { dimensions: svg.dimensions };
-                                svg_to_turtle(&doc, &app_store.settings.conversion.inner, options, SvgPreviewTurtle::default()).into_preview()
+                                svg_to_turtle(&doc, &app_store.settings.conversion.inner, options, SvgPreviewTurtle::default(), CoordinateSystem::YUp).into_preview()
                             })
                             .unwrap_or_default();
                             let preview_svg_base64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(preview_svg.as_bytes());
