@@ -20,6 +20,22 @@ pub use self::{
     svg_preview::SvgPreviewTurtle,
 };
 
+/// The coordinate system expected by a [`Turtle`] implementation.
+///
+/// Passed as a parameter to [`crate::lower::svg_to_turtle`] so each backend can declare
+/// whether it needs SVG's native Y-down space or Y-up (typical for machine tools / G-code).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CoordinateSystem {
+    /// Y increases downward (SVG default). No extra transform is applied.
+    #[default]
+    YDown,
+    /// Y increases upward (typical for machine tools / G-code).
+    ///
+    /// [`crate::lower::svg_to_turtle`] will flip the Y axis so that coordinates delivered to
+    /// the turtle have the origin at the bottom-left and Y increasing upward.
+    YUp,
+}
+
 /// Abstraction for drawing paths based on [Turtle graphics](https://en.wikipedia.org/wiki/Turtle_graphics)
 pub trait Turtle: Debug {
     fn begin(&mut self);
@@ -343,9 +359,10 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             .transform_point(point(x, y) + vector(width, height));
         self.turtle.image(crate::turtle::elements::RasterImage {
             // After transformation, the corners may be swapped resulting in a new x y.
-            // Also need to pick the larger y because of the G-Code coordinate space swap (?).
-            position: point(t0.x.min(t1.x), t0.y.max(t1.y)),
-            dimensions: (t1 - t0).abs(),
+            dimensions: lyon_geom::Box2D::new(
+                point(t0.x.min(t1.x), t0.y.min(t1.y)),
+                point(t0.x.max(t1.x), t0.y.max(t1.y)),
+            ),
             image,
         });
     }

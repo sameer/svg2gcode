@@ -20,9 +20,9 @@ mod tsp;
 ///
 /// <https://www.w3.org/TR/SVG/embedded.html#ImageElement>
 #[cfg(feature = "image")]
+#[derive(Debug, Clone)]
 pub struct RasterImage {
-    pub position: Point<f64>,
-    pub dimensions: Vector<f64>,
+    pub dimensions: lyon_geom::Box2D<f64>,
     pub image: image::DynamicImage,
 }
 
