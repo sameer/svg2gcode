@@ -106,7 +106,7 @@ struct Opt {
     /// <https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Selectors>
     #[arg(long)]
     selector_filter: Option<String>,
-    /// Starting point , usefull only if try optimize path 
+    /// Starting point , usefull only if try optimize path
     #[arg(long)]
     starting_point: Option<String>,
 }
@@ -185,7 +185,7 @@ fn main() -> io::Result<()> {
                     .take(2)
                     .enumerate()
                 {
-		    settings.conversion.inner.starting_point[i] =dimension_starting_point ;
+                    settings.conversion.inner.starting_point[i] = dimension_starting_point;
                 }
             }
         }

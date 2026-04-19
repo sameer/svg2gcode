@@ -140,7 +140,7 @@ fn local_improvement_with_tabu_search(path: &[Stroke],the_starting_point: Point<
 
     let mut current = best.clone();
     let mut current_distances = stroke_distances(&current);
-    let mut current_sum = best_sum;
+    let mut current_sum ;
 
     const ITERATIONS: usize = 20000;
     let mut rng = rand::rng();
