@@ -4,7 +4,7 @@
 
 use std::collections::VecDeque;
 
-use log::{debug,warn};
+use log::debug;
 use lyon_geom::Point;
 use rand::{
     RngExt,
