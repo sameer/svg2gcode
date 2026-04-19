@@ -56,6 +56,10 @@ impl TryInto<Settings> for &FormState {
                     extra_attribute_name: None,
                     optimize_path_order: self.optimize_path_order,
                     selector_filter: None,
+		    starting_point: [
+			self.starting_point[0].clone().transpose()?,
+			self.starting_point[1].clone().transpose()?,
+                    ],
                 },
                 tolerance: self.tolerance.clone()?,
                 feedrate: self.feedrate.clone()?,

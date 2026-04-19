@@ -106,6 +106,9 @@ struct Opt {
     /// <https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Selectors>
     #[arg(long)]
     selector_filter: Option<String>,
+    /// Starting point , usefull only if try optimize path 
+    #[arg(long)]
+    starting_point: Option<String>,
 }
 
 fn main() -> io::Result<()> {
@@ -165,6 +168,24 @@ fn main() -> io::Result<()> {
                     .enumerate()
                 {
                     settings.conversion.inner.origin[i] = Some(dimension_origin);
+                }
+            }
+        }
+        {
+            if let Some(starting_point) = opt.starting_point {
+                for (i, dimension_starting_point) in starting_point
+                    .split(',')
+                    .map(|point| {
+                        if point.is_empty() {
+                            Default::default()
+                        } else {
+                            point.parse::<f64>().expect("could not parse coordinate")
+                        }
+                    })
+                    .take(2)
+                    .enumerate()
+                {
+		    settings.conversion.inner.starting_point[i] =dimension_starting_point ;
                 }
             }
         }

@@ -49,6 +49,7 @@ pub struct ConversionConfig {
     /// <https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Selectors>
     #[cfg_attr(feature = "serde", serde(default))]
     pub selector_filter: Option<String>,
+    pub starting_point: [f64; 2],
 }
 
 const fn zero_origin() -> [Option<f64>; 2] {
@@ -63,6 +64,7 @@ impl Default for ConversionConfig {
             extra_attribute_name: None,
             optimize_path_order: false,
             selector_filter: None,
+	    starting_point: [0.0 , 0.0 ] ,
         }
     }
 }
@@ -219,6 +221,7 @@ pub fn svg_to_turtle<T: Turtle>(
             origin_transform,
             selector_filter,
             coordinate_system,
+	    config.starting_point,
         );
         let turtle = &mut conversion_visitor.terrarium.turtle;
         for stroke in strokes {
@@ -244,6 +247,7 @@ fn svg_to_optimized_strokes(
     origin_transform: Transform2D<f64>,
     selector_filter: Option<SelectorList>,
     coordinate_system: CoordinateSystem,
+    starting_point: [f64;2] 
 ) -> Vec<Stroke> {
     let mut collect_visitor = ConversionVisitor {
         terrarium: Terrarium::new(StrokeCollectingTurtle::default()),
@@ -260,7 +264,7 @@ fn svg_to_optimized_strokes(
     collect_visitor.end();
     collect_visitor.terrarium.pop_transform();
     let strokes = collect_visitor.terrarium.turtle.into_strokes();
-    minimize_travel_time(strokes)
+    minimize_travel_time(strokes,starting_point)
 }
 
 fn node_name(node: &Node, attr_to_print: &Option<String>) -> String {
