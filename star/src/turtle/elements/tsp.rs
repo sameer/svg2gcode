@@ -4,7 +4,7 @@
 
 use std::collections::VecDeque;
 
-use log::debug;
+use log::{debug,warn};
 use lyon_geom::Point;
 use rand::{
     RngExt,
@@ -27,11 +27,11 @@ fn dist(a: Point<f64>, b: Point<f64>) -> f64 {
 ///
 /// <https://github.com/sameer/raster2svg>
 /// <https://www.mdpi.com/2076-3417/9/19/3985/pdf>
-pub fn minimize_travel_time(strokes: Vec<Stroke>,starting_point: [f64; 2] ) -> Vec<Stroke> {
+pub fn minimize_travel_time(strokes: Vec<Stroke>,starting_point: [Option<f64>; 2] ) -> Vec<Stroke> {
     if strokes.len() <= 1 {
         return strokes;
     }
-    let the_starting_point : Point<f64> = Point::new(starting_point[0]*96.0/25.4,starting_point[1]*96.0/25.4);
+    let the_starting_point : Point<f64> = Point::new(starting_point[0].expect("No starting point Y"),starting_point[1].expect("No starting point Y"));
 
     let path = nearest_neighbor_greedy(strokes,the_starting_point);
     local_improvement_with_tabu_search(&path,the_starting_point)

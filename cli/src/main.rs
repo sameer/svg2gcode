@@ -185,7 +185,7 @@ fn main() -> io::Result<()> {
                     .take(2)
                     .enumerate()
                 {
-                    settings.conversion.inner.starting_point[i] = dimension_starting_point;
+                    settings.conversion.inner.starting_point[i] = Some(dimension_starting_point);
                 }
             }
         }

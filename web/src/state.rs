@@ -24,6 +24,7 @@ pub struct FormState {
     pub checksums: bool,
     pub line_numbers: bool,
     pub newline_before_comment: bool,
+    pub starting_point: [Option<Result<f64, ParseFloatError>>; 2],
 }
 
 impl Default for FormState {
@@ -121,6 +122,10 @@ impl From<&Settings> for FormState {
             checksums: settings.postprocess.checksums,
             line_numbers: settings.postprocess.line_numbers,
             newline_before_comment: settings.postprocess.newline_before_comment,
+            starting_point: [
+                settings.conversion.inner.starting_point[0].map(Ok),
+                settings.conversion.inner.starting_point[1].map(Ok),
+            ],
         }
     }
 }
