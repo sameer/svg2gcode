@@ -24,6 +24,7 @@ pub struct FormState {
     pub checksums: bool,
     pub line_numbers: bool,
     pub newline_before_comment: bool,
+    pub starting_point: [Option<Result<f64, ParseFloatError>>; 2],
 }
 
 impl Default for FormState {
@@ -56,6 +57,10 @@ impl TryInto<Settings> for &FormState {
                     extra_attribute_name: None,
                     optimize_path_order: self.optimize_path_order,
                     selector_filter: None,
+                    starting_point: [
+                        self.starting_point[0].clone().transpose()?,
+                        self.starting_point[1].clone().transpose()?,
+                    ],
                 },
                 tolerance: self.tolerance.clone()?,
                 feedrate: self.feedrate.clone()?,
@@ -117,6 +122,10 @@ impl From<&Settings> for FormState {
             checksums: settings.postprocess.checksums,
             line_numbers: settings.postprocess.line_numbers,
             newline_before_comment: settings.postprocess.newline_before_comment,
+            starting_point: [
+                settings.conversion.inner.starting_point[0].map(Ok),
+                settings.conversion.inner.starting_point[1].map(Ok),
+            ],
         }
     }
 }
