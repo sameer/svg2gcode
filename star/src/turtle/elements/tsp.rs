@@ -42,7 +42,6 @@ pub fn minimize_travel_time(strokes: Vec<Stroke>,starting_point: [Option<f64>; 2
 /// Repeatedly chooses the [Stroke] or [Stroke::reversed] closest to the current point until none remain.
 fn nearest_neighbor_greedy(mut remaining: Vec<Stroke>,the_starting_point: Point<f64> ) -> Vec<Stroke> {
     let mut result = Vec::with_capacity(remaining.len());
-    // TODO: this assumption may be incorrect? depends on the GCode begin sequence, which this can't account for.
     let mut pos : Point<f64> = the_starting_point ;
 
     while !remaining.is_empty() {
