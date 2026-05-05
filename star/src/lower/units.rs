@@ -20,7 +20,7 @@ pub enum DimensionHint {
     Other,
 }
 
-impl<'a, T: Turtle> ConversionVisitor<'a, T> {
+impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
     /// Convenience function for converting a length attribute to user units
     pub fn length_attr_to_user_units(&self, node: &Node, attr: &str) -> Option<f64> {
         let l = node

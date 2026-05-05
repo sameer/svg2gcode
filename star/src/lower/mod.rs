@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{collections::HashMap, fmt::Debug};
 
 use lyon_geom::euclid::default::Transform2D;
 use roxmltree::{Document, Node};
@@ -22,7 +22,6 @@ use crate::{
 
 #[cfg(feature = "serde")]
 mod length_serde;
-mod path;
 mod selector;
 mod transform;
 mod units;
@@ -64,7 +63,7 @@ impl Default for ConversionConfig {
             extra_attribute_name: None,
             optimize_path_order: false,
             selector_filter: None,
-	    starting_point: zero_origin() ,
+            starting_point: zero_origin(),
         }
     }
 }
@@ -84,29 +83,37 @@ pub struct ConversionOptions {
 
 /// Maps SVG [`Node`]s and their attributes into operations on a [`Terrarium`]
 #[derive(Debug)]
-struct ConversionVisitor<'a, T: Turtle> {
+struct ConversionVisitor<'a, 'input, T: Turtle> {
     terrarium: Terrarium<T>,
     /// Whether to flip the Y axis to convert from SVG (Y-down) to the output coordinate system.
     coordinate_system: CoordinateSystem,
     name_stack: Vec<String>,
     /// Used to convert percentage values
     viewport_dim_stack: Vec<[f64; 2]>,
-    _config: &'a ConversionConfig,
+    config: &'a ConversionConfig,
     options: ConversionOptions,
     /// Parsed CSS include selector — only draw elements that match (or are inside a matching ancestor)
     selector_filter: Option<selector::SelectorList>,
+    /// Resolved CSS class rules
+    css_rules: HashMap<&'input str, HashMap<&'input str, &'input str>>,
 }
 
-impl<'a, T: Turtle> ConversionVisitor<'a, T> {
-    fn comment(&mut self, node: &Node) {
+impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
+    fn comment(&mut self) {
         let mut comment = String::new();
-        self.name_stack.iter().for_each(|name| {
+        self.name_stack
+            .iter()
+            // Predecessors only
+            .take(self.name_stack.len().saturating_sub(1))
+            .for_each(|name| {
+                comment += name;
+                comment += " > ";
+            });
+        if let Some(name) = self.name_stack.last() {
             comment += name;
-            comment += " > ";
-        });
-        comment += &node_name(node, &self._config.extra_attribute_name);
+        }
 
-        self.terrarium.turtle.comment(comment);
+        self.terrarium.comment(comment);
     }
 
     fn should_draw_node(&self, node: Node) -> bool {
@@ -120,11 +127,9 @@ impl<'a, T: Turtle> ConversionVisitor<'a, T> {
             // Part 1 of converting from SVG (Y-down) to output (Y-up) coordinates
             self.terrarium.push_transform(Transform2D::scale(1., -1.));
         }
-        self.terrarium.turtle.begin();
     }
 
     fn end(&mut self) {
-        self.terrarium.turtle.end();
         if self.coordinate_system == CoordinateSystem::YUp {
             self.terrarium.pop_transform();
         }
@@ -155,23 +160,24 @@ pub fn svg_to_turtle<T: Turtle>(
 
     let bounding_box_generator = || {
         let mut visitor = ConversionVisitor {
-            terrarium: Terrarium::new(DpiConvertingTurtle {
-                inner: PreprocessTurtle::default(),
-                dpi: config.dpi,
-            }),
+            terrarium: Terrarium::new(DpiConvertingTurtle::new(
+                config.dpi,
+                PreprocessTurtle::default(),
+            )),
             coordinate_system,
-            _config: config,
+            config,
             options: options.clone(),
             name_stack: vec![],
             viewport_dim_stack: vec![],
             selector_filter: selector_filter.clone(),
+            css_rules: visit::parse_css(doc),
         };
 
         visitor.begin();
         visit::depth_first_visit(doc, &mut visitor);
         visitor.end();
 
-        visitor.terrarium.turtle.inner.bounding_box
+        visitor.terrarium.finish().into_inner().into_inner()
     };
 
     // Convert from millimeters to user units
@@ -201,16 +207,14 @@ pub fn svg_to_turtle<T: Turtle>(
     };
 
     let mut conversion_visitor = ConversionVisitor {
-        terrarium: Terrarium::new(DpiConvertingTurtle {
-            inner: turtle,
-            dpi: config.dpi,
-        }),
+        terrarium: Terrarium::new(DpiConvertingTurtle::new(config.dpi, turtle)),
         coordinate_system,
-        _config: config,
+        config,
         options: options.clone(),
         name_stack: vec![],
         viewport_dim_stack: vec![],
         selector_filter: selector_filter.clone(),
+        css_rules: visit::parse_css(doc),
     };
 
     conversion_visitor
@@ -226,15 +230,9 @@ pub fn svg_to_turtle<T: Turtle>(
             origin_transform,
             selector_filter,
             coordinate_system,
-	    starting_point,
+            starting_point,
         );
-        let turtle = &mut conversion_visitor.terrarium.turtle;
-        for stroke in strokes {
-            turtle.move_to(stroke.start_point());
-            for cmd in stroke.commands() {
-                cmd.apply(turtle);
-            }
-        }
+        conversion_visitor.terrarium.apply_strokes(strokes);
     } else {
         visit::depth_first_visit(doc, &mut conversion_visitor);
     }
@@ -242,7 +240,7 @@ pub fn svg_to_turtle<T: Turtle>(
     conversion_visitor.end();
     conversion_visitor.terrarium.pop_transform();
 
-    conversion_visitor.terrarium.turtle.inner
+    conversion_visitor.terrarium.finish().into_inner()
 }
 
 fn svg_to_optimized_strokes(
@@ -252,24 +250,25 @@ fn svg_to_optimized_strokes(
     origin_transform: Transform2D<f64>,
     selector_filter: Option<SelectorList>,
     coordinate_system: CoordinateSystem,
-    starting_point: [Option<f64>; 2]
+    starting_point: [Option<f64>; 2],
 ) -> Vec<Stroke> {
     let mut collect_visitor = ConversionVisitor {
         terrarium: Terrarium::new(StrokeCollectingTurtle::default()),
         coordinate_system,
-        _config: config,
+        config,
         options,
         name_stack: vec![],
         viewport_dim_stack: vec![],
         selector_filter,
+        css_rules: visit::parse_css(doc),
     };
     collect_visitor.terrarium.push_transform(origin_transform);
     collect_visitor.begin();
     visit::depth_first_visit(doc, &mut collect_visitor);
     collect_visitor.end();
     collect_visitor.terrarium.pop_transform();
-    let strokes = collect_visitor.terrarium.turtle.into_strokes();
-    minimize_travel_time(strokes,starting_point)
+    let strokes = collect_visitor.terrarium.finish().into_strokes();
+    minimize_travel_time(strokes, starting_point)
 }
 
 fn node_name(node: &Node, attr_to_print: &Option<String>) -> String {
@@ -329,17 +328,19 @@ mod test {
 
     #[test]
     fn serde_conversion_options_with_both_dimensions_is_correct() {
-        let mut r#struct = ConversionOptions::default();
-        r#struct.dimensions = [
-            Some(Length {
-                number: 4.,
-                unit: LengthUnit::Mm,
-            }),
-            Some(Length {
-                number: 10.5,
-                unit: LengthUnit::In,
-            }),
-        ];
+        let r#struct = ConversionOptions {
+            dimensions: [
+                Some(Length {
+                    number: 4.,
+                    unit: LengthUnit::Mm,
+                }),
+                Some(Length {
+                    number: 10.5,
+                    unit: LengthUnit::In,
+                }),
+            ],
+            ..Default::default()
+        };
         let json = r#"{"dimensions":[{"number":4.0,"unit":"Mm"},{"number":10.5,"unit":"In"}]}"#;
 
         assert_eq!(serde_json::to_string(&r#struct).unwrap(), json);

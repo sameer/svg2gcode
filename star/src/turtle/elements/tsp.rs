@@ -27,22 +27,28 @@ fn dist(a: Point<f64>, b: Point<f64>) -> f64 {
 ///
 /// <https://github.com/sameer/raster2svg>
 /// <https://www.mdpi.com/2076-3417/9/19/3985/pdf>
-pub fn minimize_travel_time(strokes: Vec<Stroke>,starting_point: [Option<f64>; 2] ) -> Vec<Stroke> {
+pub fn minimize_travel_time(strokes: Vec<Stroke>, starting_point: [Option<f64>; 2]) -> Vec<Stroke> {
     if strokes.len() <= 1 {
         return strokes;
     }
-    let the_starting_point : Point<f64> = Point::new(starting_point[0].expect("No starting point Y"),starting_point[1].expect("No starting point Y"));
+    let the_starting_point: Point<f64> = Point::new(
+        starting_point[0].expect("No starting point Y"),
+        starting_point[1].expect("No starting point Y"),
+    );
 
-    let path = nearest_neighbor_greedy(strokes,the_starting_point);
-    local_improvement_with_tabu_search(&path,the_starting_point)
+    let path = nearest_neighbor_greedy(strokes, the_starting_point);
+    local_improvement_with_tabu_search(&path, the_starting_point)
 }
 
 /// Greedy nearest-neighbour ordering with flips.
 ///
 /// Repeatedly chooses the [Stroke] or [Stroke::reversed] closest to the current point until none remain.
-fn nearest_neighbor_greedy(mut remaining: Vec<Stroke>,the_starting_point: Point<f64> ) -> Vec<Stroke> {
+fn nearest_neighbor_greedy(
+    mut remaining: Vec<Stroke>,
+    the_starting_point: Point<f64>,
+) -> Vec<Stroke> {
     let mut result = Vec::with_capacity(remaining.len());
-    let mut pos : Point<f64> = the_starting_point ;
+    let mut pos: Point<f64> = the_starting_point;
 
     while !remaining.is_empty() {
         let mut best_idx = 0;
@@ -133,13 +139,17 @@ fn reverse_and_flip(strokes: &mut [Stroke]) {
 /// - TwoOpt and LinkSwap reversals also flip each stroke in the reversed range.
 /// - Relocate tries both the normal and reversed orientation of the moved stroke.
 /// - Distances are `f64` Euclidean rather than squared integers.
-fn local_improvement_with_tabu_search(path: &[Stroke],the_starting_point: Point<f64> ) -> Vec<Stroke> {
+fn local_improvement_with_tabu_search(
+    path: &[Stroke],
+    the_starting_point: Point<f64>,
+) -> Vec<Stroke> {
     let mut best = path.to_owned();
-    let mut best_sum: f64 = stroke_distances(&best).iter().sum::<f64>() + dist(the_starting_point,best[0].start_point()) ;
+    let mut best_sum: f64 = stroke_distances(&best).iter().sum::<f64>()
+        + dist(the_starting_point, best[0].start_point());
 
     let mut current = best.clone();
     let mut current_distances = stroke_distances(&current);
-    let mut current_sum ;
+    let mut current_sum;
 
     const ITERATIONS: usize = 20000;
     let mut rng = rand::rng();
@@ -283,8 +293,16 @@ fn local_improvement_with_tabu_search(path: &[Stroke],the_starting_point: Point<
                         //   2 = [first_start, last_end]: both
                         let candidates = [
                             (0usize, dist(from, last_end)),
-                            (1usize, dist(first_start, to)      +dist(the_starting_point,to)-dist(the_starting_point,first_start)),
-                            (2usize, dist(first_start, last_end)+dist(the_starting_point,last_end)-dist(the_starting_point,first_start)),
+                            (
+                                1usize,
+                                dist(first_start, to) + dist(the_starting_point, to)
+                                    - dist(the_starting_point, first_start),
+                            ),
+                            (
+                                2usize,
+                                dist(first_start, last_end) + dist(the_starting_point, last_end)
+                                    - dist(the_starting_point, first_start),
+                            ),
                         ];
                         let (opt, best_new_dist) = candidates
                             .into_iter()
@@ -324,7 +342,8 @@ fn local_improvement_with_tabu_search(path: &[Stroke],the_starting_point: Point<
         }
 
         current_distances = stroke_distances(&current);
-        current_sum = current_distances.iter().sum::<f64>() +dist(the_starting_point,current[0].start_point()) ;
+        current_sum = current_distances.iter().sum::<f64>()
+            + dist(the_starting_point, current[0].start_point());
 
         if current_sum < best_sum {
             best = current.clone();

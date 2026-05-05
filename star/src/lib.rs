@@ -1,4 +1,6 @@
 #![deny(unused_crate_dependencies)]
+#[cfg(test)]
+use serde_json as _;
 
 /// Lowers an SVG to an intermediate representation that's easier to work when generating machine code.
 pub mod lower;

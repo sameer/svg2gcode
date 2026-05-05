@@ -1,11 +1,11 @@
 use std::{borrow::Cow, fmt::Debug};
 
 use ::g_code::{command, emit::Token};
-use lyon_geom::{CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc};
+use lyon_geom::{Point, SvgArc};
 use rust_decimal::{Decimal, prelude::*};
 use svg2star::turtle::{
     Turtle,
-    elements::{ArcOrLineSegment, FlattenWithArcs},
+    elements::{ArcOrLineSegment, DrawCommand, FillPolygon, FlattenWithArcs, Stroke},
 };
 
 use crate::machine::Machine;
@@ -42,7 +42,7 @@ impl<'input> GCodeTurtle<'input> {
     /// Tolerance passed to [`lyon_geom`] calls for line segments.
     ///
     /// Reserves some headroom so that [`Self::round`] won't take
-    /// the measurement outside of the overall tolernace bounds.
+    /// the measurement outside of the overall tolerance bounds.
     ///
     /// i.e. e.g. 0.002 & 3 dp returns 0.0015 so we have +/- 0.0005
     fn flattening_tolerance(&self) -> f64 {
@@ -75,6 +75,15 @@ impl<'input> GCodeTurtle<'input> {
         } else {
             self.tolerance
         }
+    }
+
+    fn line_to(&self, to: Point<f64>) -> Vec<Token<'input>> {
+        command!(LinearInterpolation {
+            X: self.round(to.x),
+            Y: self.round(to.y),
+            F: self.feedrate,
+        })
+        .into_token_vec()
     }
 
     fn circular_interpolation(&self, svg_arc: SvgArc<f64>) -> Vec<Token<'input>> {
@@ -129,90 +138,127 @@ impl<'input> Turtle for GCodeTurtle<'input> {
         self.program.extend(self.machine.program_end());
     }
 
-    fn comment(&mut self, comment: String) {
-        self.program.push(Token::Comment {
-            is_inline: false,
-            inner: Cow::Owned(comment),
-        });
-    }
+    fn stroke(&mut self, stroke: Stroke) {
+        let start = stroke.start_point();
+        let mut commands = stroke.into_commands().peekable();
 
-    fn move_to(&mut self, to: Point<f64>) {
         self.tool_off();
-        self.program.append(
-            &mut command!(RapidPositioning {
-                X: self.round(to.x),
-                Y: self.round(to.y),
-            })
-            .into_token_vec(),
-        );
-    }
 
-    fn line_to(&mut self, to: Point<f64>) {
-        self.tool_on();
-        self.program.append(
-            &mut command!(LinearInterpolation {
-                X: self.round(to.x),
-                Y: self.round(to.y),
-                F: self.feedrate,
-            })
-            .into_token_vec(),
-        );
-    }
-
-    fn arc(&mut self, svg_arc: SvgArc<f64>) {
-        if svg_arc.is_straight_line() {
-            self.line_to(svg_arc.to);
-            return;
+        // Comments should be inline after tool_off but before a rapid move.
+        while matches!(commands.peek(), Some(DrawCommand::Comment(_))) {
+            if let Some(DrawCommand::Comment(comment)) = commands.next() {
+                self.program.push(Token::Comment {
+                    is_inline: false,
+                    inner: Cow::Owned(comment),
+                });
+            }
         }
 
+        self.program.append(
+            &mut command!(RapidPositioning {
+                X: self.round(start.x),
+                Y: self.round(start.y),
+            })
+            .into_token_vec(),
+        );
         self.tool_on();
 
-        if self
-            .machine
-            .supported_functionality()
-            .circular_interpolation
-        {
-            FlattenWithArcs::flattened(&svg_arc, self.arc_flattening_tolerance())
-                .into_iter()
-                .for_each(|segment| match segment {
-                    ArcOrLineSegment::Arc(arc) => {
-                        self.program.append(&mut self.circular_interpolation(arc))
-                    }
-                    ArcOrLineSegment::Line(line) => {
-                        self.line_to(line.to);
-                    }
-                });
-        } else {
-            svg_arc
-                .to_arc()
-                .flattened(self.flattening_tolerance())
-                .for_each(|point| self.line_to(point));
-        };
+        for command in commands {
+            match command {
+                DrawCommand::LineTo { from: _, to } => {
+                    self.program.append(
+                        &mut command!(LinearInterpolation {
+                            X: self.round(to.x),
+                            Y: self.round(to.y),
+                            F: self.feedrate,
+                        })
+                        .into_token_vec(),
+                    );
+                }
+                DrawCommand::Arc(svg_arc) => {
+                    if self
+                        .machine
+                        .supported_functionality()
+                        .circular_interpolation
+                    {
+                        FlattenWithArcs::flattened(&svg_arc, self.arc_flattening_tolerance())
+                            .into_iter()
+                            .for_each(|segment| match segment {
+                                ArcOrLineSegment::Arc(arc) => {
+                                    self.program.append(&mut self.circular_interpolation(arc))
+                                }
+                                ArcOrLineSegment::Line(line) => {
+                                    self.line_to(line.to);
+                                }
+                            });
+                    } else {
+                        svg_arc
+                            .to_arc()
+                            .flattened(self.flattening_tolerance())
+                            .for_each(|point| self.program.append(&mut self.line_to(point)));
+                    };
+                }
+                DrawCommand::CubicBezier(cbs) => {
+                    if self
+                        .machine
+                        .supported_functionality()
+                        .circular_interpolation
+                    {
+                        FlattenWithArcs::<f64>::flattened(&cbs, self.arc_flattening_tolerance())
+                            .into_iter()
+                            .for_each(|segment| match segment {
+                                ArcOrLineSegment::Arc(arc) => {
+                                    self.program.append(&mut self.circular_interpolation(arc))
+                                }
+                                ArcOrLineSegment::Line(line) => {
+                                    self.program.append(&mut self.line_to(line.to))
+                                }
+                            });
+                    } else {
+                        cbs.flattened(self.flattening_tolerance())
+                            .for_each(|point| self.program.append(&mut self.line_to(point)));
+                    };
+                }
+                DrawCommand::QuadraticBezier(qbs) => {
+                    if self
+                        .machine
+                        .supported_functionality()
+                        .circular_interpolation
+                    {
+                        FlattenWithArcs::<f64>::flattened(
+                            &qbs.to_cubic(),
+                            self.arc_flattening_tolerance(),
+                        )
+                        .into_iter()
+                        .for_each(|segment| match segment {
+                            ArcOrLineSegment::Arc(arc) => {
+                                self.program.append(&mut self.circular_interpolation(arc))
+                            }
+                            ArcOrLineSegment::Line(line) => {
+                                self.program.append(&mut self.line_to(line.to))
+                            }
+                        });
+                    } else {
+                        qbs.flattened(self.flattening_tolerance())
+                            .for_each(|point| self.program.append(&mut self.line_to(point)));
+                    };
+                }
+                DrawCommand::Comment(comment) => {
+                    self.program.push(Token::Comment {
+                        is_inline: false,
+                        inner: Cow::Owned(comment),
+                    });
+                }
+            }
+        }
     }
 
-    fn cubic_bezier(&mut self, cbs: CubicBezierSegment<f64>) {
-        self.tool_on();
-
-        if self
-            .machine
-            .supported_functionality()
-            .circular_interpolation
-        {
-            FlattenWithArcs::<f64>::flattened(&cbs, self.arc_flattening_tolerance())
-                .into_iter()
-                .for_each(|segment| match segment {
-                    ArcOrLineSegment::Arc(arc) => {
-                        self.program.append(&mut self.circular_interpolation(arc))
-                    }
-                    ArcOrLineSegment::Line(line) => self.line_to(line.to),
-                });
-        } else {
-            cbs.flattened(self.flattening_tolerance())
-                .for_each(|point| self.line_to(point));
-        };
+    #[cfg(feature = "image")]
+    fn image(&mut self, _image: svg2star::turtle::elements::RasterImage) {
+        // TODO (?)
     }
 
-    fn quadratic_bezier(&mut self, qbs: QuadraticBezierSegment<f64>) {
-        self.cubic_bezier(qbs.to_cubic());
+    fn fill_polygon(&mut self, _polygon: FillPolygon) {
+        // TODO
     }
 }

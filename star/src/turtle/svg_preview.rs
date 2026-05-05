@@ -1,8 +1,11 @@
 use std::fmt::Write;
 
-use lyon_geom::{Box2D, CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc};
+use lyon_geom::{Box2D, Point};
 
-use super::Turtle;
+use super::{
+    Turtle,
+    elements::{DrawCommand, Stroke},
+};
 
 /// Builds an SVG preview of the toolpath:
 /// - Red solid: tool-on moves (line_to, arc, cubic_bezier, quadratic_bezier)
@@ -16,7 +19,6 @@ pub struct SvgPreviewTurtle {
     rapid_paths: String,
     bounding_box: Option<Box2D<f64>>,
     current_pos: Point<f64>,
-    current_tool_on_d: String,
 }
 
 impl SvgPreviewTurtle {
@@ -33,20 +35,7 @@ impl SvgPreviewTurtle {
         self.add_box(Box2D { min: p, max: p });
     }
 
-    fn flush_tool_on(&mut self) {
-        if !self.current_tool_on_d.is_empty() {
-            writeln!(
-                self.tool_on_paths,
-                "<path d=\"{}\" stroke=\"red\" fill=\"none\" stroke-width=\"1\" vector-effect=\"non-scaling-stroke\"/>",
-                self.current_tool_on_d
-            )
-            .unwrap();
-            self.current_tool_on_d.clear();
-        }
-    }
-
-    pub fn into_preview(mut self) -> String {
-        self.flush_tool_on();
+    pub fn into_preview(self) -> String {
         const PADDING: f64 = 2.0;
         match self.bounding_box {
             None => {
@@ -70,73 +59,84 @@ impl SvgPreviewTurtle {
 impl Turtle for SvgPreviewTurtle {
     fn begin(&mut self) {}
 
-    fn end(&mut self) {
-        self.flush_tool_on();
+    fn end(&mut self) {}
+
+    #[cfg(feature = "image")]
+    fn image(&mut self, _image: super::elements::RasterImage) {
+        // TODO
     }
 
-    fn comment(&mut self, _: String) {}
+    fn fill_polygon(&mut self, _polygon: super::elements::FillPolygon) {
+        // TODO
+    }
 
-    fn move_to(&mut self, to: Point<f64>) {
-        self.flush_tool_on();
-        if to != self.current_pos {
+    fn stroke(&mut self, stroke: Stroke) {
+        let start = stroke.start_point();
+        if start != self.current_pos {
             writeln!(
                 self.rapid_paths,
                 "<path d=\"M {},{} L {},{}\" stroke=\"green\" fill=\"none\" stroke-width=\"1\" stroke-dasharray=\"4 3\" vector-effect=\"non-scaling-stroke\"/>",
-                self.current_pos.x, self.current_pos.y, to.x, to.y,
+                self.current_pos.x, self.current_pos.y, start.x, start.y,
             )
             .unwrap();
-            self.add_point(to);
+            self.add_point(self.current_pos);
         }
-        self.current_pos = to;
-        write!(self.current_tool_on_d, "M {},{} ", to.x, to.y).unwrap();
-    }
+        self.add_point(start);
+        self.current_pos = start;
 
-    fn line_to(&mut self, to: Point<f64>) {
-        write!(self.current_tool_on_d, "L {},{} ", to.x, to.y).unwrap();
-        self.add_point(to);
-        self.current_pos = to;
-    }
-
-    fn arc(&mut self, svg_arc: SvgArc<f64>) {
-        if svg_arc.is_straight_line() {
-            self.line_to(svg_arc.to);
-            return;
+        let mut path = String::new();
+        write!(path, "<path d=\"M {},{} ", start.x, start.y).unwrap();
+        for command in stroke.into_commands() {
+            match command {
+                DrawCommand::LineTo { from: _, to } => {
+                    write!(path, "L {},{} ", to.x, to.y).unwrap();
+                    self.add_point(to);
+                    self.current_pos = to;
+                }
+                DrawCommand::Arc(svg_arc) => {
+                    write!(
+                        path,
+                        "A {},{} {} {} {} {},{} ",
+                        svg_arc.radii.x,
+                        svg_arc.radii.y,
+                        svg_arc.x_rotation.to_degrees(),
+                        if svg_arc.flags.large_arc { 1 } else { 0 },
+                        if svg_arc.flags.sweep { 1 } else { 0 },
+                        svg_arc.to.x,
+                        svg_arc.to.y,
+                    )
+                    .unwrap();
+                    self.add_box(svg_arc.to_arc().bounding_box());
+                    self.current_pos = svg_arc.to;
+                }
+                DrawCommand::CubicBezier(cbs) => {
+                    write!(
+                        path,
+                        "C {},{} {},{} {},{} ",
+                        cbs.ctrl1.x, cbs.ctrl1.y, cbs.ctrl2.x, cbs.ctrl2.y, cbs.to.x, cbs.to.y,
+                    )
+                    .unwrap();
+                    self.add_box(cbs.bounding_box());
+                    self.current_pos = cbs.to;
+                }
+                DrawCommand::QuadraticBezier(qbs) => {
+                    write!(
+                        path,
+                        "Q {},{} {},{} ",
+                        qbs.ctrl.x, qbs.ctrl.y, qbs.to.x, qbs.to.y,
+                    )
+                    .unwrap();
+                    self.add_box(qbs.bounding_box());
+                    self.current_pos = qbs.to;
+                }
+                DrawCommand::Comment(_) => {}
+            }
         }
-        write!(
-            self.current_tool_on_d,
-            "A {},{} {} {} {} {},{} ",
-            svg_arc.radii.x,
-            svg_arc.radii.y,
-            svg_arc.x_rotation.to_degrees(),
-            if svg_arc.flags.large_arc { 1 } else { 0 },
-            if svg_arc.flags.sweep { 1 } else { 0 },
-            svg_arc.to.x,
-            svg_arc.to.y,
-        )
-        .unwrap();
-        self.add_box(svg_arc.to_arc().bounding_box());
-        self.current_pos = svg_arc.to;
-    }
+        writeln!(
+            path,
+            "\" stroke=\"red\" fill=\"none\" stroke-width=\"1\" vector-effect=\"non-scaling-stroke\"/>"
+        ).unwrap();
 
-    fn cubic_bezier(&mut self, cbs: CubicBezierSegment<f64>) {
-        write!(
-            self.current_tool_on_d,
-            "C {},{} {},{} {},{} ",
-            cbs.ctrl1.x, cbs.ctrl1.y, cbs.ctrl2.x, cbs.ctrl2.y, cbs.to.x, cbs.to.y,
-        )
-        .unwrap();
-        self.add_box(cbs.bounding_box());
-        self.current_pos = cbs.to;
-    }
-
-    fn quadratic_bezier(&mut self, qbs: QuadraticBezierSegment<f64>) {
-        write!(
-            self.current_tool_on_d,
-            "Q {},{} {},{} ",
-            qbs.ctrl.x, qbs.ctrl.y, qbs.to.x, qbs.to.y,
-        )
-        .unwrap();
-        self.add_box(qbs.bounding_box());
-        self.current_pos = qbs.to;
+        self.tool_on_paths += &path;
     }
 }
