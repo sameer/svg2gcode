@@ -50,8 +50,8 @@ div.has-icon-right {
     <link rel="stylesheet" href="https://sameer.github.io/svg2gcode/spectre-icons-50b0c3320204c396.css" integrity="sha384-fJg/jdojMgjbbpH8Pb8Y8A8Xl0C9HUSlzHhKvMv8ikmWuv+/0y7MeFjFnaEwLnQV"/>
     
 <script type="module">
-import init, * as bindings from 'https://sameer.github.io/svg2gcode/svg2gcode-web-463b540d538b46b8.js';
-const wasm = await init({ module_or_path: 'https://sameer.github.io/svg2gcode/svg2gcode-web-463b540d538b46b8_bg.wasm' });
+import init, * as bindings from 'https://sameer.github.io/svg2gcode/svg2gcode-web-bdfe5f1c18e841c.js';
+const wasm = await init({ module_or_path: 'https://sameer.github.io/svg2gcode/svg2gcode-web-bdfe5f1c18e841c_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -60,5 +60,5 @@ window.wasmBindings = bindings;
 dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
 </script>
-  <link rel="modulepreload" href="https://sameer.github.io/svg2gcode/svg2gcode-web-463b540d538b46b8.js" crossorigin="anonymous" integrity="sha384-XUgVF/4I60fPqyLiJdpP3ypDTf+cYAbSW/vpT5pFfmP+EfTyvZrE+544mgbrGjCN"><link rel="preload" href="https://sameer.github.io/svg2gcode/svg2gcode-web-463b540d538b46b8_bg.wasm" crossorigin="anonymous" integrity="sha384-I0wwk8v4ElSrrA1+kDM/ojdnzZLJPo0Q3vLBjSihX3FskPhfbRedJMyopU9+9veI" as="fetch" type="application/wasm"></head>
+  <link rel="modulepreload" href="https://sameer.github.io/svg2gcode/svg2gcode-web-bdfe5f1c18e841c.js" crossorigin="anonymous" integrity="sha384-+M7EcMOTzA3D8xuorlSYFPHbVX8MMPAzSSY6TWHXcfc4IS5YkrAiJsqpRvZ4a+Nx"><link rel="preload" href="https://sameer.github.io/svg2gcode/svg2gcode-web-bdfe5f1c18e841c_bg.wasm" crossorigin="anonymous" integrity="sha384-JilG/sF9n+bLLmNoAjbrsKUZXVDJq9gzG2q/gogyzC0VMMPryYBw0x0pCBr/ap+6" as="fetch" type="application/wasm"></head>
 </html>
