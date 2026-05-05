@@ -6,16 +6,27 @@ use uom::si::{
     length::{inch, millimeter},
 };
 
-use super::Turtle;
+use super::{
+    Turtle,
+    elements::{DrawCommand, FillPolygon, Stroke},
+};
 
 /// Wrapper turtle that converts from user units to millimeters at a given DPI
 #[derive(Debug)]
 pub struct DpiConvertingTurtle<T: Turtle> {
-    pub dpi: f64,
-    pub inner: T,
+    dpi: f64,
+    inner: T,
 }
 
 impl<T: Turtle> DpiConvertingTurtle<T> {
+    pub fn new(dpi: f64, inner: T) -> Self {
+        Self { dpi, inner }
+    }
+
+    pub fn into_inner(self) -> T {
+        self.inner
+    }
+
     fn to_mm(&self, value: f64) -> f64 {
         Length::new::<inch>(value / self.dpi).get::<millimeter>()
     }
@@ -32,6 +43,53 @@ impl<T: Turtle> DpiConvertingTurtle<T> {
     fn box_to_mm(&self, b: lyon_geom::Box2D<f64>) -> lyon_geom::Box2D<f64> {
         lyon_geom::Box2D::new(self.point_to_mm(b.min), self.point_to_mm(b.max))
     }
+
+    fn stroke_to_mm(&self, stroke: Stroke) -> Stroke {
+        Stroke::new(
+            self.point_to_mm(stroke.start_point()),
+            stroke
+                .into_commands()
+                .map(|cmd| match cmd {
+                    DrawCommand::LineTo { from, to } => DrawCommand::LineTo {
+                        from: self.point_to_mm(from),
+                        to: self.point_to_mm(to),
+                    },
+                    DrawCommand::Arc(SvgArc {
+                        from,
+                        to,
+                        radii,
+                        x_rotation,
+                        flags,
+                    }) => DrawCommand::Arc(SvgArc {
+                        from: self.point_to_mm(from),
+                        to: self.point_to_mm(to),
+                        radii: self.vector_to_mm(radii),
+                        x_rotation,
+                        flags,
+                    }),
+                    DrawCommand::CubicBezier(CubicBezierSegment {
+                        from,
+                        ctrl1,
+                        ctrl2,
+                        to,
+                    }) => DrawCommand::CubicBezier(CubicBezierSegment {
+                        from: self.point_to_mm(from),
+                        ctrl1: self.point_to_mm(ctrl1),
+                        ctrl2: self.point_to_mm(ctrl2),
+                        to: self.point_to_mm(to),
+                    }),
+                    DrawCommand::QuadraticBezier(QuadraticBezierSegment { from, ctrl, to }) => {
+                        DrawCommand::QuadraticBezier(QuadraticBezierSegment {
+                            from: self.point_to_mm(from),
+                            ctrl: self.point_to_mm(ctrl),
+                            to: self.point_to_mm(to),
+                        })
+                    }
+                    DrawCommand::Comment(s) => DrawCommand::Comment(s),
+                })
+                .collect(),
+        )
+    }
 }
 
 impl<T: Turtle> Turtle for DpiConvertingTurtle<T> {
@@ -43,63 +101,8 @@ impl<T: Turtle> Turtle for DpiConvertingTurtle<T> {
         self.inner.end()
     }
 
-    fn comment(&mut self, comment: String) {
-        self.inner.comment(comment)
-    }
-
-    fn move_to(&mut self, to: Point<f64>) {
-        self.inner.move_to(self.point_to_mm(to))
-    }
-
-    fn line_to(&mut self, to: Point<f64>) {
-        self.inner.line_to(self.point_to_mm(to))
-    }
-
-    fn arc(
-        &mut self,
-        SvgArc {
-            from,
-            to,
-            radii,
-            x_rotation,
-            flags,
-        }: SvgArc<f64>,
-    ) {
-        self.inner.arc(SvgArc {
-            from: self.point_to_mm(from),
-            to: self.point_to_mm(to),
-            radii: self.vector_to_mm(radii),
-            x_rotation,
-            flags,
-        })
-    }
-
-    fn cubic_bezier(
-        &mut self,
-        CubicBezierSegment {
-            from,
-            ctrl1,
-            ctrl2,
-            to,
-        }: CubicBezierSegment<f64>,
-    ) {
-        self.inner.cubic_bezier(CubicBezierSegment {
-            from: self.point_to_mm(from),
-            ctrl1: self.point_to_mm(ctrl1),
-            ctrl2: self.point_to_mm(ctrl2),
-            to: self.point_to_mm(to),
-        })
-    }
-
-    fn quadratic_bezier(
-        &mut self,
-        QuadraticBezierSegment { from, ctrl, to }: QuadraticBezierSegment<f64>,
-    ) {
-        self.inner.quadratic_bezier(QuadraticBezierSegment {
-            from: self.point_to_mm(from),
-            to: self.point_to_mm(to),
-            ctrl: self.point_to_mm(ctrl),
-        })
+    fn stroke(&mut self, stroke: Stroke) {
+        self.inner.stroke(self.stroke_to_mm(stroke));
     }
 
     #[cfg(feature = "image")]
@@ -107,6 +110,17 @@ impl<T: Turtle> Turtle for DpiConvertingTurtle<T> {
         self.inner.image(super::elements::RasterImage {
             dimensions: self.box_to_mm(img.dimensions),
             image: img.image,
+        })
+    }
+
+    fn fill_polygon(&mut self, polygon: FillPolygon) {
+        self.inner.fill_polygon(FillPolygon {
+            outer: self.stroke_to_mm(polygon.outer),
+            holes: polygon
+                .holes
+                .into_iter()
+                .map(|s| self.stroke_to_mm(s))
+                .collect(),
         })
     }
 }

@@ -8,7 +8,9 @@ repository.workspace = true
 license.workspace = true
 
 [features]
+default = ["image"]
 serde = ["dep:serde", "g-code/serde", "svg2star/serde"]
+image = ["svg2star/image"]
 
 [dependencies]
 svg2star = { path = "../star", version = "0.4.0" }
