@@ -163,4 +163,15 @@ impl Stroke {
     pub fn is_closed(&self) -> bool {
         (self.start_point() - self.end_point()).square_length() < f64::EPSILON
     }
+
+    /// Calculate the bounding box of the stroke.
+    pub fn bounding_box(&self) -> Box2D<f64> {
+        let mut bbox = Box2D::new(self.start_point, self.start_point);
+        for command in &self.commands {
+            if let Some(b) = command.bounding_box() {
+                bbox = Box2D::from_points([bbox.min, bbox.max, b.min, b.max]);
+            }
+        }
+        bbox
+    }
 }
