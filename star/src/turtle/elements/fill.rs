@@ -1,3 +1,4 @@
+use log::warn;
 use lyon_geom::{LineSegment, Point};
 
 use crate::turtle::elements::{DrawCommand, FillPolygon, FillRule, Stroke};
@@ -161,6 +162,25 @@ pub(crate) fn into_fill_polygons(subpaths: Vec<Stroke>, fill_rule: FillRule) -> 
         })
         .collect();
 
+    // TODO: EvenOdd fill for overlapping but non-nested subpaths isn't handled.
+    // We need to XOR without flattening somehow.
+    if fill_rule == FillRule::EvenOdd {
+        let bboxes: Vec<_> = subpaths.iter().map(|s| s.bounding_box()).collect();
+        for i in 0..subpaths.len() {
+            for j in (i + 1)..subpaths.len() {
+                let boxes_overlap = bboxes[i].intersects(&bboxes[j]);
+                let neither_contains_the_other =
+                    !containers[i].contains(&j) && !containers[j].contains(&i);
+                if boxes_overlap && neither_contains_the_other {
+                    warn!(
+                        "`even-odd` fill rule with overlapping (non-nested) subpaths is not implemented! this won't be drawn correctly"
+                    );
+                    break;
+                }
+            }
+        }
+    }
+
     // Classify each subpath as outer (contributes filled area) or hole (removes it).
     let is_outer: Vec<Option<bool>> = match fill_rule {
         FillRule::EvenOdd => containers
@@ -186,7 +206,8 @@ pub(crate) fn into_fill_polygons(subpaths: Vec<Stroke>, fill_rule: FillRule) -> 
                         if winding_inside == 0 {
                             Some(false)
                         } else {
-                            // Ignore (why?)
+                            // Attempting to fill a region inside an already-filled region.
+                            // If `winding_inside` was zero, it would be a hole.
                             None
                         }
                     }
