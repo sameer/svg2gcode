@@ -339,7 +339,6 @@ mod test {
                     unit: LengthUnit::In,
                 }),
             ],
-            ..Default::default()
         };
         let json = r#"{"dimensions":[{"number":4.0,"unit":"Mm"},{"number":10.5,"unit":"In"}]}"#;
 
