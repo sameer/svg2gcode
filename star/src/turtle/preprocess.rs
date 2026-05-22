@@ -23,7 +23,12 @@ impl Turtle for PreprocessTurtle {
 
     #[cfg(feature = "image")]
     fn image(&mut self, image: super::elements::RasterImage) {
-        self.bounding_box = self.bounding_box.union(&image.dimensions);
+        self.bounding_box = Box2D::from_points([
+            self.bounding_box.min,
+            self.bounding_box.max,
+            image.dimensions.min,
+            image.dimensions.max,
+        ]);
     }
 
     fn fill_polygon(&mut self, polygon: FillPolygon) {
