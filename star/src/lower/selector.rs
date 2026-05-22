@@ -106,11 +106,17 @@ peg::parser!(grammar selector_parser() for str {
     rule _()          = whitespace()*
     rule s()          = whitespace()+
 
+    rule escape() -> char = "\\" c:[_] { c }
+
+    rule ident_char() -> char
+        = escape()
+        / c:['a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_'] { c }
+
     // Tag names, class names, and IDs
-    rule ident() -> String = s:$(['a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_']+) { s.to_string() }
+    rule ident() -> String = chars:ident_char()+ { chars.into_iter().collect() }
 
     // Attribute names
-    rule attr_name() -> String = s:$(['a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | ':']+) { s.to_string() }
+    rule attr_name() -> String = chars:ident_char()+ { chars.into_iter().collect() }
 
     // Attribute value
     rule unquoted() -> char = [c if c != ']' && !c.is_ascii_whitespace()]
@@ -343,7 +349,9 @@ mod tests {
             ("[id=foo]", true),
             ("[id=\"foo bar\"]", true),
             ("[style*=\"display:none\"]", true),
-            ("[inkscape:label=\"Layer 1\"]", true),
+            ("[inkscape\\:label=\"Layer 1\"]", true),
+            ("[inkscape:label=\"Layer 1\"]", false),
+            ("g\\#layer1", true),
             // combinators
             ("g path", true),
             ("g > path", true),
@@ -385,8 +393,8 @@ mod tests {
 
     #[test]
     fn test_match() {
-        let svg = r#"<svg>
-            <g id="layer1">
+        let svg = r#"<svg xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape">
+            <g id="layer1" inkscape:label="Layer 1">
                 <path id="p-cut"    class="cut"/>
                 <path id="p-draft"  class="draft"/>
                 <g id="nested">
@@ -415,6 +423,8 @@ mod tests {
             // attribute selector
             ("[style*=\"display:none\"]", "p-outer", true),
             ("[style*=\"display:none\"]", "r-draft", false),
+            ("[inkscape\\:label=\"Layer 1\"]", "layer1", true),
+            ("[inkscape\\:label=\"Layer 1\"]", "p-cut", false),
             // descendant combinator — p-cut is inside layer1, p-outer is not
             ("#layer1 path", "p-cut", true),
             ("#layer1 path", "p-nested", true),
