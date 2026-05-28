@@ -385,10 +385,10 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
             })
             .unwrap_or_default();
 
-        // TODO: changing the default here to false would be breaking, but is technically correct from an SVG perspective.
+        // Default to false which is spec compliant.
         let has_stroke_attr = calculate_presentation_attr(node, "stroke", &self.css_rules)
             .map(|v| v != "none")
-            .unwrap_or(true);
+            .unwrap_or(false);
 
         match node.tag_name().name() {
             PATH_TAG_NAME => {
