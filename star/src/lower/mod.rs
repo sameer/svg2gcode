@@ -23,7 +23,7 @@ use crate::{
 #[cfg(feature = "serde")]
 mod length_serde;
 mod selector;
-mod transform;
+pub(crate) mod transform;
 mod units;
 mod visit;
 
