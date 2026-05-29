@@ -304,7 +304,17 @@ impl AttributeSelector {
         // like `inkscape:label` which roxmltree may expose under a namespace.
         let value = node
             .attributes()
-            .find(|a| a.name() == self.name)
+            .find(|a| {
+                if let Some((prefix, local)) = self.name.split_once(':') {
+                    if let Some(ns_uri) = node.lookup_namespace_uri(Some(prefix)) {
+                        a.namespace() == Some(ns_uri) && a.name() == local
+                    } else {
+                        false
+                    }
+                } else {
+                    a.name() == self.name
+                }
+            })
             .map(|a| a.value());
 
         match (&self.op, value) {
