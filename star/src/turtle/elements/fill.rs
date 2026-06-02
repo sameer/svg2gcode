@@ -384,4 +384,57 @@ mod tests {
         // they should be classified as two independent outer contours.
         assert_eq!(polygons.len(), 2);
     }
+
+    /// Pentagram (5-pointed star) drawn as a single self-intersecting M…Z subpath
+    ///
+    /// The path visits the five outer tips in "skip-one" order, crossing itself five times
+    /// and enclosing an inner pentagon whose fill depends on the fill rule:
+    ///
+    ///  - EvenOdd: hole in the center (incorrect currently)
+    ///  - NonZero: filled
+    #[test]
+    #[ignore = "self-intersecting single subpaths are not yet handled"]
+    fn test_self_intersecting_pentagram() {
+        let star = Stroke::new(
+            Point::new(110.0, 45.0),
+            vec![
+                DrawCommand::LineTo {
+                    from: Point::new(110.0, 45.0),
+                    to: Point::new(162.0, 195.0),
+                },
+                DrawCommand::LineTo {
+                    from: Point::new(162.0, 195.0),
+                    to: Point::new(24.0, 100.0),
+                },
+                DrawCommand::LineTo {
+                    from: Point::new(24.0, 100.0),
+                    to: Point::new(196.0, 100.0),
+                },
+                DrawCommand::LineTo {
+                    from: Point::new(196.0, 100.0),
+                    to: Point::new(58.0, 195.0),
+                },
+                DrawCommand::LineTo {
+                    from: Point::new(58.0, 195.0),
+                    to: Point::new(110.0, 45.0),
+                },
+            ],
+        );
+
+        let evenodd = into_fill_polygons(vec![star.clone()], FillRule::EvenOdd);
+        assert_eq!(evenodd.len(), 1, "EvenOdd: expected one outer contour");
+        assert_eq!(
+            evenodd[0].holes.len(),
+            1,
+            "EvenOdd: expected one hole (the inner pentagon)"
+        );
+
+        let nonzero = into_fill_polygons(vec![star], FillRule::NonZero);
+        assert_eq!(nonzero.len(), 1, "NonZero: expected one outer contour");
+        assert_eq!(
+            nonzero[0].holes.len(),
+            0,
+            "NonZero: expected no holes (inner pentagon is filled)"
+        );
+    }
 }
