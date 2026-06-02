@@ -1,3 +1,4 @@
+use log::warn;
 use lyon_geom::{LineSegment, Point};
 
 use crate::turtle::elements::{DrawCommand, FillPolygon, FillRule, Stroke};
@@ -161,6 +162,25 @@ pub(crate) fn into_fill_polygons(subpaths: Vec<Stroke>, fill_rule: FillRule) -> 
         })
         .collect();
 
+    // TODO: EvenOdd fill for overlapping but non-nested subpaths isn't handled.
+    // We need to XOR without flattening somehow.
+    if fill_rule == FillRule::EvenOdd {
+        let bboxes: Vec<_> = subpaths.iter().map(|s| s.bounding_box()).collect();
+        for i in 0..subpaths.len() {
+            for j in (i + 1)..subpaths.len() {
+                let boxes_overlap = bboxes[i].intersects(&bboxes[j]);
+                let neither_contains_the_other =
+                    !containers[i].contains(&j) && !containers[j].contains(&i);
+                if boxes_overlap && neither_contains_the_other {
+                    warn!(
+                        "`even-odd` fill rule with overlapping (non-nested) subpaths is not implemented! this won't be drawn correctly"
+                    );
+                    break;
+                }
+            }
+        }
+    }
+
     // Classify each subpath as outer (contributes filled area) or hole (removes it).
     let is_outer: Vec<Option<bool>> = match fill_rule {
         FillRule::EvenOdd => containers
@@ -186,7 +206,8 @@ pub(crate) fn into_fill_polygons(subpaths: Vec<Stroke>, fill_rule: FillRule) -> 
                         if winding_inside == 0 {
                             Some(false)
                         } else {
-                            // Ignore (why?)
+                            // Attempting to fill a region inside an already-filled region.
+                            // If `winding_inside` was zero, it would be a hole.
                             None
                         }
                     }
@@ -362,5 +383,58 @@ mod tests {
         // Since they overlap but are not nested (neither bbox is inside the other),
         // they should be classified as two independent outer contours.
         assert_eq!(polygons.len(), 2);
+    }
+
+    /// Pentagram (5-pointed star) drawn as a single self-intersecting M…Z subpath
+    ///
+    /// The path visits the five outer tips in "skip-one" order, crossing itself five times
+    /// and enclosing an inner pentagon whose fill depends on the fill rule:
+    ///
+    ///  - EvenOdd: hole in the center (incorrect currently)
+    ///  - NonZero: filled
+    #[test]
+    #[ignore = "self-intersecting single subpaths are not yet handled"]
+    fn test_self_intersecting_pentagram() {
+        let star = Stroke::new(
+            Point::new(110.0, 45.0),
+            vec![
+                DrawCommand::LineTo {
+                    from: Point::new(110.0, 45.0),
+                    to: Point::new(162.0, 195.0),
+                },
+                DrawCommand::LineTo {
+                    from: Point::new(162.0, 195.0),
+                    to: Point::new(24.0, 100.0),
+                },
+                DrawCommand::LineTo {
+                    from: Point::new(24.0, 100.0),
+                    to: Point::new(196.0, 100.0),
+                },
+                DrawCommand::LineTo {
+                    from: Point::new(196.0, 100.0),
+                    to: Point::new(58.0, 195.0),
+                },
+                DrawCommand::LineTo {
+                    from: Point::new(58.0, 195.0),
+                    to: Point::new(110.0, 45.0),
+                },
+            ],
+        );
+
+        let evenodd = into_fill_polygons(vec![star.clone()], FillRule::EvenOdd);
+        assert_eq!(evenodd.len(), 1, "EvenOdd: expected one outer contour");
+        assert_eq!(
+            evenodd[0].holes.len(),
+            1,
+            "EvenOdd: expected one hole (the inner pentagon)"
+        );
+
+        let nonzero = into_fill_polygons(vec![star], FillRule::NonZero);
+        assert_eq!(nonzero.len(), 1, "NonZero: expected one outer contour");
+        assert_eq!(
+            nonzero[0].holes.len(),
+            0,
+            "NonZero: expected no holes (inner pentagon is filled)"
+        );
     }
 }
