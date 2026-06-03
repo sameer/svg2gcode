@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use lyon_geom::{
-    ArcFlags, CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc, Vector,
+    ArcFlags, Box2D, CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc, Vector,
     euclid::{Angle, default::Transform2D},
     point, vector,
 };
@@ -62,6 +62,8 @@ pub(crate) struct Terrarium<T: Turtle + std::fmt::Debug> {
     previous_quadratic_control: Option<Point<f64>>,
     previous_cubic_control: Option<Point<f64>>,
     comment: Option<String>,
+    current_bounds: Option<Box2D<f64>>,
+    bounds_stack: Vec<Option<Box2D<f64>>>,
 }
 
 impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
@@ -77,7 +79,27 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             previous_quadratic_control: None,
             previous_cubic_control: None,
             comment: None,
+            current_bounds: None,
+            bounds_stack: vec![],
         }
+    }
+
+    pub fn push_viewport_bounds(&mut self, viewport_box: Box2D<f64>) {
+        let new_bounds = self.current_transform.outer_transformed_box(&viewport_box);
+        let combined_bounds = match self.current_bounds {
+            Some(parent) => parent.intersection(&new_bounds),
+            None => Some(new_bounds),
+        };
+        self.push_bounds(combined_bounds);
+    }
+
+    pub fn push_bounds(&mut self, bounds: Option<Box2D<f64>>) {
+        self.bounds_stack.push(self.current_bounds);
+        self.current_bounds = bounds;
+    }
+
+    pub fn pop_bounds(&mut self) {
+        self.current_bounds = self.bounds_stack.pop().expect("bounds stack underflow");
     }
 
     /// Move the turtle to the given absolute/relative coordinates in the current transform
@@ -371,20 +393,31 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
 
     /// <https://www.w3.org/TR/SVG/embedded.html#ImageElement>
     #[cfg(feature = "image")]
-    pub fn image(&mut self, image: image::DynamicImage, x: f64, y: f64, width: f64, height: f64) {
-        // Transform the corners to get the final x, y, width, height.
-        let t0 = self.current_transform.transform_point(point(x, y));
-        let t1 = self
-            .current_transform
-            .transform_point(point(x, y) + vector(width, height));
-        self.turtle.image(crate::turtle::elements::RasterImage {
-            // After transformation, the corners may be swapped resulting in a new x y.
-            dimensions: lyon_geom::Box2D::new(
-                point(t0.x.min(t1.x), t0.y.min(t1.y)),
-                point(t0.x.max(t1.x), t0.y.max(t1.y)),
-            ),
+    pub fn image(
+        &mut self,
+        image: image::DynamicImage,
+        image_to_user: Transform2D<f64>,
+        preserve_aspect_ratio: svgtypes::AspectRatio,
+    ) {
+        let (image, transformed_box) = self::elements::image_ops::transform_image(
             image,
-        });
+            image_to_user,
+            &self.current_transform,
+            preserve_aspect_ratio,
+        );
+
+        let final_raster_image = if let Some(bounds) = self.current_bounds {
+            self::elements::image_ops::crop_image_to_bounds(image, transformed_box, bounds)
+        } else {
+            Some(crate::turtle::elements::RasterImage {
+                dimensions: transformed_box,
+                image,
+            })
+        };
+
+        if let Some(raster_image) = final_raster_image {
+            self.turtle.image(raster_image);
+        }
     }
 
     /// Push a generic transform onto the stack
@@ -536,6 +569,8 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             previous_quadratic_control: self.previous_quadratic_control,
             previous_cubic_control: self.previous_cubic_control,
             comment: self.comment.clone(),
+            current_bounds: self.current_bounds,
+            bounds_stack: vec![],
         };
         sub.apply_path(segments);
         let segments = sub.finish().into_strokes();

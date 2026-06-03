@@ -2,6 +2,7 @@ use std::{collections::HashMap, str::FromStr};
 
 use euclid::default::Transform2D;
 use log::{debug, warn};
+use lyon_geom::{Box2D, Point};
 use roxmltree::{Document, Node};
 use svgtypes::{
     AspectRatio, LengthListParser, PathParser, PathSegment, PointsParser, TransformListParser,
@@ -172,6 +173,10 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
     fn visit_enter(&mut self, node: Node) {
         use PathSegment::*;
 
+        let mut view_box_opt = None;
+        let mut viewport_pos_opt = [None, None];
+        let mut viewport_size_opt = [1., 1.];
+
         if node.tag_name().name() == CLIP_PATH_TAG_NAME {
             warn!("Clip paths are not supported: {:?}", node);
         }
@@ -266,6 +271,10 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
 
             let viewport_pos = ["x", "y"].map(|attr| self.length_attr_to_user_units(&node, attr));
 
+            view_box_opt = view_box;
+            viewport_pos_opt = viewport_pos;
+            viewport_size_opt = viewport_size;
+
             self.viewport_dim_stack
                 .push(match (view_box.as_ref(), &viewport_size) {
                     (Some(ViewBox { w, h, .. }), _) => [*w, *h],
@@ -333,6 +342,9 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
                 flattened_transform = flattened_transform.then(&viewport_transform);
                 // Does not need Y-axis translation unlike <svg>, already in g-code coords space.
             }
+            view_box_opt = view_box;
+            viewport_pos_opt = [None, None];
+            viewport_size_opt = viewport_size;
         } else if node.has_attribute("viewBox") {
             warn!("View box is not supported on a {}", node.tag_name().name());
         }
@@ -340,6 +352,21 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
         self.terrarium.push_transform(flattened_transform);
         self.name_stack
             .push(node_name(&node, &self.config.extra_attribute_name));
+
+        if node.has_tag_name(SVG_TAG_NAME) || node.has_tag_name(SYMBOL_TAG_NAME) {
+            let viewport_box = if let Some(vb) = view_box_opt {
+                Box2D::new(Point::new(vb.x, vb.y), Point::new(vb.x + vb.w, vb.y + vb.h))
+            } else {
+                let px = viewport_pos_opt[0].unwrap_or(0.);
+                let py = viewport_pos_opt[1].unwrap_or(0.);
+                Box2D::new(
+                    Point::new(px, py),
+                    Point::new(px + viewport_size_opt[0], py + viewport_size_opt[1]),
+                )
+            };
+
+            self.terrarium.push_viewport_bounds(viewport_box);
+        }
 
         if !self.should_draw_node(node) {
             return;
@@ -635,8 +662,33 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
                     .length_attr_to_user_units(&node, "height")
                     .unwrap_or(0.);
 
+                let preserve_aspect_ratio = node
+                    .attribute("preserveAspectRatio")
+                    .map(|attr| {
+                        AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
+                    })
+                    .unwrap_or(svgtypes::AspectRatio {
+                        defer: false,
+                        align: svgtypes::Align::XMidYMid,
+                        slice: false,
+                    });
+
+                let view_box = svgtypes::ViewBox {
+                    x: 0.,
+                    y: 0.,
+                    w: image.width() as f64,
+                    h: image.height() as f64,
+                };
+                let image_to_user = get_viewport_transform(
+                    view_box,
+                    Some(preserve_aspect_ratio),
+                    [width, height],
+                    [Some(x), Some(y)],
+                );
+
                 self.comment();
-                self.terrarium.image(image, x, y, width, height);
+                self.terrarium
+                    .image(image, image_to_user, preserve_aspect_ratio);
             }
             // No-op tags
             SVG_TAG_NAME | GROUP_TAG_NAME | USE_TAG_NAME | SYMBOL_TAG_NAME => {}
@@ -651,6 +703,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
         self.name_stack.pop();
         if matches!(node.tag_name().name(), SVG_TAG_NAME | SYMBOL_TAG_NAME) {
             self.viewport_dim_stack.pop();
+            self.terrarium.pop_bounds();
         }
     }
 }

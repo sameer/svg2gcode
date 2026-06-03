@@ -18,6 +18,9 @@ mod tsp;
 
 pub(crate) mod fill;
 
+#[cfg(feature = "image")]
+pub(crate) mod image_ops;
+
 /// Defines the algorithm used to calculate how a polygon is filled.
 ///
 /// <https://www.w3.org/TR/SVG/painting.html#FillRuleProperty>
