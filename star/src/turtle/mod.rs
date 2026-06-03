@@ -387,15 +387,12 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     pub fn image(
         &mut self,
         image: image::DynamicImage,
-        x: f64,
-        y: f64,
-        width: f64,
-        height: f64,
+        image_to_user: Transform2D<f64>,
         preserve_aspect_ratio: svgtypes::AspectRatio,
     ) {
         let (image, transformed_box) = self::elements::image_ops::transform_image(
             image,
-            Box2D::new(point(x, y), point(x + width, y + height)),
+            image_to_user,
             &self.current_transform,
             preserve_aspect_ratio,
         );

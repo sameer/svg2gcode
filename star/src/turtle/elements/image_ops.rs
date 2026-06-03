@@ -20,26 +20,32 @@ use super::RasterImage;
 /// The `Turtle` must handle any stretching/scaling as appropriate.
 pub fn transform_image(
     mut image: DynamicImage,
-    rect: Box2D<f64>,
-    transform: &Transform2D<f64>,
+    image_to_user: Transform2D<f64>,
+    user_to_final: &Transform2D<f64>,
     preserve_aspect_ratio: AspectRatio,
 ) -> (DynamicImage, Box2D<f64>) {
     // TODO: should this be more coarse?
     const EPSILON: f64 = f64::EPSILON;
     const MAX_NON_AFFINE_SCALE: f64 = 2.;
 
-    let corners = [
-        rect.min,
-        point(rect.max.x, rect.min.y),
-        point(rect.min.x, rect.max.y),
-        rect.max,
+    let orig_w = image.width();
+    let orig_h = image.height();
+
+    let pixel_corners = [
+        point(0., 0.),
+        point(orig_w as f64, 0.),
+        point(0., orig_h as f64),
+        point(orig_w as f64, orig_h as f64),
     ];
-    let transformed_corners = corners.map(|p| transform.transform_point(p));
+    let user_corners = pixel_corners.map(|p| image_to_user.transform_point(p));
+    let user_bounds = Box2D::from_points(user_corners);
+
+    let transformed_corners = user_corners.map(|p| user_to_final.transform_point(p));
     let transformed_box = Box2D::from_points(transformed_corners);
 
     let (is_transform_axis_aligned, [transformed_x_axis, transformed_y_axis]) = {
-        let tx = transform.transform_vector(vector(1.0, 0.0));
-        let ty = transform.transform_vector(vector(0.0, 1.0));
+        let tx = user_to_final.transform_vector(vector(1.0, 0.0));
+        let ty = user_to_final.transform_vector(vector(0.0, 1.0));
 
         let aligned = (tx.y.abs() < EPSILON && ty.x.abs() < EPSILON)
             || (tx.x.abs() < EPSILON && ty.y.abs() < EPSILON);
@@ -47,12 +53,9 @@ pub fn transform_image(
         (aligned, [tx, ty])
     };
 
-    let orig_w = image.width();
-    let orig_h = image.height();
-
     let aspect_ratios_match = {
         let orig_aspect_ratio = orig_w as f64 / orig_h as f64;
-        let final_aspect_ratio = rect.width() / rect.height();
+        let final_aspect_ratio = user_bounds.width() / user_bounds.height();
         (orig_aspect_ratio - final_aspect_ratio).abs() < EPSILON
     };
     let is_simple_orthogonal_rotation = is_transform_axis_aligned
@@ -76,19 +79,7 @@ pub fn transform_image(
         // During non-aligned rotation, the corners need to be transparent
         image = add_alpha_channel(image);
 
-        let view_box = svgtypes::ViewBox {
-            x: 0.,
-            y: 0.,
-            w: orig_w as f64,
-            h: orig_h as f64,
-        };
-        let image_viewport_transform = crate::lower::transform::get_viewport_transform(
-            view_box,
-            Some(preserve_aspect_ratio),
-            [rect.width(), rect.height()],
-            [Some(rect.min.x), Some(rect.min.y)],
-        );
-        let image_to_final = image_viewport_transform.then(transform);
+        let image_to_final = image_to_user.then(user_to_final);
 
         let scale_x = image_to_final.transform_vector(vector(1.0, 0.0)).length();
         let scale_y = image_to_final.transform_vector(vector(0.0, 1.0)).length();

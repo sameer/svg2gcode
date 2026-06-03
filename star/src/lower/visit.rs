@@ -688,9 +688,22 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
                         slice: false,
                     });
 
+                let view_box = svgtypes::ViewBox {
+                    x: 0.,
+                    y: 0.,
+                    w: image.width() as f64,
+                    h: image.height() as f64,
+                };
+                let image_to_user = get_viewport_transform(
+                    view_box,
+                    Some(preserve_aspect_ratio),
+                    [width, height],
+                    [Some(x), Some(y)],
+                );
+
                 self.comment();
                 self.terrarium
-                    .image(image, x, y, width, height, preserve_aspect_ratio);
+                    .image(image, image_to_user, preserve_aspect_ratio);
             }
             // No-op tags
             SVG_TAG_NAME | GROUP_TAG_NAME | USE_TAG_NAME | SYMBOL_TAG_NAME => {}
