@@ -365,22 +365,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
                 )
             };
 
-            let corners = [
-                viewport_box.min,
-                Point::new(viewport_box.max.x, viewport_box.min.y),
-                Point::new(viewport_box.min.x, viewport_box.max.y),
-                viewport_box.max,
-            ];
-            let new_bounds = Box2D::from_points(
-                corners.map(|p| self.terrarium.current_transform.transform_point(p)),
-            );
-
-            let combined_bounds = match self.terrarium.current_bounds {
-                Some(parent) => parent.intersection(&new_bounds),
-                None => Some(new_bounds),
-            };
-
-            self.terrarium.push_bounds(combined_bounds);
+            self.terrarium.push_viewport_bounds(viewport_box);
         }
 
         if !self.should_draw_node(node) {

@@ -57,12 +57,12 @@ pub(crate) struct Terrarium<T: Turtle + std::fmt::Debug> {
     has_begun: bool,
     current_position: Point<f64>,
     initial_position: Point<f64>,
-    pub(crate) current_transform: Transform2D<f64>,
+    current_transform: Transform2D<f64>,
     pub transform_stack: Vec<Transform2D<f64>>,
     previous_quadratic_control: Option<Point<f64>>,
     previous_cubic_control: Option<Point<f64>>,
     comment: Option<String>,
-    pub(crate) current_bounds: Option<Box2D<f64>>,
+    current_bounds: Option<Box2D<f64>>,
     bounds_stack: Vec<Option<Box2D<f64>>>,
 }
 
@@ -82,6 +82,15 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             current_bounds: None,
             bounds_stack: vec![],
         }
+    }
+
+    pub fn push_viewport_bounds(&mut self, viewport_box: Box2D<f64>) {
+        let new_bounds = self.current_transform.outer_transformed_box(&viewport_box);
+        let combined_bounds = match self.current_bounds {
+            Some(parent) => parent.intersection(&new_bounds),
+            None => Some(new_bounds),
+        };
+        self.push_bounds(combined_bounds);
     }
 
     pub fn push_bounds(&mut self, bounds: Option<Box2D<f64>>) {

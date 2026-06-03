@@ -31,17 +31,10 @@ pub fn transform_image(
     let orig_w = image.width();
     let orig_h = image.height();
 
-    let pixel_corners = [
-        point(0., 0.),
-        point(orig_w as f64, 0.),
-        point(0., orig_h as f64),
-        point(orig_w as f64, orig_h as f64),
-    ];
-    let user_corners = pixel_corners.map(|p| image_to_user.transform_point(p));
-    let user_bounds = Box2D::from_points(user_corners);
-
-    let transformed_corners = user_corners.map(|p| user_to_final.transform_point(p));
-    let transformed_box = Box2D::from_points(transformed_corners);
+    let pixel_bounds = Box2D::new(point(0., 0.), point(orig_w as f64, orig_h as f64));
+    let user_bounds = image_to_user.outer_transformed_box(&pixel_bounds);
+    let image_to_final = image_to_user.then(user_to_final);
+    let transformed_box = image_to_final.outer_transformed_box(&pixel_bounds);
 
     let (is_transform_axis_aligned, [transformed_x_axis, transformed_y_axis]) = {
         let tx = user_to_final.transform_vector(vector(1.0, 0.0));
@@ -79,7 +72,7 @@ pub fn transform_image(
         // During non-aligned rotation, the corners need to be transparent
         image = add_alpha_channel(image);
 
-        let image_to_final = image_to_user.then(user_to_final);
+
 
         let scale_x = image_to_final.transform_vector(vector(1.0, 0.0)).length();
         let scale_y = image_to_final.transform_vector(vector(0.0, 1.0)).length();
