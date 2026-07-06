@@ -78,12 +78,22 @@ impl<'input> GCodeTurtle<'input> {
     }
 
     fn line_to(&self, to: Point<f64>) -> Vec<Token<'input>> {
-        command!(LinearInterpolation {
-            X: self.round(to.x),
-            Y: self.round(to.y),
-            F: self.feedrate,
-        })
-        .into_token_vec()
+        if let Some(z_path) = self.machine.z_path {
+            command!(LinearInterpolation {
+                X: self.round(to.x),
+                Y: self.round(to.y),
+                Z: z_path,
+                F: self.feedrate,
+            })
+            .into_token_vec()
+        } else {
+            command!(LinearInterpolation {
+                X: self.round(to.x),
+                Y: self.round(to.y),
+                F: self.feedrate,
+            })
+            .into_token_vec()
+        }
     }
 
     fn circular_interpolation(&self, svg_arc: SvgArc<f64>) -> Vec<Token<'input>> {
@@ -154,26 +164,46 @@ impl<'input> Turtle for GCodeTurtle<'input> {
             }
         }
 
-        self.program.append(
-            &mut command!(RapidPositioning {
-                X: self.round(start.x),
-                Y: self.round(start.y),
-            })
-            .into_token_vec(),
-        );
+        if let Some(z_travel) = self.machine.z_travel {
+            self.program.append(
+                &mut command!(RapidPositioning {
+                    Z: z_travel,
+                })
+                .into_token_vec(),
+            );
+            self.program.append(
+                &mut command!(RapidPositioning {
+                    X: self.round(start.x),
+                    Y: self.round(start.y),
+                    Z: z_travel,
+                })
+                .into_token_vec(),
+            );
+        } else {
+            self.program.append(
+                &mut command!(RapidPositioning {
+                    X: self.round(start.x),
+                    Y: self.round(start.y),
+                })
+                .into_token_vec(),
+            );
+        }
+
+        if let Some(z_path) = self.machine.z_path {
+            self.program.append(
+                &mut command!(RapidPositioning {
+                    Z: z_path,
+                })
+                .into_token_vec(),
+            );
+        }
+
         self.tool_on();
 
         for command in commands {
             match command {
                 DrawCommand::LineTo { from: _, to } => {
-                    self.program.append(
-                        &mut command!(LinearInterpolation {
-                            X: self.round(to.x),
-                            Y: self.round(to.y),
-                            F: self.feedrate,
-                        })
-                        .into_token_vec(),
-                    );
+                    self.program.append(&mut self.line_to(to));
                 }
                 DrawCommand::Arc(svg_arc) => {
                     if self

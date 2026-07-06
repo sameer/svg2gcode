@@ -40,6 +40,12 @@ pub struct MachineConfig {
     pub tool_off_sequence: Option<String>,
     pub begin_sequence: Option<String>,
     pub end_sequence: Option<String>,
+    /// Z coordinate for rapid travel moves (pen/tool raised position)
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub z_travel: Option<f64>,
+    /// Z coordinate for drawing moves (pen/tool lowered position)
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub z_path: Option<f64>,
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

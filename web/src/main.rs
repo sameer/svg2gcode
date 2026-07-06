@@ -108,6 +108,8 @@ fn app() -> Html {
                         .map(snippet_parser)
                         .transpose()
                         .unwrap(),
+                    app_store.settings.machine.z_travel,
+                    app_store.settings.machine.z_path,
                 );
                 let document = Document::parse_with_options(
                     svg.content.as_str(),

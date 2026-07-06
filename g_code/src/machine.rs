@@ -33,6 +33,8 @@ pub struct Machine<'input> {
     program_end_sequence: Snippet<'input>,
     /// Empty snippet used to provide the same iterator type when a sequence must be empty
     empty_snippet: Snippet<'input>,
+    pub z_travel: Option<f64>,
+    pub z_path: Option<f64>,
 }
 
 impl<'input> Machine<'input> {
@@ -42,6 +44,8 @@ impl<'input> Machine<'input> {
         tool_off_sequence: Option<Snippet<'input>>,
         program_begin_sequence: Option<Snippet<'input>>,
         program_end_sequence: Option<Snippet<'input>>,
+        z_travel: Option<f64>,
+        z_path: Option<f64>,
     ) -> Self {
         let empty_snippet = snippet_parser("").expect("empty string is a valid snippet");
         Self {
@@ -53,6 +57,8 @@ impl<'input> Machine<'input> {
             empty_snippet,
             tool_state: Default::default(),
             distance_mode: Default::default(),
+            z_travel,
+            z_path,
         }
     }
 
