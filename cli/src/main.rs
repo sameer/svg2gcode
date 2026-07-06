@@ -367,6 +367,7 @@ fn main() -> io::Result<()> {
             FormatOptions {
                 line_numbers: settings.postprocess.line_numbers,
                 checksums: settings.postprocess.checksums,
+                newline_before_comment: settings.postprocess.newline_before_comment,
                 ..Default::default()
             },
             File::create(out_path)?,
