@@ -103,6 +103,12 @@ struct Opt {
     /// Z height for drawing moves (pen/tool lowered position)
     z_path: Option<f64>,
     #[arg(long)]
+    /// Z height at maximum emphasis (deepest/most pressure, for thick strokes)
+    z_emphasis: Option<f64>,
+    #[arg(long)]
+    /// Stroke width in mm at which z_emphasis is fully applied; interpolates below
+    emphasis_stroke_width: Option<f64>,
+    #[arg(long)]
     /// Reorder paths to minimize travel time
     optimize_path_order: Option<bool>,
     /// CSS selector to filter which SVG elements are converted.
@@ -213,6 +219,12 @@ fn main() -> io::Result<()> {
         }
         if let Some(z_path) = opt.z_path {
             settings.machine.z_path = Some(z_path);
+        }
+        if let Some(z_emphasis) = opt.z_emphasis {
+            settings.machine.z_emphasis = Some(z_emphasis);
+        }
+        if let Some(esw) = opt.emphasis_stroke_width {
+            settings.machine.emphasis_stroke_width = Some(esw);
         }
 
         settings.conversion.inner.extra_attribute_name = opt.extra_attribute_name;
@@ -337,6 +349,8 @@ fn main() -> io::Result<()> {
             program_end_sequence,
             settings.machine.z_travel,
             settings.machine.z_path,
+            settings.machine.z_emphasis,
+            settings.machine.emphasis_stroke_width,
         )
     } else {
         use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};

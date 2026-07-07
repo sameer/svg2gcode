@@ -125,6 +125,8 @@ impl DrawCommand {
 pub struct Stroke {
     start_point: Point<f64>,
     commands: Vec<DrawCommand>,
+    /// SVG stroke-width in user units (not DPI-converted). Zero means no explicit width.
+    pub width: f64,
 }
 
 impl Stroke {
@@ -132,6 +134,15 @@ impl Stroke {
         Self {
             start_point,
             commands,
+            width: 0.0,
+        }
+    }
+
+    pub fn with_width(start_point: Point<f64>, commands: Vec<DrawCommand>, width: f64) -> Self {
+        Self {
+            start_point,
+            commands,
+            width,
         }
     }
 

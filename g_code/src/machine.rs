@@ -35,6 +35,8 @@ pub struct Machine<'input> {
     empty_snippet: Snippet<'input>,
     pub z_travel: Option<f64>,
     pub z_path: Option<f64>,
+    pub z_emphasis: Option<f64>,
+    pub emphasis_stroke_width: Option<f64>,
 }
 
 impl<'input> Machine<'input> {
@@ -46,6 +48,8 @@ impl<'input> Machine<'input> {
         program_end_sequence: Option<Snippet<'input>>,
         z_travel: Option<f64>,
         z_path: Option<f64>,
+        z_emphasis: Option<f64>,
+        emphasis_stroke_width: Option<f64>,
     ) -> Self {
         let empty_snippet = snippet_parser("").expect("empty string is a valid snippet");
         Self {
@@ -59,6 +63,8 @@ impl<'input> Machine<'input> {
             distance_mode: Default::default(),
             z_travel,
             z_path,
+            z_emphasis,
+            emphasis_stroke_width,
         }
     }
 
