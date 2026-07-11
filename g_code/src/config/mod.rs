@@ -2,6 +2,57 @@
 use serde::{Deserialize, Serialize};
 pub use svg2star::lower::{ConversionConfig, ConversionOptions};
 
+/// Deserializes a field that can be either a JSON string or an array of strings.
+/// Arrays are joined with newlines into a single string.
+/// `null` or a missing field deserializes to `None`.
+#[cfg(feature = "serde")]
+fn deserialize_string_or_strings<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+
+    struct StringOrStringsVisitor;
+
+    impl<'de> Visitor<'de> for StringOrStringsVisitor {
+        type Value = Option<String>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("null, a string, or an array of strings")
+        }
+
+        fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            Ok(Some(v.to_owned()))
+        }
+
+        fn visit_string<E: de::Error>(self, v: String) -> Result<Self::Value, E> {
+            Ok(Some(v))
+        }
+
+        fn visit_seq<A: de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            let mut parts: Vec<String> = Vec::new();
+            while let Some(s) = seq.next_element::<String>()? {
+                parts.push(s);
+            }
+            if parts.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(parts.join("\n")))
+            }
+        }
+    }
+
+    deserializer.deserialize_any(StringOrStringsVisitor)
+}
+
 #[cfg(all(test, feature = "serde"))]
 #[allow(dead_code)]
 mod v0;
@@ -36,9 +87,25 @@ pub struct Settings {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct MachineConfig {
     pub supported_functionality: SupportedFunctionality,
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, deserialize_with = "deserialize_string_or_strings")
+    )]
     pub tool_on_sequence: Option<String>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, deserialize_with = "deserialize_string_or_strings")
+    )]
     pub tool_off_sequence: Option<String>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, deserialize_with = "deserialize_string_or_strings")
+    )]
     pub begin_sequence: Option<String>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, deserialize_with = "deserialize_string_or_strings")
+    )]
     pub end_sequence: Option<String>,
 }
 
@@ -291,5 +358,86 @@ mod tests {
           }
         "#;
         serde_json::from_str::<v5::Settings>(json).unwrap();
+    }
+
+    fn machine_with_field(field: &str, value_json: &str) -> MachineConfig {
+        let json = format!(
+            r#"{{"supported_functionality": {{"circular_interpolation": false}}, "{field}": {value_json}}}"#
+        );
+        serde_json::from_str(&json).unwrap()
+    }
+
+    fn machine_config(begin_sequence_json: &str) -> MachineConfig {
+        machine_with_field("begin_sequence", begin_sequence_json)
+    }
+
+    #[test]
+    fn begin_sequence_as_string_deserializes() {
+        let config = machine_config(r#""G28 O""#);
+        assert_eq!(config.begin_sequence, Some("G28 O".to_owned()));
+    }
+
+    #[test]
+    fn begin_sequence_as_array_deserializes() {
+        let config = machine_config(r#"["G28 O", "G0 X70 Y30 Z2 F4500"]"#);
+        assert_eq!(
+            config.begin_sequence,
+            Some("G28 O\nG0 X70 Y30 Z2 F4500".to_owned())
+        );
+    }
+
+    #[test]
+    fn begin_sequence_as_null_deserializes() {
+        let config = machine_config("null");
+        assert_eq!(config.begin_sequence, None);
+    }
+
+    #[test]
+    fn begin_sequence_missing_deserializes() {
+        let json = r#"{"supported_functionality": {"circular_interpolation": false}}"#;
+        let config: MachineConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.begin_sequence, None);
+    }
+
+    #[test]
+    fn begin_sequence_empty_array_deserializes() {
+        let config = machine_config("[]");
+        assert_eq!(config.begin_sequence, None);
+    }
+
+    #[test]
+    fn tool_on_sequence_as_string_deserializes() {
+        let config = machine_with_field("tool_on_sequence", r#""M3 S255""#);
+        assert_eq!(config.tool_on_sequence, Some("M3 S255".to_owned()));
+    }
+
+    #[test]
+    fn tool_on_sequence_as_array_deserializes() {
+        let config = machine_with_field("tool_on_sequence", r#"["M3", "S255"]"#);
+        assert_eq!(config.tool_on_sequence, Some("M3\nS255".to_owned()));
+    }
+
+    #[test]
+    fn tool_off_sequence_as_string_deserializes() {
+        let config = machine_with_field("tool_off_sequence", r#""M5""#);
+        assert_eq!(config.tool_off_sequence, Some("M5".to_owned()));
+    }
+
+    #[test]
+    fn tool_off_sequence_as_array_deserializes() {
+        let config = machine_with_field("tool_off_sequence", r#"["M5", "G4 P0"]"#);
+        assert_eq!(config.tool_off_sequence, Some("M5\nG4 P0".to_owned()));
+    }
+
+    #[test]
+    fn end_sequence_as_string_deserializes() {
+        let config = machine_with_field("end_sequence", r#""M2""#);
+        assert_eq!(config.end_sequence, Some("M2".to_owned()));
+    }
+
+    #[test]
+    fn end_sequence_as_array_deserializes() {
+        let config = machine_with_field("end_sequence", r#"["G0 X0 Y0", "M2"]"#);
+        assert_eq!(config.end_sequence, Some("G0 X0 Y0\nM2".to_owned()));
     }
 }
