@@ -443,7 +443,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     }
 
     /// Maps [PathSegments](PathSegment) into concrete operations.
-    pub fn apply_path(&mut self, path: impl IntoIterator<Item = PathSegment>) {
+    pub fn apply_path(&mut self, path: impl IntoIterator<Item = PathSegment>, stroke_width: f64) {
         use PathSegment::*;
         self.begin();
         self.reset();
@@ -457,7 +457,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
                 MoveTo { abs, x, y } => {
                     if !commands.is_empty() {
                         self.turtle
-                            .stroke(Stroke::new(start_point, std::mem::take(&mut commands)));
+                            .stroke(Stroke::with_width(start_point, std::mem::take(&mut commands), stroke_width));
                     }
                     start_point = self.move_to(abs, x, y);
                     if let Some(comment) = pending_comment.take() {
@@ -470,7 +470,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
                     }
                     if !commands.is_empty() {
                         self.turtle
-                            .stroke(Stroke::new(start_point, std::mem::take(&mut commands)));
+                            .stroke(Stroke::with_width(start_point, std::mem::take(&mut commands), stroke_width));
                     }
                 }
                 LineTo { abs, x, y } => {
@@ -540,7 +540,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
 
         if !commands.is_empty() {
             self.turtle
-                .stroke(Stroke::new(start_point, std::mem::take(&mut commands)));
+                .stroke(Stroke::with_width(start_point, std::mem::take(&mut commands), stroke_width));
         }
     }
 
@@ -572,7 +572,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             current_bounds: self.current_bounds,
             bounds_stack: vec![],
         };
-        sub.apply_path(segments);
+        sub.apply_path(segments, 0.0);
         let segments = sub.finish().into_strokes();
         for polygon in self::elements::fill::into_fill_polygons(segments, fill_rule) {
             self.turtle.fill_polygon(polygon);

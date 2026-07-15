@@ -35,6 +35,10 @@ fn get_actual(
         None,
         None,
         None,
+        None,
+        None,
+        None,
+        None,
     );
     svg_to_gcode(&document, &gcode_config, options, machine)
 }
@@ -274,6 +278,10 @@ fn issue_105_optimize_path_order_does_not_shrink_output() {
         SupportedFunctionality {
             circular_interpolation: false,
         },
+        None,
+        None,
+        None,
+        None,
         None,
         None,
         None,

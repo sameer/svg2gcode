@@ -77,13 +77,61 @@ impl<'input> GCodeTurtle<'input> {
         }
     }
 
-    fn line_to(&self, to: Point<f64>) -> Vec<Token<'input>> {
-        command!(LinearInterpolation {
-            X: self.round(to.x),
-            Y: self.round(to.y),
-            F: self.feedrate,
-        })
-        .into_token_vec()
+    /// Computes the Z for a drawing move given a stroke's SVG width.
+    ///
+    /// Returns:
+    /// if z_path is not configured: None
+    /// if z_emphasis or emphasis_stroke_width are not configured: z_path
+    /// if stroke-width = 1: z_path
+    /// if stroke-width > 1: interpolate toward z_emphasis. Clamped at z_emphasis if stroke-width >= emphasis_stroke_width.
+    /// if stroke-width < 1: extrapolate backward using the same slope. Clamped at z_travel.
+    fn z_for_stroke_width(&self, width: f64) -> Option<f64> {
+        let z_path = self.machine.z_path?;
+        let emphasis = match (self.machine.z_emphasis, self.machine.emphasis_stroke_width) {
+            (Some(ze), Some(esw)) if esw > 1.0 => Some((ze, esw)),
+            _ => None,
+        };
+
+        if width >= 1.0 {
+            match emphasis {
+                Some((z_emphasis, esw)) => {
+                    let t = ((width - 1.0) / (esw - 1.0)).min(1.0);
+                    Some(z_path + (z_emphasis - z_path) * t)
+                }
+                None => Some(z_path),
+            }
+        } else {
+            match emphasis {
+                Some((z_emphasis, esw)) => {
+                    let slope = (z_emphasis - z_path) / (esw - 1.0);
+                    let z_raw = z_path + slope * (width.max(0.0) - 1.0);
+                    Some(match self.machine.z_travel {
+                        Some(z_travel) => z_raw.clamp(z_travel.min(z_path), z_travel.max(z_path)),
+                        None => z_raw,
+                    })
+                }
+                None => Some(z_path),
+            }
+        }
+    }
+
+    fn line_to(&self, to: Point<f64>, z: Option<f64>) -> Vec<Token<'input>> {
+        if let Some(z) = z {
+            command!(LinearInterpolation {
+                X: self.round(to.x),
+                Y: self.round(to.y),
+                Z: z,
+                F: self.feedrate,
+            })
+            .into_token_vec()
+        } else {
+            command!(LinearInterpolation {
+                X: self.round(to.x),
+                Y: self.round(to.y),
+                F: self.feedrate,
+            })
+            .into_token_vec()
+        }
     }
 
     fn circular_interpolation(&self, svg_arc: SvgArc<f64>) -> Vec<Token<'input>> {
@@ -139,6 +187,8 @@ impl<'input> Turtle for GCodeTurtle<'input> {
     }
 
     fn stroke(&mut self, stroke: Stroke) {
+        let stroke_width = stroke.width;
+        let z_draw = self.z_for_stroke_width(stroke_width);
         let start = stroke.start_point();
         let mut commands = stroke.into_commands().peekable();
 
@@ -154,26 +204,46 @@ impl<'input> Turtle for GCodeTurtle<'input> {
             }
         }
 
-        self.program.append(
-            &mut command!(RapidPositioning {
-                X: self.round(start.x),
-                Y: self.round(start.y),
-            })
-            .into_token_vec(),
-        );
+        if let Some(z_travel) = self.machine.z_travel {
+            self.program.append(
+                &mut command!(RapidPositioning {
+                    Z: z_travel,
+                })
+                .into_token_vec(),
+            );
+            self.program.append(
+                &mut command!(RapidPositioning {
+                    X: self.round(start.x),
+                    Y: self.round(start.y),
+                    Z: z_travel,
+                })
+                .into_token_vec(),
+            );
+        } else {
+            self.program.append(
+                &mut command!(RapidPositioning {
+                    X: self.round(start.x),
+                    Y: self.round(start.y),
+                })
+                .into_token_vec(),
+            );
+        }
+
+        if let Some(z) = z_draw {
+            self.program.append(
+                &mut command!(RapidPositioning {
+                    Z: z,
+                })
+                .into_token_vec(),
+            );
+        }
+
         self.tool_on();
 
         for command in commands {
             match command {
                 DrawCommand::LineTo { from: _, to } => {
-                    self.program.append(
-                        &mut command!(LinearInterpolation {
-                            X: self.round(to.x),
-                            Y: self.round(to.y),
-                            F: self.feedrate,
-                        })
-                        .into_token_vec(),
-                    );
+                    self.program.append(&mut self.line_to(to, z_draw));
                 }
                 DrawCommand::Arc(svg_arc) => {
                     if self
@@ -188,14 +258,14 @@ impl<'input> Turtle for GCodeTurtle<'input> {
                                     self.program.append(&mut self.circular_interpolation(arc))
                                 }
                                 ArcOrLineSegment::Line(line) => {
-                                    self.line_to(line.to);
+                                    self.program.append(&mut self.line_to(line.to, z_draw));
                                 }
                             });
                     } else {
                         svg_arc
                             .to_arc()
                             .flattened(self.flattening_tolerance())
-                            .for_each(|point| self.program.append(&mut self.line_to(point)));
+                            .for_each(|point| self.program.append(&mut self.line_to(point, z_draw)));
                     };
                 }
                 DrawCommand::CubicBezier(cbs) => {
@@ -211,12 +281,12 @@ impl<'input> Turtle for GCodeTurtle<'input> {
                                     self.program.append(&mut self.circular_interpolation(arc))
                                 }
                                 ArcOrLineSegment::Line(line) => {
-                                    self.program.append(&mut self.line_to(line.to))
+                                    self.program.append(&mut self.line_to(line.to, z_draw))
                                 }
                             });
                     } else {
                         cbs.flattened(self.flattening_tolerance())
-                            .for_each(|point| self.program.append(&mut self.line_to(point)));
+                            .for_each(|point| self.program.append(&mut self.line_to(point, z_draw)));
                     };
                 }
                 DrawCommand::QuadraticBezier(qbs) => {
@@ -235,12 +305,12 @@ impl<'input> Turtle for GCodeTurtle<'input> {
                                 self.program.append(&mut self.circular_interpolation(arc))
                             }
                             ArcOrLineSegment::Line(line) => {
-                                self.program.append(&mut self.line_to(line.to))
+                                self.program.append(&mut self.line_to(line.to, z_draw))
                             }
                         });
                     } else {
                         qbs.flattened(self.flattening_tolerance())
-                            .for_each(|point| self.program.append(&mut self.line_to(point)));
+                            .for_each(|point| self.program.append(&mut self.line_to(point, z_draw)));
                     };
                 }
                 DrawCommand::Comment(comment) => {
@@ -260,5 +330,109 @@ impl<'input> Turtle for GCodeTurtle<'input> {
 
     fn fill_polygon(&mut self, _polygon: FillPolygon) {
         // TODO
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::SupportedFunctionality;
+
+    use super::*;
+
+    fn machine_with_z(
+        z_travel: Option<f64>,
+        z_path: Option<f64>,
+        z_emphasis: Option<f64>,
+        emphasis_stroke_width: Option<f64>,
+    ) -> Machine<'static> {
+        Machine::new(
+            SupportedFunctionality::default(),
+            None, None, None, None,
+            z_travel, z_path, z_emphasis, emphasis_stroke_width,
+        )
+    }
+
+    fn turtle_with_z(
+        z_travel: Option<f64>,
+        z_path: Option<f64>,
+        z_emphasis: Option<f64>,
+        emphasis_stroke_width: Option<f64>,
+    ) -> GCodeTurtle<'static> {
+        GCodeTurtle {
+            machine: machine_with_z(z_travel, z_path, z_emphasis, emphasis_stroke_width),
+            tolerance: 0.1,
+            feedrate: 300.0,
+            program: vec![],
+        }
+    }
+
+    #[test]
+    fn z_for_stroke_width_none_when_z_path_unset() {
+        let t = turtle_with_z(Some(5.0), None, Some(-2.0), Some(3.0));
+        assert_eq!(t.z_for_stroke_width(0.5), None);
+        assert_eq!(t.z_for_stroke_width(1.0), None);
+        assert_eq!(t.z_for_stroke_width(2.0), None);
+    }
+
+    #[test]
+    fn z_for_stroke_width_one_is_z_path() {
+        // width=1 is always z_path regardless of emphasis config
+        let t = turtle_with_z(Some(5.0), Some(0.0), Some(-2.0), Some(3.0));
+        assert_eq!(t.z_for_stroke_width(1.0), Some(0.0));
+    }
+
+    #[test]
+    fn z_for_stroke_width_returns_z_path_when_z_emphasis_unset() {
+        // z_emphasis unset → z_path for all widths including sub-1
+        let t = turtle_with_z(Some(5.0), Some(0.0), None, None);
+        assert_eq!(t.z_for_stroke_width(0.01), Some(0.0));
+        assert_eq!(t.z_for_stroke_width(0.5), Some(0.0));
+        assert_eq!(t.z_for_stroke_width(1.0), Some(0.0));
+        assert_eq!(t.z_for_stroke_width(5.0), Some(0.0));
+    }
+
+    #[test]
+    fn z_for_stroke_width_interpolates_above_one() {
+        // z_path=0, z_emphasis=-2, esw=3: slope=-1/unit above 1
+        // width=1→0, width=2→-1, width=3→-2, width=4→-2 (clamped)
+        let t = turtle_with_z(None, Some(0.0), Some(-2.0), Some(3.0));
+        assert_eq!(t.z_for_stroke_width(1.0), Some(0.0));
+        assert_eq!(t.z_for_stroke_width(2.0), Some(-1.0));
+        assert_eq!(t.z_for_stroke_width(3.0), Some(-2.0));
+        assert_eq!(t.z_for_stroke_width(4.0), Some(-2.0));
+    }
+
+    #[test]
+    fn z_for_stroke_width_extrapolates_below_one() {
+        // Same slope as above-1 region, extended backward from z_path at width=1
+        // z_path=0, z_emphasis=-2, esw=3: slope=-1/unit
+        // width=0.5 → z_raw = 0 + (-1)*(0.5-1) = 0.5, no z_travel → 0.5
+        // width=0.01 → z_raw = 0 + (-1)*(0.01-1) = 0.99
+        let t = turtle_with_z(None, Some(0.0), Some(-2.0), Some(3.0));
+        assert!((t.z_for_stroke_width(0.5).unwrap() - 0.5).abs() < 1e-9);
+        assert!((t.z_for_stroke_width(0.01).unwrap() - 0.99).abs() < 1e-9);
+    }
+
+    #[test]
+    fn z_for_stroke_width_sub_one_clamped_at_z_travel() {
+        // z_path=0, z_emphasis=-10, esw=2: slope=-10/unit
+        // width=0.5 → z_raw = 0 + (-10)*(0.5-1) = 5 → clamped at z_travel=3
+        // clamp triggers at width > 0.7 (z_raw=3 exactly when width=0.7)
+        let t = turtle_with_z(Some(3.0), Some(0.0), Some(-10.0), Some(2.0));
+        assert_eq!(t.z_for_stroke_width(0.5), Some(3.0));
+        assert!((t.z_for_stroke_width(0.7).unwrap() - 3.0).abs() < 1e-9);
+        assert!((t.z_for_stroke_width(0.9).unwrap() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn z_for_stroke_width_returns_z_path_when_esw_at_or_below_one() {
+        // esw ≤ 1.0 makes no sense for this model; falls back to z_path for all widths
+        let t = turtle_with_z(None, Some(0.0), Some(-2.0), Some(1.0));
+        assert_eq!(t.z_for_stroke_width(0.5), Some(0.0));
+        assert_eq!(t.z_for_stroke_width(1.0), Some(0.0));
+        assert_eq!(t.z_for_stroke_width(2.0), Some(0.0));
+        let t = turtle_with_z(None, Some(0.0), Some(-2.0), Some(0.5));
+        assert_eq!(t.z_for_stroke_width(0.5), Some(0.0));
+        assert_eq!(t.z_for_stroke_width(1.0), Some(0.0));
     }
 }
