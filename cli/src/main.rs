@@ -122,9 +122,7 @@ fn main() -> io::Result<()> {
 
     let settings = {
         let mut settings = if let Some(path) = opt.settings {
-            let defaults = serde_json::to_value(Settings::default()).unwrap();
-            let overrides = serde_json::from_reader(File::open(path)?)?;
-            serde_json::from_value(merge(defaults, overrides))?
+            serde_json::from_reader(File::open(path)?)?
         } else {
             Settings::default()
         };
@@ -384,18 +382,5 @@ fn main() -> io::Result<()> {
             },
             std::io::stdout(),
         )
-    }
-}
-
-fn merge(defaults: serde_json::Value, overrides: serde_json::Value) -> serde_json::Value {
-    match (defaults, overrides) {
-        (serde_json::Value::Object(mut defaults), serde_json::Value::Object(overrides)) => {
-            for (k, v) in overrides {
-                let existing = defaults.remove(&k).unwrap_or(serde_json::Value::Null);
-                defaults.insert(k, merge(existing, v));
-            }
-            serde_json::Value::Object(defaults)
-        }
-        (_, overrides) => overrides,
     }
 }
