@@ -30,23 +30,21 @@ mod visit;
 /// High-level output configuration
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct ConversionConfig {
     /// Dots per inch for pixels, picas, points, etc.
     pub dpi: f64,
     /// Set the origin point in millimeters for this conversion
-    #[cfg_attr(feature = "serde", serde(default = "zero_origin"))]
     pub origin: [Option<f64>; 2],
     /// Set extra attribute to add when printing node name
     pub extra_attribute_name: Option<String>,
     /// Reorder paths to minimize travel time
-    #[cfg_attr(feature = "serde", serde(default))]
     pub optimize_path_order: bool,
     /// CSS selector to filter which SVG elements are converted.
     ///
     /// Only the `:not`, `:is`, and `:has` pseudo classes are supported.
     ///
     /// <https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Selectors>
-    #[cfg_attr(feature = "serde", serde(default))]
     pub selector_filter: Option<String>,
     pub starting_point: [Option<f64>; 2],
 }

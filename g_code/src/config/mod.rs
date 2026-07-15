@@ -74,6 +74,7 @@ mod v5;
 
 /// A cross-platform type used to store all configuration types.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Settings {
     pub conversion: GCodeConfig,
@@ -84,6 +85,7 @@ pub struct Settings {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct MachineConfig {
     pub supported_functionality: SupportedFunctionality,
@@ -110,6 +112,7 @@ pub struct MachineConfig {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct GCodeConfig {
     #[cfg_attr(feature = "serde", serde(flatten))]
@@ -130,6 +133,7 @@ impl Default for GCodeConfig {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct SupportedFunctionality {
     /// Indicates support for G2/G3 circular interpolation.
     ///
@@ -138,17 +142,15 @@ pub struct SupportedFunctionality {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 #[derive(Debug, Default, Clone, PartialEq)]
 /// Operations performed after G-Code generation.
 pub struct PostprocessConfig {
     /// Convenience field for [g_code::emit::FormatOptions] field
-    #[cfg_attr(feature = "serde", serde(default))]
     pub checksums: bool,
     /// Convenience field for [g_code::emit::FormatOptions] field
-    #[cfg_attr(feature = "serde", serde(default))]
     pub line_numbers: bool,
     /// Convenience field for [g_code::emit::FormatOptions] field
-    #[cfg_attr(feature = "serde", serde(default))]
     pub newline_before_comment: bool,
 }
 
