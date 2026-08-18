@@ -19,6 +19,7 @@ rust_decimal = { version = "1", default-features = false }
 lyon_geom.workspace = true
 roxmltree.workspace = true
 paste.workspace = true
+serde_json.workspace = true
 
 [dependencies.serde]
 workspace = true

@@ -1,0 +1,42 @@
+FROM rust:latest as builder
+
+WORKDIR /build
+
+# Copy Rust project files
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY g_code ./g_code
+COPY star ./star
+COPY web ./web
+
+# Build the CLI tool (release mode for optimization)
+RUN cargo build --release --bin svg2gcode
+
+# Final image - lightweight
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    lsof \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy binary from builder
+COPY --from=builder /build/target/release/svg2gcode /usr/local/bin/svg2gcode-cli
+
+# Copy watcher script
+COPY svg2gcode-watcher.sh /usr/local/bin/svg2gcode-watcher.sh
+RUN chmod +x /usr/local/bin/svg2gcode-watcher.sh
+
+# Create non-root user
+RUN useradd -r -s /bin/false svg2gcode
+
+USER svg2gcode
+
+WORKDIR /data
+
+# Health check - verify binary works
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD svg2gcode-cli --help > /dev/null 2>&1 || exit 1
+
+ENTRYPOINT ["/usr/local/bin/svg2gcode-watcher.sh"]
+CMD ["/data", "2"]

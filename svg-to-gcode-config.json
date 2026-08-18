@@ -1,0 +1,32 @@
+{
+  "daemon": {
+    "watch_dir": "/mnt/raid1/gcode",
+    "api_port": 8765,
+    "log_level": "INFO",
+    "log_file": "/var/log/svg-to-gcode/daemon.log"
+  },
+  "label_history": {
+    "enabled": true,
+    "db_path": "/var/lib/svg-to-gcode/labels.db",
+    "retention_days": 730
+  },
+  "label_archive": {
+    "enabled": true,
+    "base_path": "/mnt/raid1/label-archive",
+    "compression": "gzip",
+    "cleanup_days": 2555
+  },
+  "webhooks": {
+    "enabled": true,
+    "endpoints": [
+      {
+        "url": "http://localhost:8080/webhooks/svg2gcode",
+        "events": ["job.completed", "labels.printed"],
+        "secret": "default-webhook-secret-change-me",
+        "active": true
+      }
+    ],
+    "timeout_seconds": 10,
+    "max_retries": 3
+  }
+}

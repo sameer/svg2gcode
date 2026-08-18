@@ -1,0 +1,18 @@
+[Unit]
+Description=Watch for SVG files to convert to G-code
+Documentation=https://github.com/Electric-Bluefish-Productions-Inc/Appletots-Laser
+
+[Path]
+# Watch for new or modified SVG files
+PathModified=/mnt/raid1/gcode
+PathExistGlob=/mnt/raid1/gcode/*.svg
+PathExistGlob=/mnt/raid1/gcode/*.SVG
+
+# Create directory if it doesn't exist
+MakeDirectory=yes
+
+# Debounce delay (500ms) - wait for file to stabilize
+Unit=svg-to-gcode.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+.git
+.gitignore
+.github
+*.md
+test-*.sh
+install-*.sh
+Cargo.lock
+Cargo.toml
+examples/
+.env
+.env.local
+*.log
+node_modules/

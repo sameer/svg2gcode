@@ -1,0 +1,45 @@
+[Unit]
+Description=SVG to G-code Conversion Daemon
+Documentation=https://github.com/Electric-Bluefish-Productions-Inc/Appletots-Laser
+After=network.target
+Wants=svg-to-gcode.path
+
+[Service]
+Type=simple
+User=svg2gcode
+Group=svg2gcode
+WorkingDirectory=/opt/svg-to-gcode
+
+# Start daemon with config
+ExecStart=/usr/bin/python3 /opt/svg-to-gcode/svg-to-gcode-daemon.py \
+    --config /etc/svg-to-gcode/config.json \
+    --host 0.0.0.0 \
+    --port 8765
+
+# Restart on failure
+Restart=on-failure
+RestartSec=10
+
+# Process management
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=50%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=svg2gcode
+
+# Hardening
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/svg-to-gcode /var/log/svg-to-gcode /mnt/raid1
+
+[Install]
+WantedBy=multi-user.target

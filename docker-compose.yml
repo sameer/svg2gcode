@@ -1,0 +1,134 @@
+# Docker Compose v2 format (version field is optional but kept for compatibility)
+version: '3.8'
+
+services:
+  # Phase 1-3: SVG to G-code Converter
+  # Watches /mnt/raid1/gcode for SVG files and converts them to G-code
+  svg2gcode-converter:
+    image: svg2gcode-converter:latest
+    container_name: svg2gcode-converter
+
+    # Environment configuration
+    environment:
+      - FEEDRATE=1000
+      - TOLERANCE=0.5
+      - DPI=96
+      - LOG_LEVEL=INFO
+
+    # Volume mounts
+    volumes:
+      # Shared watch directory (read-write for input SVGs and output G-code)
+      - /mnt/raid1/gcode:/data:rw
+
+      # Optional: Config file for conversion settings
+      - ./config/svg2gcode-settings.json:/etc/svg2gcode/settings.json:ro
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Network
+    networks:
+      - svg2gcode-network
+
+  # Phase 4: Label Tracking, History & Webhooks
+  # REST API for managing labels, archives, and webhook notifications
+  svg2gcode-daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: svg2gcode-daemon
+
+    depends_on:
+      - svg2gcode-converter
+
+    # Environment configuration (overrides config.json values)
+    environment:
+      - SVG2GCODE_LOG_LEVEL=INFO
+      - ENABLE_FILE_WATCH=true
+      - WATCH_INTERVAL=2
+
+    # Port mapping
+    ports:
+      - "8765:8765"
+
+    # Volume mounts
+    volumes:
+      # Application configuration (read-only)
+      - ./config/config.json:/etc/svg-to-gcode/config.json:ro
+
+      # Persistent data volumes
+      - svg2gcode-db:/var/lib/svg-to-gcode
+      - svg2gcode-logs:/var/log/svg-to-gcode
+
+      # Watch and archive directories (bind mounts to RAID storage)
+      - /mnt/raid1/gcode:/mnt/raid1/gcode:rw
+      - /mnt/raid1/label-archive:/mnt/raid1/label-archive:rw
+
+    # Resource limits (matching systemd MemoryMax=512M, CPUQuota=50%)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Health check endpoint
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Network
+    networks:
+      - svg2gcode-network
+
+# Named volumes for persistent data
+volumes:
+  svg2gcode-db:
+    driver: local
+  svg2gcode-logs:
+    driver: local
+
+# Custom network (allows service-to-service communication)
+networks:
+  svg2gcode-network:
+    driver: bridge

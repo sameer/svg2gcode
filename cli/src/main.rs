@@ -109,6 +109,12 @@ struct Opt {
     /// Starting point , usefull only if try optimize path
     #[arg(long)]
     starting_point: Option<String>,
+    /// Extract layer metadata and output as JSON instead of converting
+    #[arg(long)]
+    extract_layers: bool,
+    /// Color-to-feed/power mapping configuration file (JSON)
+    #[arg(long)]
+    color_mapping: Option<std::path::PathBuf>,
 }
 
 fn main() -> io::Result<()> {
@@ -358,6 +364,42 @@ fn main() -> io::Result<()> {
         },
     )
     .unwrap();
+
+    // Handle --extract-layers flag
+    if opt.extract_layers {
+        use svg2gcode::extract_layer_metadata;
+        let mut metadata = extract_layer_metadata(&document);
+
+        // Apply color mapping if provided
+        if let Some(color_mapping_path) = opt.color_mapping {
+            if let Ok(mapping) = svg2gcode::layer_metadata::ColorMappingConfig::from_json_file(
+                &color_mapping_path,
+            ) {
+                for layer in &mut metadata.layers {
+                    if let Some(stroke) = &layer.stroke {
+                        if let Some((feed, power)) = mapping.lookup_color(stroke) {
+                            layer.feed = layer.feed.or(feed);
+                            layer.power = layer.power.or(power);
+                        }
+                    }
+                    if let Some(stroke_width) = layer.stroke_width {
+                        if let Some((feed, power)) = mapping.lookup_stroke_width(stroke_width) {
+                            layer.feed = layer.feed.or(feed);
+                            layer.power = layer.power.or(power);
+                        }
+                    }
+                }
+            }
+        }
+
+        let json = serde_json::to_string_pretty(&metadata)?;
+        if let Some(out_path) = opt.out {
+            File::create(out_path)?.write_all(json.as_bytes())?;
+        } else {
+            println!("{}", json);
+        }
+        return Ok(());
+    }
 
     let program = svg_to_gcode(&document, &settings.conversion, options, machine);
 

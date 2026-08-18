@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100mm" height="100mm">
+  <!-- Pattern: shirt_v2 -->
+
+  <!-- Layer: front_left (cut - red stroke) -->
+  <g id="front_left" stroke="rgb(255,0,0)" stroke-width="2" fill="none">
+    <rect x="10" y="10" width="20" height="30"/>
+  </g>
+
+  <!-- Layer: front_right (cut - red stroke) -->
+  <g id="front_right" stroke="rgb(255,0,0)" stroke-width="2" fill="none">
+    <rect x="35" y="10" width="20" height="30"/>
+  </g>
+
+  <!-- Layer: back (engrave - green stroke) -->
+  <g id="back" stroke="rgb(0,255,0)" stroke-width="1" fill="none">
+    <rect x="60" y="10" width="20" height="30"/>
+  </g>
+</svg>

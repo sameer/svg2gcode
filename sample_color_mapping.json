@@ -1,0 +1,38 @@
+{
+  "default_feed": 3000,
+  "default_power": 80,
+  "color_mappings": [
+    {
+      "rgb": "rgb(255,0,0)",
+      "feed": 3000,
+      "power": 80,
+      "description": "cut_red"
+    },
+    {
+      "rgb": "rgb(0,255,0)",
+      "feed": 2000,
+      "power": 60,
+      "description": "engrave_green"
+    },
+    {
+      "rgb": "rgb(0,0,255)",
+      "feed": 1500,
+      "power": 40,
+      "description": "score_blue"
+    }
+  ],
+  "stroke_width_mappings": [
+    {
+      "width_mm": 0.5,
+      "feed": 4000,
+      "power": 90,
+      "description": "thin_cut"
+    },
+    {
+      "width_mm": 1.0,
+      "feed": 2500,
+      "power": 70,
+      "description": "normal_cut"
+    }
+  ]
+}
