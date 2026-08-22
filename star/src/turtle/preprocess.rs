@@ -3,6 +3,7 @@ use std::iter;
 use lyon_geom::Box2D;
 
 use super::{Turtle, elements::FillPolygon};
+use crate::turtle::elements::DrawCommand;
 
 /// Generates a bounding box for all draw operations, used to properly apply [crate::lower::ConversionConfig::origin]
 #[derive(Debug, Default)]
@@ -35,27 +36,27 @@ impl Turtle for PreprocessTurtle {
         self.bounding_box = iter::once(polygon.outer)
             .chain(polygon.holes)
             .flat_map(|s| s.into_commands())
-            .filter_map(|c| c.bounding_box())
+            .map(|c| c.bounding_box())
             .fold(self.bounding_box, |acc, b| {
                 Box2D::from_points([acc.min, acc.max, b.min, b.max])
             });
     }
 
     fn stroke(&mut self, stroke: super::elements::Stroke) {
-        self.bounding_box = Box2D::from_points([
-            self.bounding_box.min,
-            self.bounding_box.max,
-            stroke.start_point(),
-        ]);
-        for command in stroke.into_commands() {
-            if let Some(b) = command.bounding_box() {
-                self.bounding_box = Box2D::from_points([
-                    self.bounding_box.min,
-                    self.bounding_box.max,
-                    b.min,
-                    b.max,
-                ]);
-            }
-        }
+        self.bounding_box = stroke.commands().map(DrawCommand::bounding_box).fold(
+            Box2D::from_points([
+                self.bounding_box.min,
+                self.bounding_box.max,
+                stroke.start_point(),
+            ]),
+            |bounding_box, cmd_bbox| {
+                Box2D::from_points([
+                    bounding_box.min,
+                    bounding_box.max,
+                    cmd_bbox.min,
+                    cmd_bbox.max,
+                ])
+            },
+        );
     }
 }

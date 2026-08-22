@@ -1,6 +1,8 @@
 use std::fmt::Debug;
 
-use lyon_geom::{CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc, Vector, point, vector};
+use lyon_geom::{
+    CubicBezierSegment, LineSegment, Point, QuadraticBezierSegment, SvgArc, Vector, point, vector,
+};
 use uom::si::{
     f64::Length,
     length::{inch, millimeter},
@@ -45,15 +47,18 @@ impl<T: Turtle> DpiConvertingTurtle<T> {
     }
 
     fn stroke_to_mm(&self, stroke: Stroke) -> Stroke {
+        let comment = stroke.comment().map(ToString::to_string);
         Stroke::new(
             self.point_to_mm(stroke.start_point()),
             stroke
                 .into_commands()
                 .map(|cmd| match cmd {
-                    DrawCommand::LineTo { from, to } => DrawCommand::LineTo {
-                        from: self.point_to_mm(from),
-                        to: self.point_to_mm(to),
-                    },
+                    DrawCommand::LineTo(LineSegment { from, to }) => {
+                        DrawCommand::LineTo(LineSegment {
+                            from: self.point_to_mm(from),
+                            to: self.point_to_mm(to),
+                        })
+                    }
                     DrawCommand::Arc(SvgArc {
                         from,
                         to,
@@ -85,9 +90,9 @@ impl<T: Turtle> DpiConvertingTurtle<T> {
                             to: self.point_to_mm(to),
                         })
                     }
-                    DrawCommand::Comment(s) => DrawCommand::Comment(s),
                 })
                 .collect(),
+            comment,
         )
     }
 }

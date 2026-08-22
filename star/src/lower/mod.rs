@@ -79,11 +79,18 @@ pub struct ConversionOptions {
     pub dimensions: [Option<Length>; 2],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TemplatedExpansion {
+    Use,
+    Pattern,
+    Marker,
+}
+
 /// Maps SVG [`Node`]s and their attributes into operations on a [`Terrarium`]
 #[derive(Debug)]
 struct ConversionVisitor<'a, 'input, T: Turtle> {
     terrarium: Terrarium<T>,
-    /// Whether to flip the Y axis to convert from SVG (Y-down) to the output coordinate system.
+    /// Whether to flip the Y axis to convert from SVG (Y-down) to the output coordinate system (Y-up?).
     coordinate_system: CoordinateSystem,
     name_stack: Vec<String>,
     /// Used to convert percentage values
@@ -94,6 +101,8 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
     selector_filter: Option<selector::SelectorList>,
     /// Resolved CSS class rules
     css_rules: HashMap<&'input str, HashMap<&'input str, &'input str>>,
+    /// Stack of active template expansion scopes.
+    expansion_stack: Vec<TemplatedExpansion>,
 }
 
 impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
@@ -115,9 +124,11 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
     }
 
     fn should_draw_node(&self, node: Node) -> bool {
-        self.selector_filter
-            .as_ref()
-            .is_none_or(|s| s.matches(node))
+        !self.expansion_stack.is_empty()
+            || self
+                .selector_filter
+                .as_ref()
+                .is_none_or(|s| s.matches(node))
     }
 
     fn begin(&mut self) {
@@ -169,6 +180,7 @@ pub fn svg_to_turtle<T: Turtle>(
             viewport_dim_stack: vec![],
             selector_filter: selector_filter.clone(),
             css_rules: visit::parse_css(doc),
+            expansion_stack: vec![],
         };
 
         visitor.begin();
@@ -213,6 +225,7 @@ pub fn svg_to_turtle<T: Turtle>(
         viewport_dim_stack: vec![],
         selector_filter: selector_filter.clone(),
         css_rules: visit::parse_css(doc),
+        expansion_stack: vec![],
     };
 
     conversion_visitor
@@ -259,6 +272,7 @@ fn svg_to_optimized_strokes(
         viewport_dim_stack: vec![],
         selector_filter,
         css_rules: visit::parse_css(doc),
+        expansion_stack: vec![],
     };
     collect_visitor.terrarium.push_transform(origin_transform);
     collect_visitor.begin();

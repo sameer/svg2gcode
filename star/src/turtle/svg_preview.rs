@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use lyon_geom::{Box2D, Point};
+use lyon_geom::{Box2D, LineSegment, Point};
 
 use super::{
     Turtle,
@@ -88,7 +88,7 @@ impl Turtle for SvgPreviewTurtle {
         write!(path, "<path d=\"M {},{} ", start.x, start.y).unwrap();
         for command in stroke.into_commands() {
             match command {
-                DrawCommand::LineTo { from: _, to } => {
+                DrawCommand::LineTo(LineSegment { from: _, to }) => {
                     write!(path, "L {},{} ", to.x, to.y).unwrap();
                     self.add_point(to);
                     self.current_pos = to;
@@ -129,7 +129,6 @@ impl Turtle for SvgPreviewTurtle {
                     self.add_box(qbs.bounding_box());
                     self.current_pos = qbs.to;
                 }
-                DrawCommand::Comment(_) => {}
             }
         }
         writeln!(

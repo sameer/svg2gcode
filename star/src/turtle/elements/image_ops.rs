@@ -72,8 +72,6 @@ pub fn transform_image(
         // During non-aligned rotation, the corners need to be transparent
         image = add_alpha_channel(image);
 
-
-
         let scale_x = image_to_final.transform_vector(vector(1.0, 0.0)).length();
         let scale_y = image_to_final.transform_vector(vector(0.0, 1.0)).length();
 

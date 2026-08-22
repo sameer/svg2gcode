@@ -1,9 +1,9 @@
 //! Atomic units operated on by a turtle.
 
-use std::mem::swap;
+use std::{mem::swap, ops::Range};
 
-use lyon_geom::Box2D;
 pub use lyon_geom::{ArcFlags, CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc, Vector};
+use lyon_geom::{Box2D, LineSegment};
 
 pub use self::{
     arc::{ArcOrLineSegment, FlattenWithArcs, Transformed},
@@ -16,6 +16,10 @@ mod arc;
 /// Reorders strokes to minimize pen-up travel using TSP heuristics
 mod tsp;
 
+/// Find intersections between curves and lines in parameterized (t, u) form.
+mod intersect;
+
+pub(crate) mod clip;
 pub(crate) mod fill;
 
 #[cfg(feature = "image")]
@@ -55,54 +59,64 @@ pub struct RasterImage {
 }
 
 /// Atomic unit of a [Stroke].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum DrawCommand {
-    LineTo {
-        from: Point<f64>,
-        to: Point<f64>,
-    },
+    LineTo(LineSegment<f64>),
     Arc(SvgArc<f64>),
     CubicBezier(CubicBezierSegment<f64>),
     QuadraticBezier(QuadraticBezierSegment<f64>),
-    /// Largely for debugging purposes.
-    Comment(String),
 }
 
 impl DrawCommand {
     pub fn start_point(&self) -> Option<Point<f64>> {
         match self {
-            Self::LineTo { from, .. } => Some(*from),
+            Self::LineTo(line) => Some(line.from),
             Self::Arc(arc) => Some(arc.from),
             Self::CubicBezier(cbs) => Some(cbs.from),
             Self::QuadraticBezier(qbs) => Some(qbs.from),
-            Self::Comment(_) => None,
         }
     }
 
-    pub fn end_point(&self) -> Option<Point<f64>> {
+    pub fn set_start_point(&mut self, pt: Point<f64>) {
         match self {
-            Self::LineTo { to, .. } => Some(*to),
-            Self::Arc(arc) => Some(arc.to),
-            Self::CubicBezier(cbs) => Some(cbs.to),
-            Self::QuadraticBezier(qbs) => Some(qbs.to),
-            Self::Comment(_) => None,
+            Self::LineTo(line) => line.from = pt,
+            Self::Arc(arc) => arc.from = pt,
+            Self::CubicBezier(cbs) => cbs.from = pt,
+            Self::QuadraticBezier(qbs) => qbs.from = pt,
         }
     }
 
-    pub fn bounding_box(&self) -> Option<Box2D<f64>> {
+    pub fn end_point(&self) -> Point<f64> {
         match self {
-            Self::LineTo { from, to } => Some(Box2D::from_points([*from, *to])),
-            Self::Arc(arc) => Some(arc.to_arc().bounding_box()),
-            Self::CubicBezier(cbs) => Some(cbs.bounding_box()),
-            Self::QuadraticBezier(qbs) => Some(qbs.bounding_box()),
-            Self::Comment(_) => None,
+            Self::LineTo(line) => line.to,
+            Self::Arc(arc) => arc.to,
+            Self::CubicBezier(cbs) => cbs.to,
+            Self::QuadraticBezier(qbs) => qbs.to,
+        }
+    }
+
+    pub fn set_end_point(&mut self, pt: Point<f64>) {
+        match self {
+            Self::LineTo(line) => line.to = pt,
+            Self::Arc(arc) => arc.to = pt,
+            Self::CubicBezier(cbs) => cbs.to = pt,
+            Self::QuadraticBezier(qbs) => qbs.to = pt,
+        }
+    }
+
+    pub fn bounding_box(&self) -> Box2D<f64> {
+        match self {
+            Self::LineTo(line) => line.bounding_box(),
+            Self::Arc(arc) => arc.to_arc().bounding_box(),
+            Self::CubicBezier(cbs) => cbs.bounding_box(),
+            Self::QuadraticBezier(qbs) => qbs.bounding_box(),
         }
     }
 
     pub fn reverse(&mut self) {
         match self {
-            Self::LineTo { from, to } => {
-                swap(from, to);
+            Self::LineTo(line) => {
+                swap(&mut line.from, &mut line.to);
             }
             Self::Arc(arc) => {
                 swap(&mut arc.to, &mut arc.from);
@@ -115,7 +129,37 @@ impl DrawCommand {
             Self::QuadraticBezier(qbs) => {
                 swap(&mut qbs.from, &mut qbs.to);
             }
-            Self::Comment(_) => {}
+        }
+    }
+
+    pub fn sample(&self, t: f64) -> Point<f64> {
+        match self {
+            Self::LineTo(line) => line.sample(t),
+            Self::Arc(arc) => arc.to_arc().sample(t),
+            Self::CubicBezier(cbs) => cbs.sample(t),
+            Self::QuadraticBezier(qbs) => qbs.sample(t),
+        }
+    }
+
+    /// Returns a sub-curve within the given t-range.
+    pub fn split_range(&self, range: Range<f64>) -> Self {
+        match self {
+            Self::LineTo(line) => Self::LineTo(line.split_range(range)),
+            Self::Arc(svg_arc) => {
+                let sub_arc = svg_arc.to_arc().split_range(range);
+                Self::Arc(SvgArc {
+                    from: sub_arc.from(),
+                    to: sub_arc.to(),
+                    radii: svg_arc.radii,
+                    x_rotation: svg_arc.x_rotation,
+                    flags: ArcFlags {
+                        large_arc: sub_arc.sweep_angle.radians.abs() >= std::f64::consts::PI,
+                        sweep: sub_arc.sweep_angle.radians.is_sign_positive(),
+                    },
+                })
+            }
+            Self::CubicBezier(cbs) => Self::CubicBezier(cbs.split_range(range)),
+            Self::QuadraticBezier(qbs) => Self::QuadraticBezier(qbs.split_range(range)),
         }
     }
 }
@@ -125,22 +169,27 @@ impl DrawCommand {
 pub struct Stroke {
     start_point: Point<f64>,
     commands: Vec<DrawCommand>,
+    /// Largely for debugging purposes.
+    comment: Option<String>,
 }
 
 impl Stroke {
-    pub fn new(start_point: Point<f64>, commands: Vec<DrawCommand>) -> Self {
+    pub fn new(
+        start_point: Point<f64>,
+        commands: Vec<DrawCommand>,
+        comment: Option<String>,
+    ) -> Self {
         Self {
             start_point,
             commands,
+            comment,
         }
     }
 
     pub fn end_point(&self) -> Point<f64> {
         self.commands
-            .iter()
-            .rev()
-            .find_map(DrawCommand::end_point)
-            .unwrap_or(self.start_point)
+            .last()
+            .map_or(self.start_point, |last| last.end_point())
     }
 
     /// Reverses the stroke so it runs from [Self::end_point] to [Self::start_point].
@@ -169,12 +218,13 @@ impl Stroke {
 
     /// Calculate the bounding box of the stroke.
     pub fn bounding_box(&self) -> Box2D<f64> {
-        let mut bbox = Box2D::new(self.start_point, self.start_point);
-        for command in &self.commands {
-            if let Some(b) = command.bounding_box() {
-                bbox = Box2D::from_points([bbox.min, bbox.max, b.min, b.max]);
-            }
-        }
-        bbox
+        self.commands().map(DrawCommand::bounding_box).fold(
+            Box2D::new(self.start_point, self.start_point),
+            |bbox, cmd_bbox| Box2D::from_points([bbox.min, bbox.max, cmd_bbox.min, cmd_bbox.max]),
+        )
+    }
+
+    pub fn comment(&self) -> Option<&str> {
+        self.comment.as_deref()
     }
 }

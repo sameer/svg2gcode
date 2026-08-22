@@ -21,6 +21,7 @@ log.workspace = true
 uom.workspace = true
 roxmltree.workspace = true
 svgtypes.workspace = true
+smallvec.workspace = true
 
 [dependencies.serde]
 workspace = true
