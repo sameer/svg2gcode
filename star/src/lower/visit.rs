@@ -29,7 +29,6 @@ const RECT_TAG_NAME: &str = "rect";
 const CIRCLE_TAG_NAME: &str = "circle";
 const ELLIPSE_TAG_NAME: &str = "ellipse";
 const LINE_TAG_NAME: &str = "line";
-const GROUP_TAG_NAME: &str = "g";
 const DEFS_TAG_NAME: &str = "defs";
 const USE_TAG_NAME: &str = "use";
 const MARKER_TAG_NAME: &str = "marker";

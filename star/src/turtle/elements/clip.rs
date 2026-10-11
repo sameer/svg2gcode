@@ -26,13 +26,15 @@ impl ClipStack {
                     iter::once(&polygon.outer)
                         .chain(&polygon.holes)
                         .flat_map(|stroke| {
-                            stroke.commands().copied().chain(
-                                Some(DrawCommand::LineTo(LineSegment {
-                                    from: stroke.end_point(),
-                                    to: stroke.start_point(),
-                                }))
-                                .filter(|_| !stroke.is_closed()),
-                            )
+                            stroke
+                                .commands()
+                                .copied()
+                                .chain((!stroke.is_closed()).then_some(DrawCommand::LineTo(
+                                    LineSegment {
+                                        from: stroke.end_point(),
+                                        to: stroke.start_point(),
+                                    },
+                                )))
                         })
                 })
                 .collect(),
