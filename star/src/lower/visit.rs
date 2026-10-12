@@ -1,4 +1,4 @@
-use std::{collections::HashMap, iter, str::FromStr};
+use std::{collections::HashMap, iter, result::Result, str::FromStr};
 
 use euclid::default::Transform2D;
 use log::{debug, warn};
@@ -65,7 +65,7 @@ fn calculate_presentation_attr<'input>(
     name: &'input str,
     css_rules: &HashMap<&'input str, HashMap<&'input str, &'input str>>,
 ) -> Option<&'input str> {
-    for current in iter::successors(Some(node), |n| n.parent()) {
+    for current in iter::successors(Some(node), Node::parent) {
         if !current.is_element() {
             continue;
         }
@@ -102,7 +102,7 @@ fn get_node_presentation_attr<'input>(
                     .find_map(|cls| css_rules.get(cls)?.get(name).copied())
             })
         })
-        .or_else(|| node.attribute(name).map(|attr| attr.trim()))
+        .or_else(|| node.attribute(name).map(str::trim))
 }
 
 /// Barebones CSS class rules parser.
@@ -171,7 +171,7 @@ fn should_render_node(node: Node, expanding_template: Option<TemplatedExpansion>
 fn find_node_by_id<'a, 'input>(doc: &'a Document<'input>, id: &str) -> Option<Node<'a, 'input>> {
     doc.root()
         .descendants()
-        .find(|n| n.attribute("id").map(|nid| nid.trim()) == Some(id))
+        .find(|n| n.attribute("id").map(str::trim) == Some(id))
 }
 
 /// Resolve `href` or `xlink:href` on a `<use>` element to a document node.
@@ -226,7 +226,9 @@ pub fn depth_first_visit<'a, 'input, V: XmlVisitor<'a, 'input>>(
 
 impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'input, T> {
     fn visit_enter(&mut self, node: Node<'a, 'input>) {
-        use PathSegment::*;
+        use PathSegment::{
+            ClosePath, EllipticalArc, HorizontalLineTo, LineTo, MoveTo, VerticalLineTo,
+        };
 
         let mut view_box_opt = None;
         let mut viewport_pos_opt = [None, None];
@@ -258,16 +260,12 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         // https://www.w3.org/TR/css-transforms-1/#transform-origin-property
         if let Some(to_str) = node.attribute("transform-origin") {
             let mut parser = LengthListParser::from(to_str);
-            let ox = parser
-                .next()
-                .and_then(|r| r.ok())
-                .map(|l| self.length_to_user_units(l, DimensionHint::Horizontal))
-                .unwrap_or(0.);
-            let oy = parser
-                .next()
-                .and_then(|r| r.ok())
-                .map(|l| self.length_to_user_units(l, DimensionHint::Vertical))
-                .unwrap_or(0.);
+            let ox = parser.next().and_then(Result::ok).map_or(0., |l| {
+                self.length_to_user_units(l, DimensionHint::Horizontal)
+            });
+            let oy = parser.next().and_then(Result::ok).map_or(0., |l| {
+                self.length_to_user_units(l, DimensionHint::Vertical)
+            });
             if ox != 0. || oy != 0. {
                 // https://www.w3.org/TR/css-transforms-1/#transformation-matrix-computation
                 // Steps 2 & 4
@@ -311,7 +309,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             let intrinsic_aspect_ratio = match (view_box, viewport_size) {
                 (None, [Some(ref width), Some(ref height)]) => Some(*width / *height),
                 (Some(ref view_box), _) => Some(view_box.w / view_box.h),
-                (None, [None, None] | [None, Some(_)] | [Some(_), None]) => None,
+                (None, [None | Some(_), None] | [None, Some(_)]) => None,
             };
 
             // https://www.w3.org/TR/css-images-3/#default-sizing
@@ -341,8 +339,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
 
             self.viewport_dim_stack
                 .push(match (view_box.as_ref(), &viewport_size) {
-                    (Some(ViewBox { w, h, .. }), _) => [*w, *h],
-                    (None, [w, h]) => [*w, *h],
+                    (Some(ViewBox { w, h, .. }), _) | (None, [w, h]) => [*w, *h],
                 });
 
             if let Some(view_box) = view_box {
@@ -414,8 +411,10 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         }
 
         self.terrarium.push_transform(flattened_transform);
-        self.name_stack
-            .push(node_name(&node, &self.config.extra_attribute_name));
+        self.name_stack.push(node_name(
+            &node,
+            self.config.extra_attribute_name.as_deref(),
+        ));
 
         if matches!(
             (node.tag_name().name(), node.has_attribute("viewBox")),
@@ -449,21 +448,19 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
 
         let fill_attr = calculate_presentation_attr(node, "fill", &self.css_rules);
         // SVGs fill by default
-        let has_fill_attr = fill_attr.map(|v| v != "none").unwrap_or(true);
+        let has_fill_attr = fill_attr != Some("none");
         let fill_rule = calculate_presentation_attr(node, "fill-rule", &self.css_rules)
-            .map(|v| {
+            .map_or_default(|v| {
                 if v == "evenodd" {
                     FillRule::EvenOdd
                 } else {
                     FillRule::NonZero
                 }
-            })
-            .unwrap_or_default();
+            });
 
         // Default to false which is spec compliant.
-        let has_stroke_attr = calculate_presentation_attr(node, "stroke", &self.css_rules)
-            .map(|v| v != "none")
-            .unwrap_or(false);
+        let has_stroke_attr =
+            calculate_presentation_attr(node, "stroke", &self.css_rules) != Some("none");
 
         let segments: SmallVec<[PathSegment; 5]> = match node.tag_name().name() {
             PATH_TAG_NAME => {
@@ -697,22 +694,22 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                     .length_attr_to_user_units(&node, "height")
                     .unwrap_or(0.);
 
-                let preserve_aspect_ratio = node
-                    .attribute("preserveAspectRatio")
-                    .map(|attr| {
-                        AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
-                    })
-                    .unwrap_or(svgtypes::AspectRatio {
+                let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map_or(
+                    svgtypes::AspectRatio {
                         defer: false,
                         align: svgtypes::Align::XMidYMid,
                         slice: false,
-                    });
+                    },
+                    |attr| {
+                        AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
+                    },
+                );
 
                 let view_box = svgtypes::ViewBox {
                     x: 0.,
                     y: 0.,
-                    w: image.width() as f64,
-                    h: image.height() as f64,
+                    w: f64::from(image.width()),
+                    h: f64::from(image.height()),
                 };
                 let image_to_user = get_viewport_transform(
                     view_box,
@@ -838,13 +835,12 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
                     .as_ref()
                     .and_then(|n| n.attribute("patternTransform"))
             })
-            .map(|transform| {
+            .map_or_else(Transform2D::identity, |transform| {
                 TransformListParser::from(transform)
                     .map(|token| token.expect("could not parse patternTransform"))
                     .map(svg_transform_into_euclid_transform)
                     .fold(Transform2D::identity(), |acc, t| t.then(&acc))
-            })
-            .unwrap_or_else(Transform2D::identity);
+            });
 
         let target_pattern_node = if pattern_node.children().any(|c| c.is_element()) {
             // TODO: unclear what it would mean if there is an href element but the pattern also has its own children
@@ -877,7 +873,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
                 // TODO: use a fast container checks to verify that some point in the pattern bbox is even
                 // in the container. This is probably wasteful for a polygon with holes.
                 let offset_transform =
-                    Transform2D::translation(col as f64 * width, row as f64 * height);
+                    Transform2D::translation(f64::from(col) * width, f64::from(row) * height);
                 let combined = pattern_origin_transform
                     .then(&offset_transform)
                     .then(&pattern_transform);

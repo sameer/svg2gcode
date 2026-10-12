@@ -158,7 +158,7 @@ fn stroke_contains_stroke(outer: &Stroke, inner: &Stroke) -> bool {
 /// `fill_rule` is flattened here:
 /// - `EvenOdd`: even = outer
 /// - `NonZero`: 0 cumulative winding = outer
-pub(crate) fn into_fill_polygons(subpaths: Vec<Stroke>, fill_rule: FillRule) -> Vec<FillPolygon> {
+pub(crate) fn into_fill_polygons(subpaths: &[Stroke], fill_rule: FillRule) -> Vec<FillPolygon> {
     if subpaths.is_empty() {
         return vec![];
     }
@@ -176,7 +176,7 @@ pub(crate) fn into_fill_polygons(subpaths: Vec<Stroke>, fill_rule: FillRule) -> 
     // TODO: EvenOdd fill for overlapping but non-nested subpaths isn't handled.
     // We need to XOR without flattening somehow.
     if fill_rule == FillRule::EvenOdd {
-        let bboxes: Vec<_> = subpaths.iter().map(|s| s.bounding_box()).collect();
+        let bboxes: Vec<_> = subpaths.iter().map(super::Stroke::bounding_box).collect();
         for i in 0..subpaths.len() {
             for j in (i + 1)..subpaths.len() {
                 let boxes_overlap = bboxes[i].intersects(&bboxes[j]);
@@ -254,6 +254,8 @@ pub(crate) fn into_fill_polygons(subpaths: Vec<Stroke>, fill_rule: FillRule) -> 
 
 #[cfg(test)]
 mod tests {
+    use std::slice;
+
     use lyon_geom::Point;
 
     use super::*;
@@ -333,8 +335,7 @@ mod tests {
             None,
         );
 
-        let polygons =
-            into_fill_polygons(vec![s0.clone(), s1.clone(), s2.clone()], FillRule::NonZero);
+        let polygons = into_fill_polygons(&[s0.clone(), s1.clone(), s2.clone()], FillRule::NonZero);
 
         // For NonZero, since all are CCW, the winding numbers are 1, 2, and 3.
         // All are non-zero, so the whole area should be filled.
@@ -394,7 +395,7 @@ mod tests {
             None,
         );
 
-        let polygons = into_fill_polygons(vec![s0.clone(), s1.clone()], FillRule::NonZero);
+        let polygons = into_fill_polygons(&[s0.clone(), s1.clone()], FillRule::NonZero);
 
         // Since they overlap but are not nested (neither bbox is inside the other),
         // they should be classified as two independent outer contours.
@@ -406,8 +407,8 @@ mod tests {
     /// The path visits the five outer tips in "skip-one" order, crossing itself five times
     /// and enclosing an inner pentagon whose fill depends on the fill rule:
     ///
-    ///  - EvenOdd: hole in the center (incorrect currently)
-    ///  - NonZero: filled
+    ///  - `EvenOdd`: hole in the center (incorrect currently)
+    ///  - `NonZero`: filled
     #[test]
     #[ignore = "self-intersecting single subpaths are not yet handled"]
     fn test_self_intersecting_pentagram() {
@@ -438,7 +439,7 @@ mod tests {
             None,
         );
 
-        let evenodd = into_fill_polygons(vec![star.clone()], FillRule::EvenOdd);
+        let evenodd = into_fill_polygons(slice::from_ref(&star), FillRule::EvenOdd);
         assert_eq!(evenodd.len(), 1, "EvenOdd: expected one outer contour");
         assert_eq!(
             evenodd[0].holes.len(),
@@ -446,7 +447,7 @@ mod tests {
             "EvenOdd: expected one hole (the inner pentagon)"
         );
 
-        let nonzero = into_fill_polygons(vec![star], FillRule::NonZero);
+        let nonzero = into_fill_polygons(&[star], FillRule::NonZero);
         assert_eq!(nonzero.len(), 1, "NonZero: expected one outer contour");
         assert_eq!(
             nonzero[0].holes.len(),

@@ -168,7 +168,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     /// <https://www.w3.org/TR/SVG/paths.html#PathDataClosePathCommand>
     fn close(&mut self) -> Option<DrawCommand> {
         // See https://www.w3.org/TR/SVG/paths.html#Segment-CompletingClosePath
-        let command = if !(self.current_position - self.initial_position)
+        let command = if (self.current_position - self.initial_position)
             .abs()
             .lower_than(vector(f64::EPSILON, f64::EPSILON))
             .all()
@@ -195,24 +195,20 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             .inverse()
             .expect("transform is invertible");
         let original_current_position = inverse_transform.transform_point(self.current_position);
-        let x = x
-            .map(|x| {
-                if abs {
-                    x
-                } else {
-                    original_current_position.x + x
-                }
-            })
-            .unwrap_or(original_current_position.x);
-        let y = y
-            .map(|y| {
-                if abs {
-                    y
-                } else {
-                    original_current_position.y + y
-                }
-            })
-            .unwrap_or(original_current_position.y);
+        let x = x.map_or(original_current_position.x, |x| {
+            if abs {
+                x
+            } else {
+                original_current_position.x + x
+            }
+        });
+        let y = y.map_or(original_current_position.y, |y| {
+            if abs {
+                y
+            } else {
+                original_current_position.y + y
+            }
+        });
 
         let from = self.current_position;
         let to = self.current_transform.transform_point(point(x, y));
@@ -387,7 +383,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             .transform_point(self.current_position);
 
         if !abs {
-            to = from + to.to_vector()
+            to = from + to.to_vector();
         }
         let svg_arc = SvgArc {
             from,
@@ -458,7 +454,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     }
 
     /// Push a generic transform onto the stack
-    /// Could be any valid CSS transform https://drafts.csswg.org/css-transforms-1/#typedef-transform-function
+    /// Could be any valid CSS transform <https://drafts.csswg.org/css-transforms-1/#typedef-transform-function>
     /// <https://www.w3.org/TR/SVG/coords.html#InterfaceSVGTransform>
     pub fn push_transform(&mut self, trans: Transform2D<f64>) {
         self.transform_stack.push(self.current_transform);
@@ -483,9 +479,12 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         self.comment = Some(comment);
     }
 
-    /// Maps [PathSegments](PathSegment) into concrete operations.
+    /// Maps [`PathSegments`](PathSegment) into concrete operations.
     pub fn apply_path(&mut self, path: impl IntoIterator<Item = PathSegment>) {
-        use PathSegment::*;
+        use PathSegment::{
+            ClosePath, CurveTo, EllipticalArc, HorizontalLineTo, LineTo, MoveTo, Quadratic,
+            SmoothCurveTo, SmoothQuadratic, VerticalLineTo,
+        };
         self.begin();
         self.reset();
 
@@ -612,7 +611,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         };
         sub.apply_path(segments);
         let strokes = sub.finish().into_strokes();
-        let polys = self::elements::fill::into_fill_polygons(strokes, fill_rule);
+        let polys = self::elements::fill::into_fill_polygons(&strokes, fill_rule);
         if self.clip_stack.is_active() {
             // TODO: polygon clipping is non-trivial
             warn!("Polygon clipping is not yet unimplemented, skipping clip");

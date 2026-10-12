@@ -62,7 +62,7 @@ impl ClipStack {
             for stroke in current {
                 let mut clipped_cmds = Vec::new();
                 for cmd in stroke.into_commands() {
-                    self.clip_draw_command(active, cmd, &mut clipped_cmds);
+                    Self::clip_draw_command(active, cmd, &mut clipped_cmds);
                 }
                 next.extend(group_commands_into_strokes(clipped_cmds));
             }
@@ -72,12 +72,7 @@ impl ClipStack {
     }
 
     /// Splits `cmd` into clipped segments on the given active layer.
-    fn clip_draw_command(
-        &self,
-        active: &ActiveClip,
-        cmd: DrawCommand,
-        cmds: &mut Vec<DrawCommand>,
-    ) {
+    fn clip_draw_command(active: &ActiveClip, cmd: DrawCommand, cmds: &mut Vec<DrawCommand>) {
         // Find all the intersections of `cmd` with the clip.
         // This creates ranges that may or may not be in a clip polygon.
         let mut ts: Vec<f64> = vec![0.0, 1.0];
@@ -86,13 +81,13 @@ impl ClipStack {
                 ts.push(cmd_t);
             }
         }
-        ts.sort_by(|a, b| a.total_cmp(b));
+        ts.sort_by(f64::total_cmp);
         ts.dedup_by(|a, b| (*a - *b).abs() < PARAM_EPSILON);
 
         // Draw ranges that are active within some clipping polygon
         let is_inside = |pt: Point<f64>| active.clip_polygons.iter().any(|p| p.contains_point(pt));
         for (&t_a, &t_b) in ts.iter().zip(ts.iter().skip(1)) {
-            let t_mid = (t_a + t_b) / 2.0;
+            let t_mid = f64::midpoint(t_a, t_b);
             if is_inside(cmd.sample(t_mid)) {
                 cmds.push(cmd.split_range(t_a..t_b));
             }
@@ -189,7 +184,7 @@ mod tests {
         };
 
         let mut cmds = Vec::new();
-        cs.clip_draw_command(
+        ClipStack::clip_draw_command(
             cs.stack.last().unwrap(),
             DrawCommand::CubicBezier(cbs),
             &mut cmds,
@@ -212,7 +207,7 @@ mod tests {
         };
 
         let mut cmds = Vec::new();
-        cs.clip_draw_command(
+        ClipStack::clip_draw_command(
             cs.stack.last().unwrap(),
             DrawCommand::QuadraticBezier(qbs),
             &mut cmds,
@@ -237,7 +232,7 @@ mod tests {
         };
 
         let mut cmds = Vec::new();
-        cs.clip_draw_command(
+        ClipStack::clip_draw_command(
             cs.stack.last().unwrap(),
             DrawCommand::CubicBezier(cbs),
             &mut cmds,
@@ -273,7 +268,7 @@ mod tests {
         };
 
         let mut cmds = Vec::new();
-        cs.clip_draw_command(
+        ClipStack::clip_draw_command(
             cs.stack.last().unwrap(),
             DrawCommand::Arc(svg_arc),
             &mut cmds,

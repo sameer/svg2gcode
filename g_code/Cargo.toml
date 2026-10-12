@@ -7,6 +7,9 @@ edition.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 [features]
 default = ["image"]
 serde = ["dep:serde", "g-code/serde", "svg2star/serde"]

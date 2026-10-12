@@ -172,7 +172,7 @@ impl CanonicalArcTransform {
     /// with the arc if any, returning pairs `(t_arc, u_segment)`.
     fn world_line_intersections_t(&self, segment: &LineSegment<f64>) -> SmallVec<[(f64, f64); 2]> {
         let canonical_segment = segment.transformed(&self.to_canonical);
-        self.intersect_canonical_line(&canonical_segment)
+        Self::intersect_canonical_line(&canonical_segment)
             .into_iter()
             .filter_map(|u| {
                 let canonical_point = canonical_segment.sample(u);
@@ -186,7 +186,7 @@ impl CanonicalArcTransform {
     /// Returns the parameter values `u` along the line segment where intersections occur.
     ///
     /// Does not calculate arc t-values.
-    fn intersect_canonical_line(&self, canonical_seg: &LineSegment<f64>) -> SmallVec<[f64; 2]> {
+    fn intersect_canonical_line(canonical_seg: &LineSegment<f64>) -> SmallVec<[f64; 2]> {
         let line_start = canonical_seg.from;
         let line_dir = canonical_seg.to_vector();
         let seg_len_sq = canonical_seg.square_length();

@@ -20,8 +20,8 @@ fn dist(a: Point<f64>, b: Point<f64>) -> f64 {
 
 /// Reorder (and optionally reverse) strokes to minimise total tool-off travel distance.
 ///
-/// Uses [nearest_neighbor_greedy] for the initial ordering, then refines
-/// with tabu search using the Relocate, 2-Opt, and LinkSwap operators.
+/// Uses [`nearest_neighbor_greedy`] for the initial ordering, then refines
+/// with tabu search using the Relocate, 2-Opt, and `LinkSwap` operators.
 ///
 /// Based off of the code in raster2svg.
 ///
@@ -42,7 +42,7 @@ pub fn minimize_travel_time(strokes: Vec<Stroke>, starting_point: [Option<f64>; 
 
 /// Greedy nearest-neighbour ordering with flips.
 ///
-/// Repeatedly chooses the [Stroke] or [Stroke::reversed] closest to the current point until none remain.
+/// Repeatedly chooses the [Stroke] or [`Stroke::reversed`] closest to the current point until none remain.
 fn nearest_neighbor_greedy(
     mut remaining: Vec<Stroke>,
     the_starting_point: Point<f64>,
@@ -120,7 +120,7 @@ fn stroke_distances(path: &[Stroke]) -> Vec<f64> {
         .collect()
 }
 
-/// Reverse a series of strokes in-place and also calls [Stroke::reversed] on each [Stroke] to preserve the path.
+/// Reverse a series of strokes in-place and also calls [`Stroke::reversed`] on each [Stroke] to preserve the path.
 fn reverse_and_flip(strokes: &mut [Stroke]) {
     strokes.reverse();
     for s in strokes.iter_mut() {
@@ -168,12 +168,11 @@ fn local_improvement_with_tabu_search(
             if tabu.is_empty() {
                 debug!("TSP: stuck after {idx} iterations, no more local improvements");
                 break;
-            } else {
-                // Try to unstick by clearing tabu.
-                tabu.clear();
-                tabu_set.clear();
-                stuck_operators.clear();
             }
+            // Try to unstick by clearing tabu.
+            tabu.clear();
+            tabu_set.clear();
+            stuck_operators.clear();
         }
 
         let operator: Operator = rng.random();
@@ -215,9 +214,8 @@ fn local_improvement_with_tabu_search(
                     if diff <= 0.0 {
                         stuck_operators.insert(operator);
                         continue;
-                    } else {
-                        stuck_operators.clear();
                     }
+                    stuck_operators.clear();
                     let mut stroke = current.remove(i);
                     if reversed {
                         stroke.reversed();
@@ -262,9 +260,8 @@ fn local_improvement_with_tabu_search(
                     if diff <= 0.0 {
                         stuck_operators.insert(operator);
                         continue;
-                    } else {
-                        stuck_operators.clear();
                     }
+                    stuck_operators.clear();
                     tabu.extend([this.1, other.0]);
                     tabu_set.extend([this.1, other.0]);
                     reverse_and_flip(&mut current[this.1..=other.0]);
@@ -318,9 +315,8 @@ fn local_improvement_with_tabu_search(
                     if diff <= 0.0 {
                         stuck_operators.insert(operator);
                         continue;
-                    } else {
-                        stuck_operators.clear();
                     }
+                    stuck_operators.clear();
 
                     // Apply prefix reversal (options 1 and 2).
                     if opt != 0 {
@@ -346,7 +342,7 @@ fn local_improvement_with_tabu_search(
             + dist(the_starting_point, current[0].start_point());
 
         if current_sum < best_sum {
-            best = current.clone();
+            best.clone_from(&current);
             best_sum = current_sum;
         }
 

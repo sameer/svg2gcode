@@ -99,11 +99,11 @@ impl<T: Turtle> DpiConvertingTurtle<T> {
 
 impl<T: Turtle> Turtle for DpiConvertingTurtle<T> {
     fn begin(&mut self) {
-        self.inner.begin()
+        self.inner.begin();
     }
 
     fn end(&mut self) {
-        self.inner.end()
+        self.inner.end();
     }
 
     fn stroke(&mut self, stroke: Stroke) {
@@ -115,7 +115,7 @@ impl<T: Turtle> Turtle for DpiConvertingTurtle<T> {
         self.inner.image(super::elements::RasterImage {
             dimensions: self.box_to_mm(img.dimensions),
             image: img.image,
-        })
+        });
     }
 
     fn fill_polygon(&mut self, polygon: FillPolygon) {
@@ -126,6 +126,6 @@ impl<T: Turtle> Turtle for DpiConvertingTurtle<T> {
                 .into_iter()
                 .map(|s| self.stroke_to_mm(s))
                 .collect(),
-        })
+        });
     }
 }

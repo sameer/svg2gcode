@@ -7,6 +7,9 @@ edition.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 svg2gcode = { path = "../g_code", version = "0.4.0", features = ["serde"] }
 env_logger = "0.11"

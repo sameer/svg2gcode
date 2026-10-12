@@ -26,8 +26,9 @@ impl SvgPreviewTurtle {
         self.bounding_box = Some(
             self.bounding_box
                 // Box2D::union discards empty boxes
-                .map(|existing| Box2D::from_points([existing.min, existing.max, bb.min, bb.max]))
-                .unwrap_or(bb),
+                .map_or(bb, |existing| {
+                    Box2D::from_points([existing.min, existing.max, bb.min, bb.max])
+                }),
         );
     }
 
@@ -100,8 +101,8 @@ impl Turtle for SvgPreviewTurtle {
                         svg_arc.radii.x,
                         svg_arc.radii.y,
                         svg_arc.x_rotation.to_degrees(),
-                        if svg_arc.flags.large_arc { 1 } else { 0 },
-                        if svg_arc.flags.sweep { 1 } else { 0 },
+                        i32::from(svg_arc.flags.large_arc),
+                        i32::from(svg_arc.flags.sweep),
                         svg_arc.to.x,
                         svg_arc.to.y,
                     )

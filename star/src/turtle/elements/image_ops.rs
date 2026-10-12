@@ -31,7 +31,7 @@ pub fn transform_image(
     let orig_w = image.width();
     let orig_h = image.height();
 
-    let pixel_bounds = Box2D::new(point(0., 0.), point(orig_w as f64, orig_h as f64));
+    let pixel_bounds = Box2D::new(point(0., 0.), point(f64::from(orig_w), f64::from(orig_h)));
     let user_bounds = image_to_user.outer_transformed_box(&pixel_bounds);
     let image_to_final = image_to_user.then(user_to_final);
     let transformed_box = image_to_final.outer_transformed_box(&pixel_bounds);
@@ -47,7 +47,7 @@ pub fn transform_image(
     };
 
     let aspect_ratios_match = {
-        let orig_aspect_ratio = orig_w as f64 / orig_h as f64;
+        let orig_aspect_ratio = f64::from(orig_w) / f64::from(orig_h);
         let final_aspect_ratio = user_bounds.width() / user_bounds.height();
         (orig_aspect_ratio - final_aspect_ratio).abs() < EPSILON
     };
@@ -87,8 +87,8 @@ pub fn transform_image(
             (scale_x, scale_y)
         };
 
-        let new_w = (orig_w as f64 * resample_scale_x).ceil() as u32;
-        let new_h = (orig_h as f64 * resample_scale_y).ceil() as u32;
+        let new_w = (f64::from(orig_w) * resample_scale_x).ceil() as u32;
+        let new_h = (f64::from(orig_h) * resample_scale_y).ceil() as u32;
 
         let mut new_img = DynamicImage::new(new_w, new_h, image.color());
 
@@ -101,13 +101,13 @@ pub fn transform_image(
                     // Map new pixel to target space
                     let target_pt = min
                         + vector(
-                            (new_x as f64 / new_w as f64) * tb_w,
-                            (new_y as f64 / new_h as f64) * tb_h,
+                            (f64::from(new_x) / f64::from(new_w)) * tb_w,
+                            (f64::from(new_y) / f64::from(new_h)) * tb_h,
                         );
 
                     let orig_pt = inv.transform_point(target_pt);
-                    if (0.0..orig_w as f64).contains(&orig_pt.x)
-                        && (0.0..orig_h as f64).contains(&orig_pt.y)
+                    if (0.0..f64::from(orig_w)).contains(&orig_pt.x)
+                        && (0.0..f64::from(orig_h)).contains(&orig_pt.y)
                         && let Some(pixel) =
                             sample_lanczos3(&image, orig_pt.x, orig_pt.y, orig_w, orig_h)
                     {
@@ -146,14 +146,14 @@ pub fn crop_image_to_bounds(
 
     let crop_offset = cropped_bbox.min - img_bbox.min;
 
-    let mut pixel_x = (crop_offset.x / orig_w * src_w as f64).round() as u32;
-    let mut pixel_y = (crop_offset.y / orig_h * src_h as f64).round() as u32;
+    let mut pixel_x = (crop_offset.x / orig_w * f64::from(src_w)).round() as u32;
+    let mut pixel_y = (crop_offset.y / orig_h * f64::from(src_h)).round() as u32;
 
     pixel_x = pixel_x.min(src_w - 1);
     pixel_y = pixel_y.min(src_h - 1);
 
-    let pixel_w = ((w_crop / orig_w) * src_w as f64).round() as u32;
-    let pixel_h = ((h_crop / orig_h) * src_h as f64).round() as u32;
+    let pixel_w = ((w_crop / orig_w) * f64::from(src_w)).round() as u32;
+    let pixel_h = ((h_crop / orig_h) * f64::from(src_h)).round() as u32;
 
     let pixel_w = pixel_w.clamp(1, src_w - pixel_x);
     let pixel_h = pixel_h.clamp(1, src_h - pixel_y);
@@ -233,7 +233,7 @@ fn sample_lanczos3(
             continue;
         }
         let py = y_floor - 2 + dy_idx as i64;
-        let clamped_py = py.clamp(0, orig_h as i64 - 1) as u32;
+        let clamped_py = py.clamp(0, i64::from(orig_h) - 1) as u32;
 
         for (dx_idx, &wx) in wx_arr.iter().enumerate() {
             let w = wx * wy;
@@ -241,13 +241,13 @@ fn sample_lanczos3(
                 continue;
             }
             let px = x_floor - 2 + dx_idx as i64;
-            let clamped_px = px.clamp(0, orig_w as i64 - 1) as u32;
+            let clamped_px = px.clamp(0, i64::from(orig_w) - 1) as u32;
 
             let pixel = image.get_pixel(clamped_px, clamped_py);
-            r_sum += pixel.0[0] as f64 * w;
-            g_sum += pixel.0[1] as f64 * w;
-            b_sum += pixel.0[2] as f64 * w;
-            a_sum += pixel.0[3] as f64 * w;
+            r_sum += f64::from(pixel.0[0]) * w;
+            g_sum += f64::from(pixel.0[1]) * w;
+            b_sum += f64::from(pixel.0[2]) * w;
+            a_sum += f64::from(pixel.0[3]) * w;
             w_sum += w;
         }
     }

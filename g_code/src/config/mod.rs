@@ -124,7 +124,7 @@ pub struct GCodeConfig {
 impl Default for GCodeConfig {
     fn default() -> Self {
         Self {
-            inner: Default::default(),
+            inner: ConversionConfig::default(),
             tolerance: 0.002,
             feedrate: 300.0,
         }
@@ -146,11 +146,11 @@ pub struct SupportedFunctionality {
 #[derive(Debug, Default, Clone, PartialEq)]
 /// Operations performed after G-Code generation.
 pub struct PostprocessConfig {
-    /// Convenience field for [g_code::emit::FormatOptions] field
+    /// Convenience field for [`g_code::emit::FormatOptions`] field
     pub checksums: bool,
-    /// Convenience field for [g_code::emit::FormatOptions] field
+    /// Convenience field for [`g_code::emit::FormatOptions`] field
     pub line_numbers: bool,
-    /// Convenience field for [g_code::emit::FormatOptions] field
+    /// Convenience field for [`g_code::emit::FormatOptions`] field
     pub newline_before_comment: bool,
 }
 

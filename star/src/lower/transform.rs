@@ -55,7 +55,7 @@ pub fn get_viewport_transform(
 }
 
 pub fn svg_transform_into_euclid_transform(svg_transform: TransformListToken) -> Transform2D<f64> {
-    use TransformListToken::*;
+    use TransformListToken::{Matrix, Rotate, Scale, SkewX, SkewY, Translate};
     match svg_transform {
         Matrix { a, b, c, d, e, f } => Transform2D::new(a, b, c, d, e, f),
         Translate { tx, ty } => Transform2D::translation(tx, ty),
