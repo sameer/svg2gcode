@@ -459,8 +459,8 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             });
 
         // Default to false which is spec compliant.
-        let has_stroke_attr =
-            calculate_presentation_attr(node, "stroke", &self.css_rules) != Some("none");
+        let has_stroke_attr = calculate_presentation_attr(node, "stroke", &self.css_rules)
+            .is_some_and(|attr| attr != "none");
 
         let segments: SmallVec<[PathSegment; 5]> = match node.tag_name().name() {
             PATH_TAG_NAME => {

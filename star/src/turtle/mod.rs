@@ -173,12 +173,12 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             .lower_than(vector(f64::EPSILON, f64::EPSILON))
             .all()
         {
+            None
+        } else {
             Some(DrawCommand::LineTo(LineSegment {
                 from: self.current_position,
                 to: self.initial_position,
             }))
-        } else {
-            None
         };
         self.current_position = self.initial_position;
         self.previous_quadratic_control = None;
