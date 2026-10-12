@@ -16,7 +16,7 @@ fn get_actual(
     circular_interpolation: bool,
     dimensions: [Option<Length>; 2],
 ) -> Vec<Token<'_>> {
-    let gcode_config = Default::default();
+    let gcode_config = GCodeConfig::default();
     let options = ConversionOptions { dimensions };
     let document = roxmltree::Document::parse_with_options(
         input,
@@ -115,7 +115,7 @@ fn square_transformed_produces_expected_gcode() {
         .collect::<Vec<_>>();
     let actual = get_actual(square_transformed, false, [None; 2]);
 
-    assert_close(actual, expected)
+    assert_close(actual, expected);
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn square_transformed_nested_produces_expected_gcode() {
             .collect::<Vec<_>>();
     let actual = get_actual(square_transformed, false, [None; 2]);
 
-    assert_close(actual, expected)
+    assert_close(actual, expected);
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn circular_interpolation_produces_expected_gcode() {
             .collect::<Vec<_>>();
     let actual = get_actual(circular_interpolation, true, [None; 2]);
 
-    assert_close(actual, expected)
+    assert_close(actual, expected);
 }
 
 #[test]
@@ -191,7 +191,7 @@ fn shapes_produces_expected_gcode() {
         .collect::<Vec<_>>();
     let actual = get_actual(shapes, false, [None; 2]);
 
-    assert_close(actual, expected)
+    assert_close(actual, expected);
 }
 
 #[test]
@@ -203,7 +203,7 @@ fn use_defs_produces_expected_gcode() {
         .collect::<Vec<_>>();
     let actual = get_actual(svg, false, [None; 2]);
 
-    assert_close(actual, expected)
+    assert_close(actual, expected);
 }
 
 #[test]
@@ -215,7 +215,7 @@ fn use_xlink_href_produces_expected_gcode() {
         .collect::<Vec<_>>();
     let actual = get_actual(svg, false, [None; 2]);
 
-    assert_close(actual, expected)
+    assert_close(actual, expected);
 }
 
 #[test]
@@ -238,7 +238,7 @@ fn transform_origin_produces_expected_gcode() {
         .iter_emit_tokens()
         .collect::<Vec<_>>();
     let actual = get_actual(svg, false, [None; 2]);
-    assert_close(actual, expected)
+    assert_close(actual, expected);
 }
 
 /// `transform-origin="5 5"` with `rotate(90)` should be identical to the
@@ -255,10 +255,10 @@ fn transform_origin_matches_manual_equivalent() {
         false,
         [None; 2],
     );
-    assert_close(with_origin, manual)
+    assert_close(with_origin, manual);
 }
 
-/// Regression test for https://github.com/sameer/svg2gcode/issues/105
+/// Regression test for <https://github.com/sameer/svg2gcode/issues/105>
 #[test]
 fn issue_105_optimize_path_order_does_not_shrink_output() {
     let svg = include_str!("../tests/square.svg");
@@ -281,7 +281,7 @@ fn issue_105_optimize_path_order_does_not_shrink_output() {
     );
     let normal = svg_to_gcode(
         &document,
-        &Default::default(),
+        &GCodeConfig::default(),
         ConversionOptions::default(),
         machine.clone(),
     );

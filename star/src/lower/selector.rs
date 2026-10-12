@@ -217,7 +217,7 @@ impl RelativeSelectorList {
                 }
                 Some(Combinator::Child) => node
                     .children()
-                    .filter(|n| n.is_element())
+                    .filter(roxmltree::Node::is_element)
                     .any(|d| sel.matches(d)),
             }
         })
@@ -251,8 +251,8 @@ impl CombinatorSelector {
             match combinator {
                 // Find first matching ancestor
                 Combinator::Descendant => {
-                    let found = std::iter::successors(current.parent(), |n| n.parent())
-                        .filter(|n| n.is_element())
+                    let found = std::iter::successors(current.parent(), roxmltree::Node::parent)
+                        .filter(roxmltree::Node::is_element)
                         .find(|n| target.matches(*n));
                     match found {
                         Some(ancestor) => current = ancestor,
@@ -319,8 +319,7 @@ impl AttributeSelector {
 
         match (&self.op, value) {
             (None, Some(_)) => true,
-            (None, None) => false,
-            (Some(_), None) => false,
+            (None | Some(_), None) => false,
             (Some((op, expected)), Some(val)) => match op {
                 AttributeOp::Equal => val == expected,
                 AttributeOp::Includes => val.split_whitespace().any(|w| w == expected),

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, result::Result, str::FromStr};
 
 use euclid::default::Transform2D;
 use log::{debug, warn};
@@ -67,7 +67,7 @@ fn calculate_presentation_attr<'input>(
             return v;
         }
     }
-    node.attribute(name).map(|v| v.trim())
+    node.attribute(name).map(str::trim)
 }
 
 /// Barebones CSS class rules parser.
@@ -169,16 +169,18 @@ pub fn depth_first_visit(doc: &Document, visitor: &mut impl XmlVisitor) {
         .for_each(|child| visit_node(doc, child, visitor, false));
 }
 
-impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
+impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
     fn visit_enter(&mut self, node: Node) {
-        use PathSegment::*;
+        use PathSegment::{
+            ClosePath, EllipticalArc, HorizontalLineTo, LineTo, MoveTo, VerticalLineTo,
+        };
 
         let mut view_box_opt = None;
         let mut viewport_pos_opt = [None, None];
         let mut viewport_size_opt = [1., 1.];
 
         if node.tag_name().name() == CLIP_PATH_TAG_NAME {
-            warn!("Clip paths are not supported: {:?}", node);
+            warn!("Clip paths are not supported: {node:?}");
         }
 
         let mut flattened_transform = if let Some(transform) = node.attribute("transform") {
@@ -194,16 +196,12 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
         // https://www.w3.org/TR/css-transforms-1/#transform-origin-property
         if let Some(to_str) = node.attribute("transform-origin") {
             let mut parser = LengthListParser::from(to_str);
-            let ox = parser
-                .next()
-                .and_then(|r| r.ok())
-                .map(|l| self.length_to_user_units(l, DimensionHint::Horizontal))
-                .unwrap_or(0.);
-            let oy = parser
-                .next()
-                .and_then(|r| r.ok())
-                .map(|l| self.length_to_user_units(l, DimensionHint::Vertical))
-                .unwrap_or(0.);
+            let ox = parser.next().and_then(Result::ok).map_or(0., |l| {
+                self.length_to_user_units(l, DimensionHint::Horizontal)
+            });
+            let oy = parser.next().and_then(Result::ok).map_or(0., |l| {
+                self.length_to_user_units(l, DimensionHint::Vertical)
+            });
             if ox != 0. || oy != 0. {
                 // https://www.w3.org/TR/css-transforms-1/#transformation-matrix-computation
                 // Steps 2 & 4
@@ -247,7 +245,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
             let intrinsic_aspect_ratio = match (view_box, viewport_size) {
                 (None, [Some(ref width), Some(ref height)]) => Some(*width / *height),
                 (Some(ref view_box), _) => Some(view_box.w / view_box.h),
-                (None, [None, None] | [None, Some(_)] | [Some(_), None]) => None,
+                (None, [None | Some(_), None] | [None, Some(_)]) => None,
             };
 
             // https://www.w3.org/TR/css-images-3/#default-sizing
@@ -277,8 +275,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
 
             self.viewport_dim_stack
                 .push(match (view_box.as_ref(), &viewport_size) {
-                    (Some(ViewBox { w, h, .. }), _) => [*w, *h],
-                    (None, [w, h]) => [*w, *h],
+                    (Some(ViewBox { w, h, .. }), _) | (None, [w, h]) => [*w, *h],
                 });
 
             if let Some(view_box) = view_box {
@@ -350,8 +347,10 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
         }
 
         self.terrarium.push_transform(flattened_transform);
-        self.name_stack
-            .push(node_name(&node, &self.config.extra_attribute_name));
+        self.name_stack.push(node_name(
+            &node,
+            self.config.extra_attribute_name.as_deref(),
+        ));
 
         if node.has_tag_name(SVG_TAG_NAME) || node.has_tag_name(SYMBOL_TAG_NAME) {
             let viewport_box = if let Some(vb) = view_box_opt {
@@ -372,23 +371,20 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
             return;
         }
 
-        let has_fill_attr = calculate_presentation_attr(node, "fill", &self.css_rules)
-            .map(|v| v != "none")
-            .unwrap_or(true);
+        let has_fill_attr =
+            calculate_presentation_attr(node, "fill", &self.css_rules) != Some("none");
         let fill_rule = calculate_presentation_attr(node, "fill-rule", &self.css_rules)
-            .map(|v| {
+            .map_or_default(|v| {
                 if v == "evenodd" {
                     FillRule::EvenOdd
                 } else {
                     FillRule::NonZero
                 }
-            })
-            .unwrap_or_default();
+            });
 
         // TODO: changing the default here to false would be breaking, but is technically correct from an SVG perspective.
-        let has_stroke_attr = calculate_presentation_attr(node, "stroke", &self.css_rules)
-            .map(|v| v != "none")
-            .unwrap_or(true);
+        let has_stroke_attr =
+            calculate_presentation_attr(node, "stroke", &self.css_rules) != Some("none");
 
         match node.tag_name().name() {
             PATH_TAG_NAME => {
@@ -662,22 +658,22 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
                     .length_attr_to_user_units(&node, "height")
                     .unwrap_or(0.);
 
-                let preserve_aspect_ratio = node
-                    .attribute("preserveAspectRatio")
-                    .map(|attr| {
-                        AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
-                    })
-                    .unwrap_or(svgtypes::AspectRatio {
+                let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map_or(
+                    svgtypes::AspectRatio {
                         defer: false,
                         align: svgtypes::Align::XMidYMid,
                         slice: false,
-                    });
+                    },
+                    |attr| {
+                        AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
+                    },
+                );
 
                 let view_box = svgtypes::ViewBox {
                     x: 0.,
                     y: 0.,
-                    w: image.width() as f64,
-                    h: image.height() as f64,
+                    w: f64::from(image.width()),
+                    h: f64::from(image.height()),
                 };
                 let image_to_user = get_viewport_transform(
                     view_box,

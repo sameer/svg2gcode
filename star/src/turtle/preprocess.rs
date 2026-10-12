@@ -4,7 +4,7 @@ use lyon_geom::Box2D;
 
 use super::{Turtle, elements::FillPolygon};
 
-/// Generates a bounding box for all draw operations, used to properly apply [crate::lower::ConversionConfig::origin]
+/// Generates a bounding box for all draw operations, used to properly apply [`crate::lower::ConversionConfig::origin`]
 #[derive(Debug, Default)]
 pub struct PreprocessTurtle {
     bounding_box: Box2D<f64>,
@@ -34,7 +34,7 @@ impl Turtle for PreprocessTurtle {
     fn fill_polygon(&mut self, polygon: FillPolygon) {
         self.bounding_box = iter::once(polygon.outer)
             .chain(polygon.holes)
-            .flat_map(|s| s.into_commands())
+            .flat_map(super::elements::Stroke::into_commands)
             .filter_map(|c| c.bounding_box())
             .fold(self.bounding_box, |acc, b| {
                 Box2D::from_points([acc.min, acc.max, b.min, b.max])

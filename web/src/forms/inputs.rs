@@ -6,7 +6,7 @@ use yewdux::functional::{use_store, use_store_value};
 
 use crate::{
     state::{AppState, FormState},
-    ui::*,
+    ui::{FormGroup, Input},
 };
 
 macro_rules! form_input {

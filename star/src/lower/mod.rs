@@ -68,7 +68,7 @@ impl Default for ConversionConfig {
 
 /// Options are specific to this conversion.
 ///
-/// This is separate from [ConversionConfig] to support bulk processing in the web interface.
+/// This is separate from [`ConversionConfig`] to support bulk processing in the web interface.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ConversionOptions {
@@ -96,7 +96,7 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
     css_rules: HashMap<&'input str, HashMap<&'input str, &'input str>>,
 }
 
-impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
+impl<T: Turtle> ConversionVisitor<'_, '_, T> {
     fn comment(&mut self) {
         let mut comment = String::new();
         self.name_stack
@@ -269,7 +269,7 @@ fn svg_to_optimized_strokes(
     minimize_travel_time(strokes, starting_point)
 }
 
-fn node_name(node: &Node, attr_to_print: &Option<String>) -> String {
+fn node_name(node: &Node, attr_to_print: Option<&str>) -> String {
     let mut name = node.tag_name().name().to_string();
     if let Some(id) = node.attribute("id") {
         name += "#";

@@ -51,8 +51,8 @@ impl<'input> Machine<'input> {
             program_begin_sequence: program_begin_sequence.unwrap_or_else(|| empty_snippet.clone()),
             program_end_sequence: program_end_sequence.unwrap_or_else(|| empty_snippet.clone()),
             empty_snippet,
-            tool_state: Default::default(),
-            distance_mode: Default::default(),
+            tool_state: None,
+            distance_mode: None,
         }
     }
 

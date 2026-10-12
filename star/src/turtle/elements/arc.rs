@@ -102,7 +102,8 @@ where
 
             if (inner_bezier.to - inner_bezier.from).square_length() < S::EPSILON {
                 continue;
-            } else if inner_bezier.is_linear(tolerance) {
+            }
+            if inner_bezier.is_linear(tolerance) {
                 acc.push(ArcOrLineSegment::Line(inner_bezier.baseline()));
                 continue;
             }
