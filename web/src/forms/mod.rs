@@ -1,4 +1,4 @@
-use std::{convert::TryInto, path::Path};
+use std::{convert::TryInto, path::Path, result::Result};
 
 use gloo_file::{
     callbacks::{FileReader, read_as_bytes},
@@ -24,8 +24,8 @@ use crate::{
 mod editors;
 mod inputs;
 
-use editors::*;
-use inputs::*;
+use editors::{BeginSequenceInput, EndSequenceInput, ToolOffSequenceInput, ToolOnSequenceInput};
+use inputs::{DpiInput, FeedrateInput, OriginXInput, OriginYInput, ToleranceInput};
 
 #[function_component(SettingsForm)]
 pub fn settings_form() -> Html {
@@ -38,27 +38,20 @@ pub fn settings_form() -> Html {
         || form_state
             .origin
             .iter()
-            .all(|opt| opt.as_ref().is_some_and(|r| r.is_err()))
+            .all(|opt| opt.as_ref().is_some_and(Result::is_err))
         || form_state
             .tool_on_sequence
             .as_ref()
-            .map(Result::is_err)
-            .unwrap_or(false)
+            .is_some_and(Result::is_err)
         || form_state
             .tool_off_sequence
             .as_ref()
-            .map(Result::is_err)
-            .unwrap_or(false)
+            .is_some_and(Result::is_err)
         || form_state
             .begin_sequence
             .as_ref()
-            .map(Result::is_err)
-            .unwrap_or(false)
-        || form_state
-            .end_sequence
-            .as_ref()
-            .map(Result::is_err)
-            .unwrap_or(false);
+            .is_some_and(Result::is_err)
+        || form_state.end_sequence.as_ref().is_some_and(Result::is_err);
 
     let close_ref = use_node_ref();
 
@@ -276,10 +269,10 @@ pub fn import_export_modal() -> Html {
                 &gloo_file::File::from(file),
                 move |res| {
                     let res = res
-                        .map_err(|err| format!("Error reading {}: {}", filename, err))
+                        .map_err(|err| format!("Error reading {filename}: {err}"))
                         .and_then(|bytes| {
                             serde_json::from_slice::<Settings>(&bytes)
-                                .map_err(|err| format!("Error parsing {}: {}", filename, err))
+                                .map_err(|err| format!("Error parsing {filename}: {err}"))
                         });
 
                     match res {
@@ -359,7 +352,7 @@ pub fn import_export_modal() -> Html {
                                 button={html_nested!(
                                     <Button
                                         style={ButtonStyle::Primary}
-                                        disabled={import_state.as_ref().is_none_or(|r| r.is_err()) || import_reading.is_some()}
+                                        disabled={import_state.as_ref().is_none_or(Result::is_err) || import_reading.is_some()}
                                         title="Save"
                                         onclick={import_save_onclick}
                                         input_group=true
@@ -429,7 +422,7 @@ pub fn svg_form() -> Html {
                                 )
                                 .err()
                                 {
-                                    Err(format!("Error parsing {}: {}", filename, err))
+                                    Err(format!("Error parsing {filename}: {err}"))
                                 } else {
                                     Ok(Svg {
                                         content: text,
@@ -442,7 +435,7 @@ pub fn svg_form() -> Html {
                 }
                 // Clear any errors from previous entry, add new successfully parsed SVGs
                 (*file_upload_state_cloned).borrow_mut().clear();
-                for result in results.iter() {
+                for result in &results {
                     (*file_upload_state_cloned)
                         .borrow_mut()
                         .push(result.clone().map(|_| ()));
@@ -515,10 +508,8 @@ pub fn svg_form() -> Html {
                         )
                         .err()
                         {
-                            url_input_parsed.set(Some(Err(format!(
-                                "Error parsing {}: {}",
-                                response_url, err
-                            ))));
+                            url_input_parsed
+                                .set(Some(Err(format!("Error parsing {response_url}: {err}"))));
                         } else {
                             app.reduce_mut(|app| {
                                 app.svgs.push(Svg {
@@ -527,7 +518,7 @@ pub fn svg_form() -> Html {
                                     dimensions: [None; 2],
                                 });
                             });
-                        };
+                        }
                     }
                     Err(err) => {
                         url_input_parsed.set(Some(Err(format!(

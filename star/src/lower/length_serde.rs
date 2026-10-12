@@ -1,5 +1,5 @@
 //! Makes it possible to serialize an array of two optional [`svgtypes::Length`]s,
-//! used for [super::ConversionOptions::dimensions]
+//! used for [`super::ConversionOptions::dimensions`]
 
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,

@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, result::Result};
 
 use web_sys::{Event, FileList, HtmlInputElement, InputEvent, InputEventInit, MouseEvent};
 use yew::{
@@ -85,8 +85,8 @@ where
     T: Display + Clone + PartialEq + 'static,
     E: Display + Clone + PartialEq,
 {
-    let success = props.parsed.as_ref().map(|x| x.is_ok()).unwrap_or(false);
-    let error = props.parsed.as_ref().map(|x| x.is_err()).unwrap_or(false);
+    let success = props.parsed.as_ref().is_some_and(Result::is_ok);
+    let error = props.parsed.as_ref().is_some_and(Result::is_err);
     let id = props.label.to_lowercase().replace(' ', "-");
 
     // To properly set the default value, we need to force a second render
@@ -149,7 +149,7 @@ where
                         }
                     }
                 </div>
-                { props.button.clone().map(Html::from).unwrap_or_default() }
+                { props.button.clone().map_or_default(Html::from) }
             </div>
             {
                 if let Some(Err(err)) = props.parsed.as_ref() {
@@ -221,8 +221,8 @@ where
     T: Clone + PartialEq,
     E: Display + Clone + PartialEq,
 {
-    let success = props.parsed.as_ref().map(|x| x.is_ok()).unwrap_or(false);
-    let error = props.parsed.as_ref().map(|x| x.is_err()).unwrap_or(false);
+    let success = props.parsed.as_ref().is_some_and(Result::is_ok);
+    let error = props.parsed.as_ref().is_some_and(Result::is_err);
     let id = props.label.to_lowercase().replace(' ', "-");
     html! {
         <>
@@ -247,7 +247,7 @@ where
                         }
                     }
                 </div>
-                { props.button.clone().map(Html::from).unwrap_or_default() }
+                { props.button.clone().map_or_default(Html::from) }
             </div>
             {
                 if let Some(Err(err)) = props.parsed.as_ref() {
@@ -367,8 +367,8 @@ where
     T: Display + Clone + PartialEq,
     E: Display + Clone + PartialEq,
 {
-    let success = props.parsed.as_ref().map(|x| x.is_ok()).unwrap_or(false);
-    let error = props.parsed.as_ref().map(|x| x.is_err()).unwrap_or(false);
+    let success = props.parsed.as_ref().is_some_and(Result::is_ok);
+    let error = props.parsed.as_ref().is_some_and(Result::is_err);
     let id = props.label.to_lowercase().replace(' ', "-");
 
     // To properly set the default value, we need to force a second render
@@ -418,7 +418,7 @@ where
             <div class={classes!(if success || error { Some("has-icon-right") } else { None })}>
                 <textarea class="form-input" id={id} oninput={oninput}
                     ref={node_ref}
-                    placeholder={props.placeholder.as_ref().cloned()}
+                    placeholder={props.placeholder.clone()}
                     rows={props.rows.as_ref().map(ToString::to_string)}
                     cols={props.cols.as_ref().map(ToString::to_string)}
                 />
@@ -491,9 +491,9 @@ pub fn button(props: &ButtonProps) -> Html {
             onclick={props.onclick.clone()}
             ref={props.noderef.clone()}
         >
-            { props.title.map(Into::into).unwrap_or_else(|| html!()) }
+            { props.title.map_or_else(|| html!(), Into::into) }
             { if props.icon.is_some() && props.title.is_some() { " " } else { "" } }
-            { props.icon.clone().map(Html::from).unwrap_or_default() }
+            { props.icon.clone().map_or_default(Html::from) }
         </button>
     };
     html
@@ -532,7 +532,7 @@ pub fn hyperlink_button(props: &HyperlinkButtonProps) -> Html {
             onclick={props.onclick.clone()}
             ref={props.noderef.clone()}
         >
-            { props.title.map(Into::into).unwrap_or_else(|| html!()) }
+            { props.title.map_or_else(|| html!(), Into::into) }
             { if props.icon.is_some() && props.title.is_some() { " " } else { "" } }
             {
                 if let Some(name) = props.icon {

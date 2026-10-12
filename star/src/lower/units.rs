@@ -20,7 +20,7 @@ pub enum DimensionHint {
     Other,
 }
 
-impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
+impl<T: Turtle> ConversionVisitor<'_, '_, T> {
     /// Convenience function for converting a length attribute to user units
     pub fn length_attr_to_user_units(&self, node: &Node, attr: &str) -> Option<f64> {
         let l = node
@@ -47,8 +47,11 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
     ///
     /// A default DPI of 96 is used as per [CSS 4 §7.4](https://www.w3.org/TR/css-values/#resolution)
     pub fn length_to_user_units(&self, l: Length, hint: DimensionHint) -> f64 {
-        use svgtypes::LengthUnit::*;
-        use uom::si::{f64::Length, length::*};
+        use svgtypes::LengthUnit::{Cm, Em, Ex, In, Mm, None, Pc, Percent, Pt, Px};
+        use uom::si::{
+            f64::Length,
+            length::{centimeter, inch, millimeter, pica_computer, point_computer},
+        };
 
         match l.unit {
             Cm => Length::new::<centimeter>(l.number).get::<inch>() * CSS_DEFAULT_DPI,

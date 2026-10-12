@@ -123,7 +123,7 @@ impl<'input> GCodeTurtle<'input> {
     }
 }
 
-impl<'input> Turtle for GCodeTurtle<'input> {
+impl Turtle for GCodeTurtle<'_> {
     fn begin(&mut self) {
         self.program
             .append(&mut command!(UnitsMillimeters {}).into_token_vec());
@@ -181,22 +181,23 @@ impl<'input> Turtle for GCodeTurtle<'input> {
                         .supported_functionality()
                         .circular_interpolation
                     {
-                        FlattenWithArcs::flattened(&svg_arc, self.arc_flattening_tolerance())
-                            .into_iter()
-                            .for_each(|segment| match segment {
+                        for segment in
+                            FlattenWithArcs::flattened(&svg_arc, self.arc_flattening_tolerance())
+                        {
+                            match segment {
                                 ArcOrLineSegment::Arc(arc) => {
-                                    self.program.append(&mut self.circular_interpolation(arc))
+                                    self.program.append(&mut self.circular_interpolation(arc));
                                 }
                                 ArcOrLineSegment::Line(line) => {
                                     self.line_to(line.to);
                                 }
-                            });
+                            }
+                        }
                     } else {
-                        svg_arc
-                            .to_arc()
-                            .flattened(self.flattening_tolerance())
-                            .for_each(|point| self.program.append(&mut self.line_to(point)));
-                    };
+                        for point in svg_arc.to_arc().flattened(self.flattening_tolerance()) {
+                            self.program.append(&mut self.line_to(point));
+                        }
+                    }
                 }
                 DrawCommand::CubicBezier(cbs) => {
                     if self
@@ -204,20 +205,23 @@ impl<'input> Turtle for GCodeTurtle<'input> {
                         .supported_functionality()
                         .circular_interpolation
                     {
-                        FlattenWithArcs::<f64>::flattened(&cbs, self.arc_flattening_tolerance())
-                            .into_iter()
-                            .for_each(|segment| match segment {
+                        for segment in
+                            FlattenWithArcs::<f64>::flattened(&cbs, self.arc_flattening_tolerance())
+                        {
+                            match segment {
                                 ArcOrLineSegment::Arc(arc) => {
-                                    self.program.append(&mut self.circular_interpolation(arc))
+                                    self.program.append(&mut self.circular_interpolation(arc));
                                 }
                                 ArcOrLineSegment::Line(line) => {
-                                    self.program.append(&mut self.line_to(line.to))
+                                    self.program.append(&mut self.line_to(line.to));
                                 }
-                            });
+                            }
+                        }
                     } else {
-                        cbs.flattened(self.flattening_tolerance())
-                            .for_each(|point| self.program.append(&mut self.line_to(point)));
-                    };
+                        for point in cbs.flattened(self.flattening_tolerance()) {
+                            self.program.append(&mut self.line_to(point));
+                        }
+                    }
                 }
                 DrawCommand::QuadraticBezier(qbs) => {
                     if self
@@ -225,23 +229,24 @@ impl<'input> Turtle for GCodeTurtle<'input> {
                         .supported_functionality()
                         .circular_interpolation
                     {
-                        FlattenWithArcs::<f64>::flattened(
+                        for segment in FlattenWithArcs::<f64>::flattened(
                             &qbs.to_cubic(),
                             self.arc_flattening_tolerance(),
-                        )
-                        .into_iter()
-                        .for_each(|segment| match segment {
-                            ArcOrLineSegment::Arc(arc) => {
-                                self.program.append(&mut self.circular_interpolation(arc))
+                        ) {
+                            match segment {
+                                ArcOrLineSegment::Arc(arc) => {
+                                    self.program.append(&mut self.circular_interpolation(arc));
+                                }
+                                ArcOrLineSegment::Line(line) => {
+                                    self.program.append(&mut self.line_to(line.to));
+                                }
                             }
-                            ArcOrLineSegment::Line(line) => {
-                                self.program.append(&mut self.line_to(line.to))
-                            }
-                        });
+                        }
                     } else {
-                        qbs.flattened(self.flattening_tolerance())
-                            .for_each(|point| self.program.append(&mut self.line_to(point)));
-                    };
+                        for point in qbs.flattened(self.flattening_tolerance()) {
+                            self.program.append(&mut self.line_to(point));
+                        }
+                    }
                 }
                 DrawCommand::Comment(comment) => {
                     self.program.push(Token::Comment {

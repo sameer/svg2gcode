@@ -8,6 +8,9 @@ edition.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }
 wasm-bindgen = "0.2"

@@ -236,9 +236,9 @@ fn main() -> io::Result<()> {
         let config_json_bytes = serde_json::to_vec_pretty(&settings)?;
         if export_path.to_string_lossy() == "-" {
             return io::stdout().write_all(&config_json_bytes);
-        } else {
-            return File::create(export_path)?.write_all(&config_json_bytes);
         }
+
+        return File::create(export_path)?.write_all(&config_json_bytes);
     }
 
     let options = {
@@ -266,20 +266,17 @@ fn main() -> io::Result<()> {
         ConversionOptions { dimensions }
     };
 
-    let input = match opt.file {
-        Some(filename) => {
-            let mut f = File::open(filename)?;
-            let len = f.metadata()?.len();
-            let mut input = String::with_capacity(len as usize + 1);
-            f.read_to_string(&mut input)?;
-            input
-        }
-        None => {
-            info!("Reading from standard input");
-            let mut input = String::new();
-            io::stdin().read_to_string(&mut input)?;
-            input
-        }
+    let input = if let Some(filename) = opt.file {
+        let mut f = File::open(filename)?;
+        let len = f.metadata()?.len();
+        let mut input = String::with_capacity(len as usize + 1);
+        f.read_to_string(&mut input)?;
+        input
+    } else {
+        info!("Reading from standard input");
+        let mut input = String::new();
+        io::stdin().read_to_string(&mut input)?;
+        input
     };
 
     let snippets = [

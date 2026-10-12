@@ -26,10 +26,10 @@ mod state;
 mod ui;
 mod util;
 
-use forms::*;
-use state::*;
-use ui::*;
-use util::*;
+use forms::{ImportExportModal, SettingsForm, SvgForm};
+use state::{AppState, FormState};
+use ui::{Button, ButtonGroup, ButtonStyle, Card, HyperlinkButton, Icon, IconName};
+use util::{open_svg_in_new_tab, prompt_download};
 use yewdux::{YewduxRoot, prelude::use_store, use_dispatch};
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
@@ -69,7 +69,7 @@ fn app() -> Html {
                 zip.add_directory("svg2gcode_output", opts).unwrap();
             }
 
-            for svg in app_store.svgs.iter() {
+            for svg in &app_store.svgs {
                 let options = ConversionOptions {
                     dimensions: svg.dimensions,
                 };
@@ -229,11 +229,10 @@ fn app() -> Html {
                                 ParsingOptions { allow_dtd: true, ..Default::default() },
                             )
                             .ok()
-                            .map(|doc| {
+                            .map_or_default(|doc| {
                                 let options = ConversionOptions { dimensions: svg.dimensions };
                                 svg_to_turtle(&doc, &app_store.settings.conversion.inner, options, SvgPreviewTurtle::default(), CoordinateSystem::YUp).into_preview()
-                            })
-                            .unwrap_or_default();
+                            });
                             let preview_svg_base64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(preview_svg.as_bytes());
                             let open_preview = {
                                 let bytes = preview_svg.into_bytes();
@@ -262,12 +261,12 @@ fn app() -> Html {
                                             <div class={classes!("columns", "preview-columns")}>
                                                 <div class="column col-5">
                                                     <p class="text-center"><small>{"Original"}</small></p>
-                                                    <img class="img-responsive" src={format!("data:image/svg+xml;base64,{}", svg_base64)} alt={svg.filename.clone()} />
+                                                    <img class="img-responsive" src={format!("data:image/svg+xml;base64,{svg_base64}")} alt={svg.filename.clone()} />
                                                 </div>
                                                 <div class="divider-vert"></div>
                                                 <div class="column col-5">
                                                     <p class="text-center"><small>{"Toolpath Preview"}</small></p>
-                                                    <img class="img-responsive" style="cursor:pointer" src={format!("data:image/svg+xml;base64,{}", preview_svg_base64)} alt="toolpath preview" onclick={open_preview} />
+                                                    <img class="img-responsive" style="cursor:pointer" src={format!("data:image/svg+xml;base64,{preview_svg_base64}")} alt="toolpath preview" onclick={open_preview} />
                                                 </div>
                                             </div>
                                         )}

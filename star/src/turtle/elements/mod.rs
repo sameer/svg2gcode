@@ -143,11 +143,11 @@ impl Stroke {
             .unwrap_or(self.start_point)
     }
 
-    /// Reverses the stroke so it runs from [Self::end_point] to [Self::start_point].
+    /// Reverses the stroke so it runs from [`Self::end_point`] to [`Self::start_point`].
     pub fn reversed(&mut self) {
         self.start_point = self.end_point();
         self.commands.reverse();
-        self.commands.iter_mut().for_each(|c| c.reverse());
+        self.commands.iter_mut().for_each(DrawCommand::reverse);
     }
 
     pub fn start_point(&self) -> Point<f64> {
