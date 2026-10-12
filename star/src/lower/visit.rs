@@ -1,16 +1,17 @@
-use std::{collections::HashMap, result::Result, str::FromStr};
+use std::{collections::HashMap, iter, result::Result, str::FromStr};
 
 use euclid::default::Transform2D;
 use log::{debug, warn};
 use lyon_geom::{Box2D, Point};
 use roxmltree::{Document, Node};
+use smallvec::{SmallVec, smallvec};
 use svgtypes::{
     AspectRatio, LengthListParser, PathParser, PathSegment, PointsParser, TransformListParser,
     ViewBox,
 };
 
 use super::{
-    ConversionVisitor,
+    ConversionVisitor, TemplatedExpansion,
     transform::{get_viewport_transform, svg_transform_into_euclid_transform},
     units::DimensionHint,
 };
@@ -28,19 +29,33 @@ const RECT_TAG_NAME: &str = "rect";
 const CIRCLE_TAG_NAME: &str = "circle";
 const ELLIPSE_TAG_NAME: &str = "ellipse";
 const LINE_TAG_NAME: &str = "line";
-const GROUP_TAG_NAME: &str = "g";
 const DEFS_TAG_NAME: &str = "defs";
 const USE_TAG_NAME: &str = "use";
 const MARKER_TAG_NAME: &str = "marker";
 const SYMBOL_TAG_NAME: &str = "symbol";
+const PATTERN_TAG_NAME: &str = "pattern";
+const TEXT_TAG_NAME: &str = "text";
+const TEXT_PATH_TAG_NAME: &str = "textPath";
+const VIEW_TAG_NAME: &str = "view";
 
-pub trait XmlVisitor {
-    fn visit_enter(&mut self, node: Node);
-    fn visit_exit(&mut self, node: Node);
+pub trait XmlVisitor<'a, 'input> {
+    fn visit_enter(&mut self, node: Node<'a, 'input>);
+    fn visit_exit(&mut self, node: Node<'a, 'input>);
+}
+
+impl TemplatedExpansion {
+    pub fn from_tag_name(tag_name: &str) -> Option<Self> {
+        match tag_name {
+            USE_TAG_NAME => Some(Self::Use),
+            MARKER_TAG_NAME => Some(Self::Marker),
+            PATTERN_TAG_NAME => Some(Self::Pattern),
+            _ => None,
+        }
+    }
 }
 
 /// Returns the effective value of the given presentation attribute (i.e. stroke),
-/// adhering to precedence rules.
+/// adhering to precedence rules and checking inheritance.
 ///
 /// 1. Inline style attribute
 /// 2. CSS class rules
@@ -50,24 +65,44 @@ fn calculate_presentation_attr<'input>(
     name: &'input str,
     css_rules: &HashMap<&'input str, HashMap<&'input str, &'input str>>,
 ) -> Option<&'input str> {
-    if let Some(style) = node.attribute("style") {
-        let v = style.split(';').find_map(|decl| {
-            let (k, v) = decl.split_once(':')?;
-            (k.trim() == name).then(|| v.trim())
-        });
-        if v.is_some() {
-            return v;
+    for current in iter::successors(Some(node), Node::parent) {
+        if !current.is_element() {
+            continue;
+        }
+        if let Some(val) = get_node_presentation_attr(current, name, css_rules) {
+            return Some(val);
+        }
+        if matches!(
+            current.tag_name().name(),
+            SVG_TAG_NAME | DEFS_TAG_NAME | SYMBOL_TAG_NAME | PATTERN_TAG_NAME
+        ) {
+            break;
         }
     }
-    if let Some(classes) = node.attribute("class") {
-        let v = classes
-            .split_whitespace()
-            .find_map(|cls| css_rules.get(cls)?.get(name).copied());
-        if v.is_some() {
-            return v;
-        }
-    }
-    node.attribute(name).map(str::trim)
+    None
+}
+
+/// Helper for [calculate_presentation_attr] that only checks the current node.
+fn get_node_presentation_attr<'input>(
+    node: Node<'input, 'input>,
+    name: &'input str,
+    css_rules: &HashMap<&'input str, HashMap<&'input str, &'input str>>,
+) -> Option<&'input str> {
+    node.attribute("style")
+        .and_then(|style| {
+            style.split(';').find_map(|decl| {
+                let (k, v) = decl.split_once(':')?;
+                (k.trim() == name).then(|| v.trim())
+            })
+        })
+        .or_else(|| {
+            node.attribute("class").and_then(|classes| {
+                classes
+                    .split_whitespace()
+                    .find_map(|cls| css_rules.get(cls)?.get(name).copied())
+            })
+        })
+        .or_else(|| node.attribute(name).map(str::trim))
 }
 
 /// Barebones CSS class rules parser.
@@ -117,7 +152,7 @@ pub fn parse_css<'a>(doc: &'a Document) -> HashMap<&'a str, HashMap<&'a str, &'a
 }
 
 /// Used to skip over SVG elements that are explicitly marked as do not render
-fn should_render_node(node: Node, render_symbol: bool) -> bool {
+fn should_render_node(node: Node, expanding_template: Option<TemplatedExpansion>) -> bool {
     node.is_element()
         && !node
             .attribute("style")
@@ -125,16 +160,23 @@ fn should_render_node(node: Node, render_symbol: bool) -> bool {
                 let mut parts = declaration.splitn(2, ':').map(str::trim);
                 (parts.next(), parts.next()) == (Some("display"), Some("none"))
         }))
-        // - Defs are not directly rendered
-        // - Markers are not directly rendered
-        && !matches!(node.tag_name().name(), DEFS_TAG_NAME | MARKER_TAG_NAME)
-        // - Symbols are not directly rendered, unless referenced by a use
-        && (render_symbol || !matches!(node.tag_name().name(), SYMBOL_TAG_NAME))
+        // Template elements are not directly rendered, unless referenced
+        && (expanding_template.is_some()
+            || !matches!(
+                node.tag_name().name(),
+                DEFS_TAG_NAME | MARKER_TAG_NAME | PATTERN_TAG_NAME | SYMBOL_TAG_NAME | CLIP_PATH_TAG_NAME
+            ))
+}
+
+fn find_node_by_id<'a, 'input>(doc: &'a Document<'input>, id: &str) -> Option<Node<'a, 'input>> {
+    doc.root()
+        .descendants()
+        .find(|n| n.attribute("id").map(str::trim) == Some(id))
 }
 
 /// Resolve `href` or `xlink:href` on a `<use>` element to a document node.
 /// Only fragment references (`#id`) within the same document are supported.
-fn resolve_use_href<'a, 'input: 'a>(
+fn resolve_href<'a, 'input: 'a>(
     doc: &'a Document<'input>,
     node: Node<'a, 'input>,
 ) -> Option<Node<'a, 'input>> {
@@ -142,35 +184,48 @@ fn resolve_use_href<'a, 'input: 'a>(
         .attribute("href")
         .or_else(|| node.attribute(("http://www.w3.org/1999/xlink", "href")))?;
     let id = href.strip_prefix('#')?;
-    doc.root()
-        .descendants()
-        .find(|n| n.attribute("id") == Some(id))
+    find_node_by_id(doc, id)
 }
 
-pub fn depth_first_visit(doc: &Document, visitor: &mut impl XmlVisitor) {
-    fn visit_node<V: XmlVisitor>(doc: &Document, node: Node, visitor: &mut V, render_symbol: bool) {
-        if !should_render_node(node, render_symbol) {
-            return;
-        }
-        visitor.visit_enter(node);
-        if node.tag_name().name() == USE_TAG_NAME
-            && let Some(referenced) = resolve_use_href(doc, node)
-        {
-            visit_node(doc, referenced, visitor, true);
-        } else {
-            node.children()
-                .for_each(|child| visit_node(doc, child, visitor, false));
-        }
-        visitor.visit_exit(node);
-    }
+/// When referenced, a pattern is typically `fill="url(#id)"`.
+fn get_pattern_id(attr: &str) -> Option<&str> {
+    let inner = attr.trim().strip_prefix("url(")?.strip_suffix(")")?.trim();
+    inner.trim_matches(['\'', '"']).strip_prefix('#')
+}
 
+fn visit_node<'a, 'input, V: XmlVisitor<'a, 'input>>(
+    doc: &'a Document<'input>,
+    node: Node<'a, 'input>,
+    visitor: &mut V,
+    expanding_template: Option<TemplatedExpansion>,
+) {
+    if !should_render_node(node, expanding_template) {
+        return;
+    }
+    visitor.visit_enter(node);
+    if node.tag_name().name() == USE_TAG_NAME
+        && let Some(referenced) = resolve_href(doc, node)
+    {
+        // Expand the target
+        visit_node(doc, referenced, visitor, Some(TemplatedExpansion::Use));
+    } else {
+        node.children()
+            .for_each(|child| visit_node(doc, child, visitor, expanding_template));
+    }
+    visitor.visit_exit(node);
+}
+
+pub fn depth_first_visit<'a, 'input, V: XmlVisitor<'a, 'input>>(
+    doc: &'a Document<'input>,
+    visitor: &mut V,
+) {
     doc.root()
         .children()
-        .for_each(|child| visit_node(doc, child, visitor, false));
+        .for_each(|child| visit_node(doc, child, visitor, None));
 }
 
-impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
-    fn visit_enter(&mut self, node: Node) {
+impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'input, T> {
+    fn visit_enter(&mut self, node: Node<'a, 'input>) {
         use PathSegment::{
             ClosePath, EllipticalArc, HorizontalLineTo, LineTo, MoveTo, VerticalLineTo,
         };
@@ -181,6 +236,15 @@ impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
 
         if node.tag_name().name() == CLIP_PATH_TAG_NAME {
             warn!("Clip paths are not supported: {node:?}");
+        }
+        if node.tag_name().name() == TEXT_TAG_NAME {
+            warn!("Text is not supported: {node:?}");
+        }
+        if node.tag_name().name() == TEXT_PATH_TAG_NAME {
+            warn!("Text paths are not supported: {node:?}");
+        }
+        if node.tag_name().name() == VIEW_TAG_NAME {
+            warn!("SVG views are not supported: {node:?}");
         }
 
         let mut flattened_transform = if let Some(transform) = node.attribute("transform") {
@@ -328,8 +392,8 @@ impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
                 (_, _, Some(vb)) => [vb.w, vb.h],
                 _ => *self.viewport_dim_stack.last().unwrap_or(&[1., 1.]),
             };
-            self.viewport_dim_stack.push(viewport_size);
             if let Some(view_box) = view_box {
+                self.viewport_dim_stack.push(viewport_size);
                 let viewport_transform = get_viewport_transform(
                     view_box,
                     preserve_aspect_ratio,
@@ -352,7 +416,10 @@ impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
             self.config.extra_attribute_name.as_deref(),
         ));
 
-        if node.has_tag_name(SVG_TAG_NAME) || node.has_tag_name(SYMBOL_TAG_NAME) {
+        if matches!(
+            (node.tag_name().name(), node.has_attribute("viewBox")),
+            (SVG_TAG_NAME, _) | (SYMBOL_TAG_NAME, true)
+        ) {
             let viewport_box = if let Some(vb) = view_box_opt {
                 Box2D::new(Point::new(vb.x, vb.y), Point::new(vb.x + vb.w, vb.y + vb.h))
             } else {
@@ -363,16 +430,25 @@ impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
                     Point::new(px + viewport_size_opt[0], py + viewport_size_opt[1]),
                 )
             };
-
             self.terrarium.push_viewport_bounds(viewport_box);
+            if self.is_overflow_hidden(node) {
+                self.terrarium.push_viewport_clip(viewport_box);
+            }
         }
 
-        if !self.should_draw_node(node) {
+        let should_draw = self.should_draw_node(node);
+
+        if let Some(expansion) = TemplatedExpansion::from_tag_name(node.tag_name().name()) {
+            self.expansion_stack.push(expansion);
+        }
+
+        if !should_draw {
             return;
         }
 
-        let has_fill_attr =
-            calculate_presentation_attr(node, "fill", &self.css_rules) != Some("none");
+        let fill_attr = calculate_presentation_attr(node, "fill", &self.css_rules);
+        // SVGs fill by default
+        let has_fill_attr = fill_attr != Some("none");
         let fill_rule = calculate_presentation_attr(node, "fill-rule", &self.css_rules)
             .map_or_default(|v| {
                 if v == "evenodd" {
@@ -382,28 +458,19 @@ impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
                 }
             });
 
-        // TODO: changing the default here to false would be breaking, but is technically correct from an SVG perspective.
-        let has_stroke_attr =
-            calculate_presentation_attr(node, "stroke", &self.css_rules) != Some("none");
+        // Default to false which is spec compliant.
+        let has_stroke_attr = calculate_presentation_attr(node, "stroke", &self.css_rules)
+            .is_some_and(|attr| attr != "none");
 
-        match node.tag_name().name() {
+        let segments: SmallVec<[PathSegment; 5]> = match node.tag_name().name() {
             PATH_TAG_NAME => {
                 let Some(d) = node.attribute("d") else {
                     warn!("There is a path node containing no actual path: {node:?}");
                     return;
                 };
-                let segments = PathParser::from(d)
-                    .map(|segment| segment.expect("could not parse path segment"));
-                let needs_fill = has_fill_attr;
-                if needs_fill || has_stroke_attr {
-                    self.comment();
-                    if needs_fill {
-                        self.terrarium.apply_polygon(segments.clone(), fill_rule);
-                    }
-                    if has_stroke_attr {
-                        self.terrarium.apply_path(segments);
-                    }
-                }
+                PathParser::from(d)
+                    .map(|segment| segment.expect("could not parse path segment"))
+                    .collect()
             }
             name @ (POLYLINE_TAG_NAME | POLYGON_TAG_NAME) => {
                 let Some(points) = node.attribute("points") else {
@@ -412,24 +479,14 @@ impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
                 };
                 let is_polygon = name == POLYGON_TAG_NAME;
                 let mut pp = PointsParser::from(points).peekable();
-                let segments = pp
-                    .peek()
-                    .copied()
+                let start = pp
+                    .next()
                     .map(|(x, y)| MoveTo { abs: true, x, y })
-                    .into_iter()
+                    .into_iter();
+                start
                     .chain(pp.map(|(x, y)| LineTo { abs: true, x, y }))
-                    .chain(is_polygon.then_some(ClosePath { abs: true }));
-
-                let needs_fill = has_fill_attr && is_polygon;
-                if needs_fill || has_stroke_attr {
-                    self.comment();
-                    if needs_fill {
-                        self.terrarium.apply_polygon(segments.clone(), fill_rule);
-                    }
-                    if has_stroke_attr {
-                        self.terrarium.apply_path(segments);
-                    }
-                }
+                    .chain(is_polygon.then_some(ClosePath { abs: true }))
+                    .collect()
             }
             RECT_TAG_NAME => {
                 let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
@@ -444,7 +501,7 @@ impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
                     warn!("Invalid rectangle node: {node:?}");
                     return;
                 };
-                let segments = [
+                [
                     MoveTo {
                         abs: true,
                         x: x + rx,
@@ -509,17 +566,8 @@ impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
                     ClosePath { abs: true },
                 ]
                 .into_iter()
-                .filter(|p| has_radius || !matches!(p, EllipticalArc { .. }));
-
-                if has_fill_attr || has_stroke_attr {
-                    self.comment();
-                    if has_fill_attr {
-                        self.terrarium.apply_polygon(segments.clone(), fill_rule);
-                    }
-                    if has_stroke_attr {
-                        self.terrarium.apply_path(segments);
-                    }
-                }
+                .filter(move |p| has_radius || !matches!(p, EllipticalArc { .. }))
+                .collect()
             }
             CIRCLE_TAG_NAME | ELLIPSE_TAG_NAME => {
                 let cx = self.length_attr_to_user_units(&node, "cx").unwrap_or(0.);
@@ -531,7 +579,7 @@ impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
                     warn!("Invalid {} node: {node:?}", node.tag_name().name());
                     return;
                 }
-                let segments = [
+                smallvec![
                     MoveTo {
                         abs: true,
                         x: cx + rx,
@@ -578,16 +626,7 @@ impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
                         y: cy,
                     },
                     ClosePath { abs: true },
-                ];
-                if has_fill_attr || has_stroke_attr {
-                    self.comment();
-                    if has_fill_attr {
-                        self.terrarium.apply_polygon(segments, fill_rule);
-                    }
-                    if has_stroke_attr {
-                        self.terrarium.apply_path(segments);
-                    }
-                }
+                ]
             }
             LINE_TAG_NAME => {
                 let (Some(x1), Some(y1), Some(x2), Some(y2)) = (
@@ -599,21 +638,18 @@ impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
                     warn!("Invalid line node: {node:?}");
                     return;
                 };
-                if has_stroke_attr {
-                    self.comment();
-                    self.terrarium.apply_path([
-                        MoveTo {
-                            abs: true,
-                            x: x1,
-                            y: y1,
-                        },
-                        LineTo {
-                            abs: true,
-                            x: x2,
-                            y: y2,
-                        },
-                    ]);
-                }
+                smallvec![
+                    MoveTo {
+                        abs: true,
+                        x: x1,
+                        y: y1,
+                    },
+                    LineTo {
+                        abs: true,
+                        x: x2,
+                        y: y2,
+                    },
+                ]
             }
             #[cfg(feature = "image")]
             "image" => {
@@ -685,21 +721,174 @@ impl<T: Turtle> XmlVisitor for ConversionVisitor<'_, '_, T> {
                 self.comment();
                 self.terrarium
                     .image(image, image_to_user, preserve_aspect_ratio);
+
+                return;
             }
-            // No-op tags
-            SVG_TAG_NAME | GROUP_TAG_NAME | USE_TAG_NAME | SYMBOL_TAG_NAME => {}
             other => {
                 debug!("Unhandled node: {other}");
+                return;
+            }
+        };
+
+        if has_stroke_attr {
+            self.comment();
+            self.terrarium.apply_path(segments.iter().copied());
+        }
+        if has_fill_attr {
+            self.comment();
+            // TODO: no idea what a vectorized gradient fill would mean practically speaking
+            if let Some(pattern_id) = fill_attr
+                .and_then(get_pattern_id)
+                .and_then(|id| find_node_by_id(node.document(), id))
+            {
+                self.visit_pattern(node, pattern_id, segments, fill_rule);
+            } else {
+                self.terrarium.apply_polygon(segments, fill_rule);
             }
         }
     }
 
-    fn visit_exit(&mut self, node: Node) {
+    fn visit_exit(&mut self, node: Node<'a, 'input>) {
         self.terrarium.pop_transform();
         self.name_stack.pop();
-        if matches!(node.tag_name().name(), SVG_TAG_NAME | SYMBOL_TAG_NAME) {
+        if let Some(expected) = TemplatedExpansion::from_tag_name(node.tag_name().name()) {
+            let popped = self.expansion_stack.pop();
+            debug_assert_eq!(popped, Some(expected));
+        }
+        if matches!(
+            (node.tag_name().name(), node.has_attribute("viewBox")),
+            (SVG_TAG_NAME, _) | (SYMBOL_TAG_NAME, true)
+        ) {
+            if self.is_overflow_hidden(node) {
+                self.terrarium.pop_clip_layer();
+            }
             self.viewport_dim_stack.pop();
             self.terrarium.pop_bounds();
         }
+    }
+}
+
+impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
+    fn is_overflow_hidden(&self, node: Node<'a, 'input>) -> bool {
+        match calculate_presentation_attr(node, "overflow", &self.css_rules) {
+            Some("hidden" | "scroll") => true,
+            Some(_) => false,
+            None => {
+                let is_root =
+                    node.parent_element().is_none() && node.tag_name().name() == SVG_TAG_NAME;
+                !is_root
+            }
+        }
+    }
+    /// Helper function because the logic for patterns is quite complex
+    fn visit_pattern(
+        &mut self,
+        container: Node<'a, 'input>,
+        pattern_node: Node<'a, 'input>,
+        container_segments: impl IntoIterator<Item = PathSegment>,
+        fill_rule: FillRule,
+    ) {
+        let doc = container.document();
+        let container_polygons = self
+            .terrarium
+            .to_fill_polygons(container_segments, fill_rule);
+        let [first, ..] = container_polygons.as_slice() else {
+            return;
+        };
+        let container_bbox =
+            container_polygons
+                .iter()
+                .skip(1)
+                .fold(first.outer.bounding_box(), |bbox, fp| {
+                    Box2D::from_points([
+                        bbox.min,
+                        bbox.max,
+                        fp.outer.bounding_box().min,
+                        fp.outer.bounding_box().max,
+                    ])
+                });
+
+        // TODO: does this handle xlink:href on a pattern correctly?
+        // seems like we need some kind of recursion here
+        let href_pattern_node = resolve_href(doc, pattern_node);
+
+        let [Some(width), Some(height), x, y] = ["width", "height", "x", "y"].map(|attr| {
+            self.length_attr_to_user_units(&pattern_node, attr)
+                .or_else(|| {
+                    href_pattern_node
+                        .and_then(|href_node| self.length_attr_to_user_units(&href_node, attr))
+                })
+        }) else {
+            // width or height of 0 means do not render
+            return;
+        };
+        if width == 0. || height == 0. {
+            return;
+        }
+
+        let pattern_origin_transform = Transform2D::translation(x.unwrap_or(0.), y.unwrap_or(0.));
+
+        let pattern_transform = pattern_node
+            .attribute("patternTransform")
+            .or_else(|| {
+                href_pattern_node
+                    .as_ref()
+                    .and_then(|n| n.attribute("patternTransform"))
+            })
+            .map_or_else(Transform2D::identity, |transform| {
+                TransformListParser::from(transform)
+                    .map(|token| token.expect("could not parse patternTransform"))
+                    .map(svg_transform_into_euclid_transform)
+                    .fold(Transform2D::identity(), |acc, t| t.then(&acc))
+            });
+
+        let target_pattern_node = if pattern_node.children().any(|c| c.is_element()) {
+            // TODO: unclear what it would mean if there is an href element but the pattern also has its own children
+            pattern_node
+        } else if let Some(ref href) = href_pattern_node {
+            *href
+        } else {
+            return;
+        };
+
+        let inv_transform = (pattern_origin_transform.then(&pattern_transform))
+            .inverse()
+            .expect("pattern transform is invertible");
+
+        let (min_col, max_col, min_row, max_row) = {
+            let inverse_container_bbox = inv_transform.outer_transformed_box(&container_bbox);
+            (
+                (inverse_container_bbox.min.x / width).floor() as i32 - 1,
+                (inverse_container_bbox.max.x / width).ceil() as i32 + 1,
+                (inverse_container_bbox.min.y / height).floor() as i32 - 1,
+                (inverse_container_bbox.max.y / height).ceil() as i32 + 1,
+            )
+        };
+
+        self.terrarium.push_clip_layer(container_polygons);
+
+        // Apply the pattern by repeated translation. Clipping crops the border patterns to the container.
+        for col in min_col..=max_col {
+            for row in min_row..=max_row {
+                // TODO: use a fast container checks to verify that some point in the pattern bbox is even
+                // in the container. This is probably wasteful for a polygon with holes.
+                let offset_transform =
+                    Transform2D::translation(f64::from(col) * width, f64::from(row) * height);
+                let combined = pattern_origin_transform
+                    .then(&offset_transform)
+                    .then(&pattern_transform);
+
+                self.terrarium.push_transform(combined);
+                visit_node(
+                    doc,
+                    target_pattern_node,
+                    self,
+                    Some(TemplatedExpansion::Pattern),
+                );
+                self.terrarium.pop_transform();
+            }
+        }
+
+        self.terrarium.pop_clip_layer();
     }
 }

@@ -22,7 +22,7 @@ fn signed_area(stroke: &Stroke) -> f64 {
 
     for cmd in stroke.commands() {
         match cmd {
-            DrawCommand::LineTo { from, to } => {
+            DrawCommand::LineTo(LineSegment { from, to }) => {
                 area += cross(*from, *to);
             }
             DrawCommand::Arc(svg_arc) => {
@@ -44,7 +44,6 @@ fn signed_area(stroke: &Stroke) -> f64 {
                     + 6.0 * cross(cbs.ctrl2, cbs.to))
                     / 10.0;
             }
-            DrawCommand::Comment(_) => {}
         }
     }
 
@@ -83,7 +82,7 @@ fn stroke_contains_point(stroke: &Stroke, point: Point<f64>) -> bool {
     let mut crossings = 0u32;
     for cmd in stroke.commands() {
         match cmd {
-            DrawCommand::LineTo { from, to } => {
+            DrawCommand::LineTo(LineSegment { from, to }) => {
                 if edge_crosses_ray(*from, *to, point) {
                     crossings += 1;
                 }
@@ -113,13 +112,27 @@ fn stroke_contains_point(stroke: &Stroke, point: Point<f64>) -> bool {
                     prev = to;
                 }
             }
-            DrawCommand::Comment(_) => {}
         }
     }
     if !stroke.is_closed() && edge_crosses_ray(stroke.end_point(), stroke.start_point(), point) {
         crossings += 1;
     }
     !crossings.is_multiple_of(2)
+}
+
+impl FillPolygon {
+    /// Basic containment check, TODO are there degenerate cases that have to be handled?
+    pub fn contains_point(&self, point: Point<f64>) -> bool {
+        if !stroke_contains_point(&self.outer, point) {
+            return false;
+        }
+        for hole in &self.holes {
+            if stroke_contains_point(hole, point) {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 fn stroke_contains_stroke(outer: &Stroke, inner: &Stroke) -> bool {
@@ -132,9 +145,7 @@ fn stroke_contains_stroke(outer: &Stroke, inner: &Stroke) -> bool {
         return false;
     }
     for cmd in inner.commands() {
-        if let Some(to) = cmd.end_point()
-            && !stroke_contains_point(outer, to)
-        {
+        if !stroke_contains_point(outer, cmd.end_point()) {
             return false;
         }
     }
@@ -256,69 +267,72 @@ mod tests {
         let s0 = Stroke::new(
             Point::new(0.0, 0.0),
             vec![
-                DrawCommand::LineTo {
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(0.0, 0.0),
                     to: Point::new(10.0, 0.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(10.0, 0.0),
                     to: Point::new(10.0, 10.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(10.0, 10.0),
                     to: Point::new(0.0, 10.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(0.0, 10.0),
                     to: Point::new(0.0, 0.0),
-                },
+                }),
             ],
+            None,
         );
 
         // Subpath 1: CCW square (2,2) to (8,8)
         let s1 = Stroke::new(
             Point::new(2.0, 2.0),
             vec![
-                DrawCommand::LineTo {
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(2.0, 2.0),
                     to: Point::new(8.0, 2.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(8.0, 2.0),
                     to: Point::new(8.0, 8.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(8.0, 8.0),
                     to: Point::new(2.0, 8.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(2.0, 8.0),
                     to: Point::new(2.0, 2.0),
-                },
+                }),
             ],
+            None,
         );
 
         // Subpath 2: CCW square (4,4) to (6,6)
         let s2 = Stroke::new(
             Point::new(4.0, 4.0),
             vec![
-                DrawCommand::LineTo {
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(4.0, 4.0),
                     to: Point::new(6.0, 4.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(6.0, 4.0),
                     to: Point::new(6.0, 6.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(6.0, 6.0),
                     to: Point::new(4.0, 6.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(4.0, 6.0),
                     to: Point::new(4.0, 4.0),
-                },
+                }),
             ],
+            None,
         );
 
         let polygons = into_fill_polygons(&[s0.clone(), s1.clone(), s2.clone()], FillRule::NonZero);
@@ -337,46 +351,48 @@ mod tests {
         let s0 = Stroke::new(
             Point::new(0.0, 0.0),
             vec![
-                DrawCommand::LineTo {
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(0.0, 0.0),
                     to: Point::new(10.0, 0.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(10.0, 0.0),
                     to: Point::new(10.0, 10.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(10.0, 10.0),
                     to: Point::new(0.0, 10.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(0.0, 10.0),
                     to: Point::new(0.0, 0.0),
-                },
+                }),
             ],
+            None,
         );
 
         // Subpath 1: CCW square from (5,5) to (15,15) - overlapping but not nested
         let s1 = Stroke::new(
             Point::new(5.0, 5.0),
             vec![
-                DrawCommand::LineTo {
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(5.0, 5.0),
                     to: Point::new(15.0, 5.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(15.0, 5.0),
                     to: Point::new(15.0, 15.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(15.0, 15.0),
                     to: Point::new(5.0, 15.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(5.0, 15.0),
                     to: Point::new(5.0, 5.0),
-                },
+                }),
             ],
+            None,
         );
 
         let polygons = into_fill_polygons(&[s0.clone(), s1.clone()], FillRule::NonZero);
@@ -399,27 +415,28 @@ mod tests {
         let star = Stroke::new(
             Point::new(110.0, 45.0),
             vec![
-                DrawCommand::LineTo {
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(110.0, 45.0),
                     to: Point::new(162.0, 195.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(162.0, 195.0),
                     to: Point::new(24.0, 100.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(24.0, 100.0),
                     to: Point::new(196.0, 100.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(196.0, 100.0),
                     to: Point::new(58.0, 195.0),
-                },
-                DrawCommand::LineTo {
+                }),
+                DrawCommand::LineTo(LineSegment {
                     from: Point::new(58.0, 195.0),
                     to: Point::new(110.0, 45.0),
-                },
+                }),
             ],
+            None,
         );
 
         let evenodd = into_fill_polygons(slice::from_ref(&star), FillRule::EvenOdd);

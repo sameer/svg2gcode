@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fmt::Debug};
 
 use ::g_code::{command, emit::Token};
-use lyon_geom::{Point, SvgArc};
+use lyon_geom::{LineSegment, Point, SvgArc};
 use rust_decimal::{Decimal, prelude::*};
 use svg2star::turtle::{
     Turtle,
@@ -140,18 +140,15 @@ impl Turtle for GCodeTurtle<'_> {
 
     fn stroke(&mut self, stroke: Stroke) {
         let start = stroke.start_point();
-        let mut commands = stroke.into_commands().peekable();
 
         self.tool_off();
 
         // Comments should be inline after tool_off but before a rapid move.
-        while matches!(commands.peek(), Some(DrawCommand::Comment(_))) {
-            if let Some(DrawCommand::Comment(comment)) = commands.next() {
-                self.program.push(Token::Comment {
-                    is_inline: false,
-                    inner: Cow::Owned(comment),
-                });
-            }
+        if let Some(comment) = stroke.comment() {
+            self.program.push(Token::Comment {
+                is_inline: false,
+                inner: Cow::Owned(comment.to_owned()),
+            });
         }
 
         self.program.append(
@@ -163,9 +160,9 @@ impl Turtle for GCodeTurtle<'_> {
         );
         self.tool_on();
 
-        for command in commands {
+        for command in stroke.into_commands() {
             match command {
-                DrawCommand::LineTo { from: _, to } => {
+                DrawCommand::LineTo(LineSegment { from: _, to }) => {
                     self.program.append(
                         &mut command!(LinearInterpolation {
                             X: self.round(to.x),
@@ -247,12 +244,6 @@ impl Turtle for GCodeTurtle<'_> {
                             self.program.append(&mut self.line_to(point));
                         }
                     }
-                }
-                DrawCommand::Comment(comment) => {
-                    self.program.push(Token::Comment {
-                        is_inline: false,
-                        inner: Cow::Owned(comment),
-                    });
                 }
             }
         }

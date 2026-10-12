@@ -1,14 +1,16 @@
 use std::fmt::Debug;
 
+use log::warn;
 use lyon_geom::{
-    ArcFlags, Box2D, CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc, Vector,
+    ArcFlags, Box2D, CubicBezierSegment, LineSegment, Point, QuadraticBezierSegment, SvgArc,
+    Vector,
     euclid::{Angle, default::Transform2D},
     point, vector,
 };
 use svgtypes::PathSegment;
 
 use self::elements::{FillPolygon, Transformed};
-use crate::turtle::elements::{DrawCommand, FillRule, Stroke};
+use crate::turtle::elements::{DrawCommand, FillRule, Stroke, clip::ClipStack};
 
 mod collect;
 mod dpi;
@@ -64,6 +66,7 @@ pub(crate) struct Terrarium<T: Turtle + std::fmt::Debug> {
     comment: Option<String>,
     current_bounds: Option<Box2D<f64>>,
     bounds_stack: Vec<Option<Box2D<f64>>>,
+    clip_stack: ClipStack,
 }
 
 impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
@@ -81,7 +84,16 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             comment: None,
             current_bounds: None,
             bounds_stack: vec![],
+            clip_stack: ClipStack::default(),
         }
+    }
+
+    pub fn push_clip_layer(&mut self, polys: Vec<FillPolygon>) {
+        self.clip_stack.push_clip(polys);
+    }
+
+    pub fn pop_clip_layer(&mut self) -> Option<Vec<FillPolygon>> {
+        self.clip_stack.pop_clip()
     }
 
     pub fn push_viewport_bounds(&mut self, viewport_box: Box2D<f64>) {
@@ -91,6 +103,28 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             None => Some(new_bounds),
         };
         self.push_bounds(combined_bounds);
+    }
+
+    pub fn push_viewport_clip(&mut self, viewport_box: Box2D<f64>) {
+        // TODO: this is breaking the turtle abstraction a little
+        let t = self.current_transform();
+        let p1 = t.transform_point(point(viewport_box.min.x, viewport_box.min.y));
+        let p2 = t.transform_point(point(viewport_box.max.x, viewport_box.min.y));
+        let p3 = t.transform_point(point(viewport_box.max.x, viewport_box.max.y));
+        let p4 = t.transform_point(point(viewport_box.min.x, viewport_box.max.y));
+        self.push_clip_layer(vec![FillPolygon {
+            outer: Stroke::new(
+                p1,
+                vec![
+                    DrawCommand::LineTo(LineSegment { from: p1, to: p2 }),
+                    DrawCommand::LineTo(LineSegment { from: p2, to: p3 }),
+                    DrawCommand::LineTo(LineSegment { from: p3, to: p4 }),
+                    DrawCommand::LineTo(LineSegment { from: p4, to: p1 }),
+                ],
+                None,
+            ),
+            holes: vec![],
+        }]);
     }
 
     pub fn push_bounds(&mut self, bounds: Option<Box2D<f64>>) {
@@ -141,10 +175,10 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         {
             None
         } else {
-            Some(DrawCommand::LineTo {
+            Some(DrawCommand::LineTo(LineSegment {
                 from: self.current_position,
                 to: self.initial_position,
-            })
+            }))
         };
         self.current_position = self.initial_position;
         self.previous_quadratic_control = None;
@@ -182,7 +216,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         self.previous_quadratic_control = None;
         self.previous_cubic_control = None;
 
-        DrawCommand::LineTo { from, to }
+        DrawCommand::LineTo(LineSegment { from, to })
     }
 
     /// Draw a cubic curve from the current point to (x, y) with specified control points (x1, y1) and (x2, y2)
@@ -193,7 +227,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         mut ctrl1: Point<f64>,
         mut ctrl2: Point<f64>,
         mut to: Point<f64>,
-    ) -> CubicBezierSegment<f64> {
+    ) -> DrawCommand {
         let from = self.current_position;
         if !abs {
             let inverse_transform = self.current_transform.inverse().unwrap();
@@ -222,7 +256,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         ));
         self.previous_quadratic_control = None;
 
-        cbs
+        DrawCommand::CubicBezier(cbs)
     }
 
     /// Draw a shorthand/smooth cubic bezier segment, where the first control point was already given
@@ -232,7 +266,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         abs: bool,
         mut ctrl2: Point<f64>,
         mut to: Point<f64>,
-    ) -> CubicBezierSegment<f64> {
+    ) -> DrawCommand {
         let from = self.current_position;
         let ctrl1 = self.previous_cubic_control.unwrap_or(self.current_position);
         if !abs {
@@ -263,16 +297,12 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         ));
         self.previous_quadratic_control = None;
 
-        cbs
+        DrawCommand::CubicBezier(cbs)
     }
 
     /// Draw a shorthand/smooth cubic bezier segment, where the control point was already given
     /// <https://www.w3.org/TR/SVG/paths.html#PathDataQuadraticBezierCommands>
-    fn smooth_quadratic_bezier(
-        &mut self,
-        abs: bool,
-        mut to: Point<f64>,
-    ) -> QuadraticBezierSegment<f64> {
+    fn smooth_quadratic_bezier(&mut self, abs: bool, mut to: Point<f64>) -> DrawCommand {
         let from = self.current_position;
         let ctrl = self
             .previous_quadratic_control
@@ -298,7 +328,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         ));
         self.previous_cubic_control = None;
 
-        qbs
+        DrawCommand::QuadraticBezier(qbs)
     }
 
     /// Draw a quadratic bezier segment
@@ -308,7 +338,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         abs: bool,
         mut ctrl: Point<f64>,
         mut to: Point<f64>,
-    ) -> QuadraticBezierSegment<f64> {
+    ) -> DrawCommand {
         let from = self.current_position;
         if !abs {
             let inverse_transform = self
@@ -333,7 +363,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         ));
         self.previous_cubic_control = None;
 
-        qbs
+        DrawCommand::QuadraticBezier(qbs)
     }
 
     /// Draw an elliptical arc segment
@@ -345,7 +375,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         x_rotation: Angle<f64>,
         flags: ArcFlags,
         mut to: Point<f64>,
-    ) -> SvgArc<f64> {
+    ) -> DrawCommand {
         let from = self
             .current_transform
             .inverse()
@@ -368,7 +398,14 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         self.previous_quadratic_control = None;
         self.previous_cubic_control = None;
 
-        svg_arc
+        if svg_arc.is_straight_line() {
+            DrawCommand::LineTo(LineSegment {
+                from: svg_arc.from,
+                to: svg_arc.to,
+            })
+        } else {
+            DrawCommand::Arc(svg_arc)
+        }
     }
 
     fn begin(&mut self) {
@@ -434,6 +471,10 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             .expect("pop only called when transforms remain");
     }
 
+    pub fn current_transform(&self) -> Transform2D<f64> {
+        self.current_transform
+    }
+
     pub fn comment(&mut self, comment: String) {
         self.comment = Some(comment);
     }
@@ -449,28 +490,28 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
 
         let mut start_point = Point::zero();
         let mut commands = vec![];
-        let mut pending_comment = self.comment.take();
+        let mut path_comment = self.comment.take();
+        let mut strokes = vec![];
+
+        let mut push_stroke = |stroke_start: Point<f64>, commands: &mut Vec<DrawCommand>| {
+            if commands.is_empty() {
+                return;
+            }
+            let cmds = std::mem::take(commands);
+            strokes.push(Stroke::new(stroke_start, cmds, path_comment.take()));
+        };
 
         for segment in path {
             match segment {
                 MoveTo { abs, x, y } => {
-                    if !commands.is_empty() {
-                        self.turtle
-                            .stroke(Stroke::new(start_point, std::mem::take(&mut commands)));
-                    }
+                    push_stroke(start_point, &mut commands);
                     start_point = self.move_to(abs, x, y);
-                    if let Some(comment) = pending_comment.take() {
-                        commands.push(DrawCommand::Comment(comment));
-                    }
                 }
                 ClosePath { .. } => {
                     if let Some(command) = self.close() {
                         commands.push(command);
                     }
-                    if !commands.is_empty() {
-                        self.turtle
-                            .stroke(Stroke::new(start_point, std::mem::take(&mut commands)));
-                    }
+                    push_stroke(start_point, &mut commands);
                 }
                 LineTo { abs, x, y } => {
                     commands.push(self.line(abs, Some(x), Some(y)));
@@ -490,31 +531,21 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
                     x,
                     y,
                 } => {
-                    commands.push(DrawCommand::CubicBezier(self.cubic_bezier(
+                    commands.push(self.cubic_bezier(
                         abs,
                         point(x1, y1),
                         point(x2, y2),
                         point(x, y),
-                    )));
+                    ));
                 }
                 SmoothCurveTo { abs, x2, y2, x, y } => {
-                    commands.push(DrawCommand::CubicBezier(self.smooth_cubic_bezier(
-                        abs,
-                        point(x2, y2),
-                        point(x, y),
-                    )));
+                    commands.push(self.smooth_cubic_bezier(abs, point(x2, y2), point(x, y)));
                 }
                 Quadratic { abs, x1, y1, x, y } => {
-                    commands.push(DrawCommand::QuadraticBezier(self.quadratic_bezier(
-                        abs,
-                        point(x1, y1),
-                        point(x, y),
-                    )));
+                    commands.push(self.quadratic_bezier(abs, point(x1, y1), point(x, y)));
                 }
                 SmoothQuadratic { abs, x, y } => {
-                    commands.push(DrawCommand::QuadraticBezier(
-                        self.smooth_quadratic_bezier(abs, point(x, y)),
-                    ));
+                    commands.push(self.smooth_quadratic_bezier(abs, point(x, y)));
                 }
                 EllipticalArc {
                     abs,
@@ -526,38 +557,44 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
                     x,
                     y,
                 } => {
-                    commands.push(DrawCommand::Arc(self.elliptical(
+                    commands.push(self.elliptical(
                         abs,
                         vector(rx, ry),
                         Angle::degrees(x_axis_rotation),
                         ArcFlags { large_arc, sweep },
                         point(x, y),
-                    )));
+                    ));
                 }
             }
         }
 
-        if !commands.is_empty() {
-            self.turtle
-                .stroke(Stroke::new(start_point, std::mem::take(&mut commands)));
-        }
+        // Handle unclosed path
+        push_stroke(start_point, &mut commands);
+
+        self.apply_strokes(strokes);
     }
 
     pub fn apply_strokes(&mut self, strokes: impl IntoIterator<Item = Stroke>) {
         self.begin();
-
-        for stroke in strokes {
-            self.reset();
-            self.turtle.stroke(stroke);
+        if self.clip_stack.is_active() {
+            let strokes = self.clip_stack.clip_strokes(strokes).collect::<Vec<_>>();
+            for stroke in strokes {
+                self.reset();
+                self.turtle.stroke(stroke);
+            }
+        } else {
+            for stroke in strokes {
+                self.reset();
+                self.turtle.stroke(stroke);
+            }
         }
     }
 
-    /// Converts an SVG polygon into [FillPolygon(s)](FillPolygon) on a turtle.
-    pub fn apply_polygon(
-        &mut self,
+    pub fn to_fill_polygons(
+        &self,
         segments: impl IntoIterator<Item = PathSegment>,
         fill_rule: FillRule,
-    ) {
+    ) -> Vec<elements::FillPolygon> {
         let mut sub = Terrarium {
             has_begun: false,
             turtle: StrokeCollectingTurtle::default(),
@@ -570,10 +607,27 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             comment: self.comment.clone(),
             current_bounds: self.current_bounds,
             bounds_stack: vec![],
+            clip_stack: self.clip_stack.clone(),
         };
         sub.apply_path(segments);
-        let segments = sub.finish().into_strokes();
-        for polygon in self::elements::fill::into_fill_polygons(&segments, fill_rule) {
+        let strokes = sub.finish().into_strokes();
+        let polys = self::elements::fill::into_fill_polygons(&strokes, fill_rule);
+        if self.clip_stack.is_active() {
+            // TODO: polygon clipping is non-trivial
+            warn!("Polygon clipping is not yet unimplemented, skipping clip");
+            polys
+        } else {
+            polys
+        }
+    }
+
+    /// Converts an SVG polygon into [FillPolygon(s)](FillPolygon) on a turtle.
+    pub fn apply_polygon(
+        &mut self,
+        segments: impl IntoIterator<Item = PathSegment>,
+        fill_rule: FillRule,
+    ) {
+        for polygon in self.to_fill_polygons(segments, fill_rule) {
             self.turtle.fill_polygon(polygon);
         }
     }
@@ -583,5 +637,75 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             self.turtle.end();
         }
         self.turtle
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lower::{ConversionConfig, ConversionOptions, svg_to_turtle};
+
+    #[test]
+    fn test_clip_layer_out_of_bounds_shape_filtered() {
+        let svg_text = r#"<svg width="20mm" height="20mm" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="p" width="10" height="10" patternUnits="userSpaceOnUse">
+      <circle cx="-2" cy="5" r="5" fill="black"/>
+    </pattern>
+  </defs>
+  <rect x="0" y="0" width="20" height="20" fill="url(#p)"/>
+</svg>"#;
+        let doc = roxmltree::Document::parse(svg_text).unwrap();
+
+        #[derive(Debug, Default)]
+        struct TestTurtle {
+            polygons: Vec<FillPolygon>,
+        }
+        impl Turtle for TestTurtle {
+            fn begin(&mut self) {}
+            fn end(&mut self) {}
+            fn stroke(&mut self, _stroke: Stroke) {}
+            fn fill_polygon(&mut self, polygon: FillPolygon) {
+                self.polygons.push(polygon);
+            }
+            #[cfg(feature = "image")]
+            fn image(&mut self, _image: super::elements::RasterImage) {}
+        }
+
+        let conv = ConversionConfig::default();
+        let turtle = TestTurtle::default();
+        let result = svg_to_turtle(
+            &doc,
+            &conv,
+            ConversionOptions::default(),
+            turtle,
+            CoordinateSystem::YDown,
+        );
+
+        // All emitted polygons must have non-zero area and bounding boxes strictly inside [0, 20] x [0, 20]
+        assert!(!result.polygons.is_empty(), "Should emit clipped polygons");
+        for poly in &result.polygons {
+            let bbox = poly.outer.bounding_box();
+            assert!(
+                bbox.min.x >= -1e-3,
+                "Min X should be within bounds: {}",
+                bbox.min.x
+            );
+            assert!(
+                bbox.max.x <= 20.0 + 1e-3,
+                "Max X should be within bounds: {}",
+                bbox.max.x
+            );
+            assert!(
+                bbox.min.y >= -1e-3,
+                "Min Y should be within bounds: {}",
+                bbox.min.y
+            );
+            assert!(
+                bbox.max.y <= 20.0 + 1e-3,
+                "Max Y should be within bounds: {}",
+                bbox.max.y
+            );
+        }
     }
 }

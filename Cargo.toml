@@ -35,5 +35,6 @@ paste = "1"
 roxmltree = "0.21"
 serde = { version = "1", default-features = false }
 serde_json = "1"
+smallvec = "1.16"
 svgtypes = "0.16"
 uom = "0.38"
