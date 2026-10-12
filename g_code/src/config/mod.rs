@@ -109,6 +109,18 @@ pub struct MachineConfig {
         serde(default, deserialize_with = "deserialize_string_or_strings")
     )]
     pub end_sequence: Option<String>,
+    /// Z coordinate for rapid travel moves (pen/tool raised position)
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub z_travel: Option<f64>,
+    /// Z coordinate for drawing moves (pen/tool lowered)
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub z_path: Option<f64>,
+    /// Z coordinate at maximum emphasis (deepest/most pressure, for thick strokes)
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub z_emphasis: Option<f64>,
+    /// Stroke width in mm at which zemphasis is fully applied; interpolates below
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub emphasis_stroke_width: Option<f64>,
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

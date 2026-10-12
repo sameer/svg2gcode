@@ -390,6 +390,12 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
             .map(|v| v != "none")
             .unwrap_or(true);
 
+        // SVG default stroke-width is 1 user unit
+        let stroke_width = calculate_presentation_attr(node, "stroke-width", &self.css_rules)
+            .and_then(|v| LengthListParser::from(v).next()?.ok())
+            .map(|l| self.length_to_user_units(l, DimensionHint::Other))
+            .unwrap_or(1.0);
+
         match node.tag_name().name() {
             PATH_TAG_NAME => {
                 let Some(d) = node.attribute("d") else {
@@ -405,7 +411,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
                         self.terrarium.apply_polygon(segments.clone(), fill_rule);
                     }
                     if has_stroke_attr {
-                        self.terrarium.apply_path(segments);
+                        self.terrarium.apply_path(segments, stroke_width);
                     }
                 }
             }
@@ -431,7 +437,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
                         self.terrarium.apply_polygon(segments.clone(), fill_rule);
                     }
                     if has_stroke_attr {
-                        self.terrarium.apply_path(segments);
+                        self.terrarium.apply_path(segments, stroke_width);
                     }
                 }
             }
@@ -521,7 +527,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
                         self.terrarium.apply_polygon(segments.clone(), fill_rule);
                     }
                     if has_stroke_attr {
-                        self.terrarium.apply_path(segments);
+                        self.terrarium.apply_path(segments, stroke_width);
                     }
                 }
             }
@@ -589,7 +595,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
                         self.terrarium.apply_polygon(segments, fill_rule);
                     }
                     if has_stroke_attr {
-                        self.terrarium.apply_path(segments);
+                        self.terrarium.apply_path(segments, stroke_width);
                     }
                 }
             }
@@ -616,7 +622,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor for ConversionVisitor<'a, 'input, T> {
                             x: x2,
                             y: y2,
                         },
-                    ]);
+                    ], stroke_width);
                 }
             }
             #[cfg(feature = "image")]

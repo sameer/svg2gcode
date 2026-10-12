@@ -45,7 +45,8 @@ impl<T: Turtle> DpiConvertingTurtle<T> {
     }
 
     fn stroke_to_mm(&self, stroke: Stroke) -> Stroke {
-        Stroke::new(
+        let width = stroke.width;
+        Stroke::with_width(
             self.point_to_mm(stroke.start_point()),
             stroke
                 .into_commands()
@@ -88,6 +89,7 @@ impl<T: Turtle> DpiConvertingTurtle<T> {
                     DrawCommand::Comment(s) => DrawCommand::Comment(s),
                 })
                 .collect(),
+            width,
         )
     }
 }
