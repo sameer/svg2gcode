@@ -483,8 +483,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                 let is_polygon = name == POLYGON_TAG_NAME;
                 let mut pp = PointsParser::from(points).peekable();
                 let start = pp
-                    .peek()
-                    .copied()
+                    .next()
                     .map(|(x, y)| MoveTo { abs: true, x, y })
                     .into_iter();
                 start
