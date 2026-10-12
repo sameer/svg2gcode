@@ -1,7 +1,7 @@
 name: Release CLI
 on:
   release:
-    types: [created]
+    types: [published]
 
 jobs:
   build:
@@ -21,7 +21,7 @@ jobs:
             target: aarch64-unknown-linux-musl
             artifact: svg2gcode-linux-aarch64
           - name: macOS x64
-            runner: macos-15-intel
+            runner: macos-26-intel
             target: x86_64-apple-darwin
             artifact: svg2gcode-macos-x86_64
           - name: macOS arm64
@@ -57,7 +57,7 @@ jobs:
   release:
     name: Upload release assets
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     permissions:
       contents: write
     steps:
