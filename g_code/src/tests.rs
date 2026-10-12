@@ -43,7 +43,7 @@ fn assert_close(left: Vec<Token<'_>>, right: Vec<Token<'_>>) {
     let mut code = String::new();
     ::g_code::emit::format_gcode_fmt(left.iter(), FormatOptions::default(), &mut code).unwrap();
     assert_eq!(left.len(), right.len(), "{code}");
-    for (i, pair) in left.into_iter().zip(right.into_iter()).enumerate() {
+    for (i, pair) in left.into_iter().zip(right).enumerate() {
         match pair {
             (Token::Field(l), Token::Field(r)) => {
                 assert_eq!(l.letters, r.letters);
