@@ -1,0 +1,47 @@
+name: Workspace crate checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+      - name: Get stable release date
+        id: stable-date
+        run: echo "date=$(curl -s https://static.rust-lang.org/dist/channel-rust-stable.toml | grep '^date' -m1 | cut -d'"' -f2)" >> $GITHUB_OUTPUT
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly-${{ steps.stable-date.outputs.date }}
+          components: clippy, rustfmt
+      - uses: taiki-e/install-action@cargo-hack
+      - name: Fmt
+        run: cargo +nightly-${{ steps.stable-date.outputs.date }} fmt --check
+      - name: Clippy
+        run: cargo +nightly-${{ steps.stable-date.outputs.date }} hack clippy --workspace --feature-powerset --tests -- -D warnings
+  build_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-hack
+      - name: Build
+        run: cargo hack build --workspace --feature-powerset
+      - name: Test
+        run: cargo hack test --workspace --feature-powerset

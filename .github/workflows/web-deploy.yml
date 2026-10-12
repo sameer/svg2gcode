@@ -1,20 +1,34 @@
 name: Deploy svg2gcode-web
 on:
-  workflow_run:
-    branches: [main]
-    workflows: [Check svg2gcode-web]
-    types: [completed]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit hash, tag, or branch to deploy'
+        required: true
+        default: 'main'
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.ref || github.ref }}
           submodules: 'true'
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -27,10 +41,17 @@ jobs:
         run: |
           cd web
           trunk build --release --public-url https://sameer.github.io/svg2gcode/
-
-      - name: Publish to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
-        if: github.ref == 'refs/heads/main'
+      - name: Upload to Github Pages
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ${{ github.workspace }}/web/dist
+          path: ${{ github.workspace }}/web/dist
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deploypages.outputs.page_url }}
+    runs-on: ubuntu-slim
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploypages
+        uses: actions/deploy-pages@v4
