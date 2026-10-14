@@ -1,9 +1,9 @@
 use std::iter;
 
-use lyon_geom::{LineSegment, Point};
+use lyon_geom::Point;
 
 use super::intersect::{Intersections, PARAM_EPSILON};
-use crate::turtle::elements::{DrawCommand, FillPolygon, Stroke};
+use crate::turtle::elements::{DrawCommand, FillPolygon, PointLocation, Stroke};
 
 #[derive(Debug, Clone)]
 struct ActiveClip {
@@ -25,17 +25,7 @@ impl ClipStack {
                 .flat_map(|polygon| {
                     iter::once(&polygon.outer)
                         .chain(&polygon.holes)
-                        .flat_map(|stroke| {
-                            stroke
-                                .commands()
-                                .copied()
-                                .chain((!stroke.is_closed()).then_some(DrawCommand::LineTo(
-                                    LineSegment {
-                                        from: stroke.end_point(),
-                                        to: stroke.start_point(),
-                                    },
-                                )))
-                        })
+                        .flat_map(Stroke::closed_commands)
                 })
                 .collect(),
             clip_polygons,
@@ -85,7 +75,12 @@ impl ClipStack {
         ts.dedup_by(|a, b| (*a - *b).abs() < PARAM_EPSILON);
 
         // Draw ranges that are active within some clipping polygon
-        let is_inside = |pt: Point<f64>| active.clip_polygons.iter().any(|p| p.contains_point(pt));
+        let is_inside = |pt: Point<f64>| {
+            active
+                .clip_polygons
+                .iter()
+                .any(|p| p.contains_point(pt) == PointLocation::Interior)
+        };
         for (&t_a, &t_b) in ts.iter().zip(ts.iter().skip(1)) {
             let t_mid = f64::midpoint(t_a, t_b);
             if is_inside(cmd.sample(t_mid)) {
@@ -107,10 +102,9 @@ fn group_commands_into_strokes(cmds: Vec<DrawCommand>) -> Vec<Stroke> {
         let cmd_start = cmd.start_point();
         let cmd_end = cmd.end_point();
 
-        if let (Some(prev), Some(start)) = (prev_end, cmd_start) {
-            // If the next command does not start where the previous command ended,
-            // emit the current stroke and start a new one across the rapid-travel gap.
-            if (prev - start).square_length() > f64::EPSILON
+        if let Some(prev) = prev_end {
+            // Start a new stroke if there is a jump.
+            if (prev - cmd_start).square_length() > f64::EPSILON
                 && let Some(s) = current_start.take()
             {
                 strokes.push(Stroke::new(s, std::mem::take(&mut current_cmds), None));
@@ -118,7 +112,7 @@ fn group_commands_into_strokes(cmds: Vec<DrawCommand>) -> Vec<Stroke> {
         }
 
         if current_start.is_none() {
-            current_start = cmd_start;
+            current_start = Some(cmd_start);
         }
         prev_end = Some(cmd_end);
         current_cmds.push(cmd);

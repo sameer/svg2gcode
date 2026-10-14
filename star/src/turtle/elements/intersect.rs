@@ -44,9 +44,9 @@ impl Intersections<LineSegment<f64>> for CubicBezierSegment<f64> {
 
 impl Intersections<LineSegment<f64>> for QuadraticBezierSegment<f64> {
     fn intersections(&self, line_seg: &LineSegment<f64>) -> SmallVec<[(f64, f64); 3]> {
-        self.line_segment_intersections_t(line_seg)
-            .into_iter()
-            .collect()
+        // There is a bug in `QuadraticBezierSegment::line_intersections_t`
+        // https://github.com/nical/lyon/pull/975/
+        self.to_cubic().intersections(line_seg)
     }
 }
 
