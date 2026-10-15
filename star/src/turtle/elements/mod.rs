@@ -2,8 +2,9 @@
 
 use std::{mem::swap, ops::Range};
 
-pub use lyon_geom::{ArcFlags, CubicBezierSegment, Point, QuadraticBezierSegment, SvgArc, Vector};
-use lyon_geom::{Box2D, LineSegment};
+use lyon_geom::{
+    ArcFlags, Box2D, CubicBezierSegment, LineSegment, Point, QuadraticBezierSegment, SvgArc,
+};
 
 pub use self::{
     arc::{ArcOrLineSegment, FlattenWithArcs, Transformed},
@@ -37,6 +38,14 @@ pub enum FillRule {
     EvenOdd,
 }
 
+/// Classification of a point with respect to a shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointLocation {
+    Interior,
+    Boundary,
+    Exterior,
+}
+
 /// A filled region: one outer closed contour and zero or more hole contours punched out of it.
 ///
 /// The SVG fill rule is resolved such that `outer` is the boundary of the filled area and
@@ -68,12 +77,12 @@ pub enum DrawCommand {
 }
 
 impl DrawCommand {
-    pub fn start_point(&self) -> Option<Point<f64>> {
+    pub fn start_point(&self) -> Point<f64> {
         match self {
-            Self::LineTo(line) => Some(line.from),
-            Self::Arc(arc) => Some(arc.from),
-            Self::CubicBezier(cbs) => Some(cbs.from),
-            Self::QuadraticBezier(qbs) => Some(qbs.from),
+            Self::LineTo(line) => line.from,
+            Self::Arc(arc) => arc.from,
+            Self::CubicBezier(cbs) => cbs.from,
+            Self::QuadraticBezier(qbs) => qbs.from,
         }
     }
 
@@ -209,6 +218,22 @@ impl Stroke {
 
     pub fn into_commands(self) -> impl Iterator<Item = DrawCommand> {
         self.commands.into_iter()
+    }
+
+    /// Same as [`Self::commands`] but with an explicit closing line segment if unclosed.
+    ///
+    /// Usually relevant when the spec says it is implicitly closed (i.e. fills).
+    pub fn closed_commands(&self) -> impl Iterator<Item = DrawCommand> + '_ {
+        self.commands()
+            .copied()
+            .chain(
+                (!self.commands.is_empty() && !self.is_closed()).then_some(DrawCommand::LineTo(
+                    LineSegment {
+                        from: self.end_point(),
+                        to: self.start_point(),
+                    },
+                )),
+            )
     }
 
     /// Whether the stroke explicitly ends at the start.

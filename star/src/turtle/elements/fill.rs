@@ -1,155 +1,208 @@
+use std::f64::consts;
+
 use log::warn;
-use lyon_geom::{LineSegment, Point};
+use lyon_geom::{LineSegment, Point, Vector};
 
-use crate::turtle::elements::{DrawCommand, FillPolygon, FillRule, Stroke};
-
-const TOLERANCE: f64 = 0.1;
+use super::intersect::{Intersections, PARAM_EPSILON};
+use crate::turtle::elements::{DrawCommand, FillPolygon, FillRule, PointLocation, Stroke};
 
 fn cross(a: Point<f64>, b: Point<f64>) -> f64 {
     a.to_vector().cross(b.to_vector())
 }
 
-/// Signed area of a closed subpath using Green's theorem.
-/// A negative area means clockwise winding.
-///
-/// Lines and beziers follow kurbo's [`ParamCurveArea`] formulas;
-/// the elliptical arc contribution is a direct integration of the parametric ellipse.
-///
-/// [`ParamCurveArea`]: https://docs.rs/kurbo/latest/kurbo/trait.ParamCurveArea.html
-/// <https://en.wikipedia.org/wiki/Green%27s_theorem>
-fn signed_area(stroke: &Stroke) -> f64 {
-    let mut area = 0.0;
+impl Stroke {
+    /// Signed area of a closed [`Stroke`] using Green's theorem.
+    /// Sign indicates winding, (negative = clockwise, positive = counterclockwise).
+    ///
+    /// <https://en.wikipedia.org/wiki/Green%27s_theorem>
+    pub fn signed_area(&self) -> f64 {
+        self.closed_commands().map(|cmd| cmd.area()).sum::<f64>()
+    }
 
-    for cmd in stroke.commands() {
-        match cmd {
-            DrawCommand::LineTo(LineSegment { from, to }) => {
-                area += cross(*from, *to);
+    /// Classifies `point` relative to `self`.
+    ///
+    /// <https://en.wikipedia.org/wiki/Point_in_polygon#Ray_casting_algorithm>
+    pub fn contains_point(&self, point: Point<f64>) -> PointLocation {
+        // Helpful intuition:
+        //
+        // Given a shape S a point P, we want to determine if P lies in S.
+        // Let R be a ray from P going to the right horizontally to infinite x.
+        // If we count the intersections of S and R, there are two cases,
+        // by the Jordan Curve Theorem (https://en.wikipedia.org/wiki/Jordan_curve_theorem#Application)
+        // 1. even: P lies outside S. 0 is a special case meaning the y coordinate of P does not lie
+        //          in the y-range of S.
+        // 2. odd: P lies inside S.
+        //
+        // Thinking about the JCT more literally:
+        // 1. "if you are outside, you must enter and exit"
+        // 2. "if you are inside you must exit (and enter and exit)"
+        //
+        // And since R extends infinitely, it will eventually exit S.
+        let bbox = self.bounding_box();
+        if !bbox.inflate(PARAM_EPSILON, PARAM_EPSILON).contains(point) {
+            return PointLocation::Exterior;
+        }
+
+        // Cast a ray beyond the stroke bounding box.
+        // It is perturbed slightly to prevent degenerate cases.
+        let dx = bbox.max.x - point.x + 10.0;
+        let dy = dx * (consts::E * 1e-4);
+        let ray = LineSegment {
+            from: point,
+            to: point + Vector::new(dx, dy),
+        };
+
+        let mut crossings = 0usize;
+        for cmd in self.closed_commands() {
+            for (_t_cmd, u_ray) in cmd.intersections(&ray) {
+                if u_ray <= PARAM_EPSILON {
+                    return PointLocation::Boundary;
+                }
+                crossings += 1;
             }
+        }
+        if crossings.is_multiple_of(2) {
+            PointLocation::Exterior
+        } else {
+            PointLocation::Interior
+        }
+    }
+}
+
+impl DrawCommand {
+    /// Signed area under this command.
+    ///
+    /// The formula for lines and beziers is derived from kurbo's [`ParamCurveArea`]
+    /// implementations. Elliptical arc is derived from Green's theorem on the rotated ellipse.
+    ///
+    /// [`ParamCurveArea`]: https://docs.rs/kurbo/latest/kurbo/trait.ParamCurveArea.html
+    ///
+    /// <https://nils-olovsson.se/articles/area_of_the_polygon_and_greens_theorem/>
+    fn area(&self) -> f64 {
+        // Helpful math:
+        //
+        // Using Green's theorem, we claim that
+        // for some parametric function f(t)
+        // the signed area of that segment is:
+        // f(t) x f't() dt
+        //
+        // Line segment from A to B:
+        // f(t) = A + (B - A)t
+        // f'(t) = B - A
+        // f(t) x f'(t) = (A + (B - A)t) x (B - A)
+        // = (A - At + Bt) x (B - A)
+        // = A x B - A x A - At x B + A x At + Bt x B - Bt x A
+        // = A x B - At x B + A x At + Bt x B - Bt x A
+        // = A x B - t(A x B) + t(A x A) + t(B x B) - t(B x A)
+        // = A x B - t(A x B) - t(B x A)
+        // = A x B - t(A x B) + t(A x B)
+        // = A x B
+        //
+        // Quadratic Bezier from A to B with C as the control point:
+        // f(t) = (1 - t)^2 * A + 2t(1 - t) * C + t^2 * B
+        // f'(t) = -2(1 - t) * A + 2(1 - 2t) C + 2t * B
+        //       = 2tA - 2A + 2C - 4tC + 2tB
+        //       = 2tA - 2tC - 2A + 2C - 2tC + 2tB
+        //       = 2t(A - C) + 2(C - A) + 2t(B - C)
+        //       = 2(1 - t)(C - A) + 2t(B - C)
+        // Now let u = 1 - t.
+        // f(t) = u^2 * A + 2t(u) * C + t^2 * B
+        // f'(t) = 2u(C - A) + 2t(B - C)
+        // f(t) x f'(t) = (u^2 * A + 2tu * C + t^2 * B) x 2u(C - A) + 2t(B - C)
+        // = (Au^2 + 2Ctu + Bt^2) x (2u(C - A) + 2t(B - C))
+        //
+        // Distribute Au^2:
+        // u^2*2u * (A x (C - A)) + u^2*2t * (A x (B - C)) = 2u^3 * (A x C - A x A) + 2tu^2 * (A x B - A x C))
+        //                                                 = 2u^3 (A x C) + 2tu^2 * (A x B - A x C)
+        //
+        // Distribute 2Ctu:
+        // 2Ctu x (2u(C - A) + 2t(B - C)) = 4tu^2 * (C x (C - A)) + 4ut^2 * (C x (B - C))
+        //                                = 4tu^2 * (C x -A) + 4ut^2 * (C x B)
+        //                                = 4tu^2 * (A x C) + 4ut^2 * (C x B)
+        //
+        // Distribute Bt^2:
+        // Bt^2 x (2u(C - A) + 2t(B - C)) = 2ut^2 * (B x (C - A)) + 2t^3 (B x (B - C))
+        //                                = 2ut^2 * (B x C - B x A) + 2t^3 (B x B - B x C)
+        //                                = 2ut^2 * (B x C - B x A) + 2t^3 (-B x C)
+        //                                = 2ut^2 * (B x C - B x A) - 2t^3 (C x B)
+        //
+        // Adding the results together we get:
+        // 2u^3 (A x C) + 2tu^2 * (A x B - A x C)
+        //      + 4tu^2 * (A x C) + 4ut^2 * (C x B)
+        //      + 2ut^2 * (B x C - B x A) - 2t^3 (C x B)
+        // = (2u^3 + 4tu^2) * (A x C) + (4ut^2 - 2t^3) * (C x B) + 2ut^2 * (B x C) - 2ut^2 (B x A)
+        // = (2u^3 + 4tu^2) * (A x C) + (4ut^2 - 2t^3) * (C x B) - 2ut^2 * (C x B) - 2ut^2 (B x A)
+        // = (2u^3 + 4tu^2) * (A x C) + (4ut^2 - 2t^3 - 2ut^2) * (C x B) - 2ut^2 (B x A)
+        // to be continued...
+        0.5 * match *self {
+            DrawCommand::LineTo(LineSegment { from, to }) => cross(from, to),
             DrawCommand::Arc(svg_arc) => {
                 let arc = svg_arc.to_arc();
-                area += arc.radii.x * arc.radii.y * arc.sweep_angle.radians
-                    + arc.center.to_vector().cross(svg_arc.to - svg_arc.from);
+                arc.radii.x * arc.radii.y * arc.sweep_angle.radians
+                    + arc.center.to_vector().cross(svg_arc.to - svg_arc.from)
             }
             DrawCommand::QuadraticBezier(qbs) => {
-                area += (2.0 / 3.0) * cross(qbs.from, qbs.ctrl)
+                (2.0 / 3.0) * cross(qbs.from, qbs.ctrl)
                     + (1.0 / 3.0) * cross(qbs.from, qbs.to)
-                    + (2.0 / 3.0) * cross(qbs.ctrl, qbs.to);
+                    + (2.0 / 3.0) * cross(qbs.ctrl, qbs.to)
             }
             DrawCommand::CubicBezier(cbs) => {
-                area += (6.0 * cross(cbs.from, cbs.ctrl1)
+                (6.0 * cross(cbs.from, cbs.ctrl1)
                     + 3.0 * cross(cbs.from, cbs.ctrl2)
                     + cross(cbs.from, cbs.to)
                     + 3.0 * cross(cbs.ctrl1, cbs.ctrl2)
                     + 3.0 * cross(cbs.ctrl1, cbs.to)
                     + 6.0 * cross(cbs.ctrl2, cbs.to))
-                    / 10.0;
+                    / 10.0
             }
         }
     }
-
-    if !stroke.is_closed() {
-        area += cross(stroke.end_point(), stroke.start_point());
-    }
-    area / 2.
-}
-
-/// Returns true if `from` => `to` crosses a ray cast from `point` rightwards.
-///
-/// Used as the per-segment primitive for ray-casting. The `>= max_y` exclusion on the upper
-/// endpoint ensures a shared vertex between two segments is counted only once.
-fn edge_crosses_ray(from: Point<f64>, to: Point<f64>, point: Point<f64>) -> bool {
-    let (min_y, max_y) = (from.y.min(to.y), from.y.max(to.y));
-
-    // >= max_y implicitly encoded here
-    if !(min_y..max_y).contains(&point.y) {
-        return false;
-    }
-    let t = (point.y - from.y) / (to.y - from.y);
-
-    // Ray intersects because the edge x is greater
-    from.x + t * (to.x - from.x) > point.x
-}
-
-/// Tests whether `point` lies inside the closed region bounded by `stroke` using the
-/// ray-casting algorithm.
-///
-/// If the number of boundary crossings is odd, it is inside.
-/// For the sake of simplicity, curves are flattened with a set tolerance to do the casting.
-/// The closing edge (end→start) is always checked to ensure the path is treated as closed.
-///
-/// <https://en.wikipedia.org/wiki/Point_in_polygon#Ray_casting_algorithm>
-fn stroke_contains_point(stroke: &Stroke, point: Point<f64>) -> bool {
-    let mut crossings = 0u32;
-    for cmd in stroke.commands() {
-        match cmd {
-            DrawCommand::LineTo(LineSegment { from, to }) => {
-                if edge_crosses_ray(*from, *to, point) {
-                    crossings += 1;
-                }
-            }
-            DrawCommand::Arc(arc) => {
-                arc.for_each_flattened(TOLERANCE, &mut |seg: &LineSegment<f64>| {
-                    if edge_crosses_ray(seg.from, seg.to, point) {
-                        crossings += 1;
-                    }
-                });
-            }
-            DrawCommand::CubicBezier(cbs) => {
-                let mut prev = cbs.from;
-                for to in cbs.flattened(TOLERANCE) {
-                    if edge_crosses_ray(prev, to, point) {
-                        crossings += 1;
-                    }
-                    prev = to;
-                }
-            }
-            DrawCommand::QuadraticBezier(qbs) => {
-                let mut prev = qbs.from;
-                for to in qbs.flattened(TOLERANCE) {
-                    if edge_crosses_ray(prev, to, point) {
-                        crossings += 1;
-                    }
-                    prev = to;
-                }
-            }
-        }
-    }
-    if !stroke.is_closed() && edge_crosses_ray(stroke.end_point(), stroke.start_point(), point) {
-        crossings += 1;
-    }
-    !crossings.is_multiple_of(2)
 }
 
 impl FillPolygon {
-    /// Basic containment check, TODO are there degenerate cases that have to be handled?
-    pub fn contains_point(&self, point: Point<f64>) -> bool {
-        if !stroke_contains_point(&self.outer, point) {
-            return false;
-        }
-        for hole in &self.holes {
-            if stroke_contains_point(hole, point) {
-                return false;
+    /// Classifies `point` relative to this filled polygon (outer contour minus holes).
+    pub fn contains_point(&self, point: Point<f64>) -> PointLocation {
+        match self.outer.contains_point(point) {
+            PointLocation::Exterior => PointLocation::Exterior,
+            PointLocation::Boundary => PointLocation::Boundary,
+            PointLocation::Interior => {
+                for hole in &self.holes {
+                    match hole.contains_point(point) {
+                        PointLocation::Interior => return PointLocation::Exterior,
+                        PointLocation::Boundary => return PointLocation::Boundary,
+                        PointLocation::Exterior => {}
+                    }
+                }
+                PointLocation::Interior
             }
         }
-        true
     }
 }
 
-fn stroke_contains_stroke(outer: &Stroke, inner: &Stroke) -> bool {
-    let outer_bbox = outer.bounding_box();
-    let inner_bbox = inner.bounding_box();
-    if !outer_bbox.contains_box(&inner_bbox) {
-        return false;
+impl Stroke {
+    /// Checks if `self` strictly contains `rhs`.
+    pub fn contains(&self, rhs: &Stroke) -> bool {
+        // If the two curves do not intersect, there are three possible scenarios:
+        // 1. self strictly lies in rhs
+        // 2. rhs strictly lies in self
+        // 3. self and rhs are strictly disjoint
+        //
+        // For (2) to be true:
+        // - self and rhs have no intersections
+        // - a point in rhs (i.e. start point) lies in self
+
+        // Fast check
+        self.bounding_box().contains_box(&rhs.bounding_box())
+            // Swap the two conditions for speed
+            && self.contains_point(rhs.start_point()) == PointLocation::Interior
+            && self
+                .closed_commands()
+                .flat_map(|cmd_self| {
+                    rhs.closed_commands()
+                        .map(move |cmd_rhs| (cmd_self, cmd_rhs))
+                })
+                .all(|(cmd_self, cmd_rhs)| cmd_self.intersections(&cmd_rhs).is_empty())
     }
-    if !stroke_contains_point(outer, inner.start_point()) {
-        return false;
-    }
-    for cmd in inner.commands() {
-        if !stroke_contains_point(outer, cmd.end_point()) {
-            return false;
-        }
-    }
-    true
 }
 
 /// Partitions raw SVG subpaths into [`FillPolygon`]s, one per outer contour, with holes
@@ -168,7 +221,7 @@ pub(crate) fn into_fill_polygons(subpaths: &[Stroke], fill_rule: FillRule) -> Ve
         .map(|i| {
             (0..subpaths.len())
                 .filter(|&j| j != i)
-                .filter(|&j| stroke_contains_stroke(&subpaths[j], &subpaths[i]))
+                .filter(|&j| subpaths[j].contains(&subpaths[i]))
                 .collect()
         })
         .collect();
@@ -199,7 +252,7 @@ pub(crate) fn into_fill_polygons(subpaths: &[Stroke], fill_rule: FillRule) -> Ve
             .map(|containing| Some(containing.len().is_multiple_of(2)))
             .collect(),
         FillRule::NonZero => {
-            let areas: Vec<f64> = subpaths.iter().map(signed_area).collect();
+            let areas: Vec<f64> = subpaths.iter().map(Stroke::signed_area).collect();
 
             containers
                 .iter()
@@ -233,9 +286,7 @@ pub(crate) fn into_fill_polygons(subpaths: &[Stroke], fill_rule: FillRule) -> Ve
         .filter(|&i| is_outer[i] == Some(true))
         .map(|i| {
             let holes = (0..subpaths.len())
-                .filter(|&j| {
-                    is_outer[j] == Some(false) && stroke_contains_stroke(&subpaths[i], &subpaths[j])
-                })
+                .filter(|&j| is_outer[j] == Some(false) && subpaths[i].contains(&subpaths[j]))
                 .filter(|&j| {
                     // No other outer k is strictly between outer i and hole j.
                     !containers[j]
@@ -453,6 +504,237 @@ mod tests {
             nonzero[0].holes.len(),
             0,
             "NonZero: expected no holes (inner pentagon is filled)"
+        );
+    }
+
+    #[test]
+    fn test_contains_point_circle_tangency() {
+        use lyon_geom::{Angle, ArcFlags, SvgArc, point, vector};
+
+        let top_arc = SvgArc {
+            from: point(5.0, 0.0),
+            to: point(-5.0, 0.0),
+            radii: vector(5.0, 5.0),
+            x_rotation: Angle::zero(),
+            flags: ArcFlags {
+                large_arc: false,
+                sweep: true,
+            },
+        };
+        let bottom_arc = SvgArc {
+            from: point(-5.0, 0.0),
+            to: point(5.0, 0.0),
+            radii: vector(5.0, 5.0),
+            x_rotation: Angle::zero(),
+            flags: ArcFlags {
+                large_arc: false,
+                sweep: true,
+            },
+        };
+
+        let circle = Stroke::new(
+            point(5.0, 0.0),
+            vec![DrawCommand::Arc(top_arc), DrawCommand::Arc(bottom_arc)],
+            None,
+        );
+
+        assert_eq!(
+            circle.contains_point(point(0.0, 0.0)),
+            PointLocation::Interior
+        );
+        assert_eq!(
+            circle.contains_point(point(0.0, 2.0)),
+            PointLocation::Interior
+        );
+        assert_eq!(
+            circle.contains_point(point(10.0, 0.0)),
+            PointLocation::Exterior
+        );
+        assert_eq!(
+            circle.contains_point(point(-10.0, 0.0)),
+            PointLocation::Exterior
+        );
+        // Point at same height as top apex (y = 5.0), but to the left (x = -8.0):
+        // Horizontal ray along y = 5.0 touches the top of the circle tangentially.
+        // It must not count as a crossing, so the point must be classified as OUTSIDE.
+        assert_eq!(
+            circle.contains_point(point(-8.0, 5.0)),
+            PointLocation::Exterior
+        );
+    }
+
+    #[test]
+    fn test_stroke_contains_stroke_catches_bulging_curves() {
+        use lyon_geom::{CubicBezierSegment, point};
+
+        let outer = Stroke::new(
+            point(0.0, 0.0),
+            vec![
+                DrawCommand::LineTo(LineSegment {
+                    from: point(0.0, 0.0),
+                    to: point(10.0, 0.0),
+                }),
+                DrawCommand::LineTo(LineSegment {
+                    from: point(10.0, 0.0),
+                    to: point(10.0, 10.0),
+                }),
+                DrawCommand::LineTo(LineSegment {
+                    from: point(10.0, 10.0),
+                    to: point(0.0, 10.0),
+                }),
+                DrawCommand::LineTo(LineSegment {
+                    from: point(0.0, 10.0),
+                    to: point(0.0, 0.0),
+                }),
+            ],
+            None,
+        );
+
+        let inner_nested = Stroke::new(
+            point(2.0, 2.0),
+            vec![
+                DrawCommand::LineTo(LineSegment {
+                    from: point(2.0, 2.0),
+                    to: point(8.0, 2.0),
+                }),
+                DrawCommand::LineTo(LineSegment {
+                    from: point(8.0, 2.0),
+                    to: point(8.0, 8.0),
+                }),
+                DrawCommand::LineTo(LineSegment {
+                    from: point(8.0, 8.0),
+                    to: point(2.0, 8.0),
+                }),
+                DrawCommand::LineTo(LineSegment {
+                    from: point(2.0, 8.0),
+                    to: point(2.0, 2.0),
+                }),
+            ],
+            None,
+        );
+        assert!(outer.contains(&inner_nested));
+
+        let inner_bulging = Stroke::new(
+            point(2.0, 5.0),
+            vec![
+                DrawCommand::CubicBezier(CubicBezierSegment {
+                    from: point(2.0, 5.0),
+                    ctrl1: point(3.0, 15.0),
+                    ctrl2: point(7.0, 15.0),
+                    to: point(8.0, 5.0),
+                }),
+                DrawCommand::LineTo(LineSegment {
+                    from: point(8.0, 5.0),
+                    to: point(2.0, 5.0),
+                }),
+            ],
+            None,
+        );
+        assert!(!outer.contains(&inner_bulging));
+    }
+
+    #[test]
+    fn test_contains_point_polygon_and_bezier() {
+        use lyon_geom::{QuadraticBezierSegment, point};
+
+        let rect = Stroke::new(
+            point(0.0, 0.0),
+            vec![
+                DrawCommand::LineTo(LineSegment {
+                    from: point(0.0, 0.0),
+                    to: point(10.0, 0.0),
+                }),
+                DrawCommand::LineTo(LineSegment {
+                    from: point(10.0, 0.0),
+                    to: point(10.0, 10.0),
+                }),
+                DrawCommand::LineTo(LineSegment {
+                    from: point(10.0, 10.0),
+                    to: point(0.0, 10.0),
+                }),
+                DrawCommand::LineTo(LineSegment {
+                    from: point(0.0, 10.0),
+                    to: point(0.0, 0.0),
+                }),
+            ],
+            None,
+        );
+
+        assert_eq!(
+            rect.contains_point(point(5.0, 5.0)),
+            PointLocation::Interior
+        );
+        assert_eq!(
+            rect.contains_point(point(-5.0, 5.0)),
+            PointLocation::Exterior
+        );
+        assert_eq!(
+            rect.contains_point(point(15.0, 5.0)),
+            PointLocation::Exterior
+        );
+        assert_eq!(
+            rect.contains_point(point(5.0, -5.0)),
+            PointLocation::Exterior
+        );
+        assert_eq!(
+            rect.contains_point(point(5.0, 15.0)),
+            PointLocation::Exterior
+        );
+        // Test point horizontally aligned with bottom edge/vertices
+        assert_eq!(
+            rect.contains_point(point(-2.0, 0.0)),
+            PointLocation::Exterior
+        );
+        // Test boundary points on different edges
+        assert_eq!(
+            rect.contains_point(point(0.0, 5.0)),
+            PointLocation::Boundary
+        );
+        assert_eq!(
+            rect.contains_point(point(10.0, 5.0)),
+            PointLocation::Boundary
+        );
+        assert_eq!(
+            rect.contains_point(point(5.0, 0.0)),
+            PointLocation::Boundary
+        );
+        assert_eq!(
+            rect.contains_point(point(5.0, 10.0)),
+            PointLocation::Boundary
+        );
+
+        // Heart-like / arched shape using quadratic bezier
+        let arch = Stroke::new(
+            point(0.0, 0.0),
+            vec![
+                DrawCommand::QuadraticBezier(QuadraticBezierSegment {
+                    from: point(0.0, 0.0),
+                    ctrl: point(5.0, 10.0),
+                    to: point(10.0, 0.0),
+                }),
+                DrawCommand::LineTo(LineSegment {
+                    from: point(10.0, 0.0),
+                    to: point(0.0, 0.0),
+                }),
+            ],
+            None,
+        );
+
+        assert_eq!(
+            arch.contains_point(point(5.0, 2.0)),
+            PointLocation::Interior
+        );
+        assert_eq!(
+            arch.contains_point(point(5.0, 8.0)),
+            PointLocation::Exterior
+        );
+        assert_eq!(
+            arch.contains_point(point(-1.0, 2.0)),
+            PointLocation::Exterior
+        );
+        assert_eq!(
+            arch.contains_point(point(5.0, 0.0)),
+            PointLocation::Boundary
         );
     }
 }

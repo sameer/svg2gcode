@@ -3,7 +3,6 @@ use std::iter;
 use lyon_geom::Box2D;
 
 use super::{Turtle, elements::FillPolygon};
-use crate::turtle::elements::DrawCommand;
 
 /// Generates a bounding box for all draw operations, used to properly apply [`crate::lower::ConversionConfig::origin`]
 #[derive(Debug, Default)]
@@ -43,20 +42,12 @@ impl Turtle for PreprocessTurtle {
     }
 
     fn stroke(&mut self, stroke: super::elements::Stroke) {
-        self.bounding_box = stroke.commands().map(DrawCommand::bounding_box).fold(
-            Box2D::from_points([
-                self.bounding_box.min,
-                self.bounding_box.max,
-                stroke.start_point(),
-            ]),
-            |bounding_box, cmd_bbox| {
-                Box2D::from_points([
-                    bounding_box.min,
-                    bounding_box.max,
-                    cmd_bbox.min,
-                    cmd_bbox.max,
-                ])
-            },
-        );
+        let stroke_bounding_box = stroke.bounding_box();
+        self.bounding_box = Box2D::from_points([
+            self.bounding_box.min,
+            self.bounding_box.max,
+            stroke_bounding_box.min,
+            stroke_bounding_box.max,
+        ]);
     }
 }
