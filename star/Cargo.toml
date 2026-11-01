@@ -1,6 +1,6 @@
 [package]
 name = "svg2star"
-version = "0.4.0"
+version = "0.4.1"
 description = "Convert SVGs to machine commands for pen plotters, laser cutters, and more (*)."
 authors.workspace = true
 edition.workspace = true
