@@ -708,4 +708,54 @@ mod tests {
             );
         }
     }
+
+    /// [`ConversionConfig::origin`] shifts overflowing geometry relative to the coordinate system.
+    #[test]
+    fn test_origin_adheres_to_coordinate_system() {
+        #[derive(Debug, Default)]
+        struct BoundsTurtle {
+            bounds: Option<lyon_geom::Box2D<f64>>,
+        }
+        impl Turtle for BoundsTurtle {
+            fn begin(&mut self) {}
+            fn end(&mut self) {}
+            fn stroke(&mut self, stroke: Stroke) {
+                let b = stroke.bounding_box();
+                self.bounds = Some(match self.bounds {
+                    Some(old) => lyon_geom::Box2D::from_points([old.min, old.max, b.min, b.max]),
+                    None => b,
+                });
+            }
+            fn fill_polygon(&mut self, _polygon: FillPolygon) {}
+            #[cfg(feature = "image")]
+            fn image(&mut self, _image: super::elements::RasterImage) {}
+        }
+
+        let doc = roxmltree::Document::parse(
+            r#"<svg width="100mm" height="100mm" viewBox="0 0 100 100" style="overflow:visible"
+                xmlns="http://www.w3.org/2000/svg">
+                <path d="M -10,90 H 10 V 110 H -10 Z" fill="none" stroke="black"/></svg>"#,
+        )
+        .unwrap();
+
+        for (coordinate_system, expected_min) in [
+            (CoordinateSystem::YUp, point(0., 0.)),
+            (CoordinateSystem::YDown, point(0., 90.)),
+        ] {
+            let min = svg_to_turtle(
+                &doc,
+                &ConversionConfig::default(),
+                ConversionOptions::default(),
+                BoundsTurtle::default(),
+                coordinate_system,
+            )
+            .bounds
+            .unwrap()
+            .min;
+            assert!(
+                (min - expected_min).length() < 1e-6,
+                "{coordinate_system:?}: expected {expected_min:?}, got {min:?}"
+            );
+        }
+    }
 }
