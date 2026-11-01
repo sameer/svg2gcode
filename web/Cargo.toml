@@ -25,7 +25,7 @@ log.workspace = true
 svgtypes.workspace = true
 serde_json.workspace = true
 thiserror = "2"
-zip = { version = "8", default-features = false }
+zip = { version = "9", default-features = false }
 
 yew = { version = "0.23", features = ["csr"] }
 yewdux = "0.13"
