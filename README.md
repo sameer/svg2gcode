@@ -1,10 +1,7 @@
 # svg2gcode
 
-[![Build, test, and publish coverage for svg2gcode](https://github.com/sameer/svg2gcode/actions/workflows/lib.yml/badge.svg)](https://github.com/sameer/svg2gcode/actions/workflows/lib.yml)
-
-[![Build svg2gcode-cli](https://github.com/sameer/svg2gcode/actions/workflows/cli.yml/badge.svg)](https://github.com/sameer/svg2gcode/actions/workflows/cli.yml)
-
-[![Build svg2gcode-web](https://github.com/sameer/svg2gcode/actions/workflows/web.yml/badge.svg)](https://github.com/sameer/svg2gcode/actions/workflows/web.yml)
+[![Workspace crate checks](https://github.com/sameer/svg2gcode/actions/workflows/workspace.yml/badge.svg)](https://github.com/sameer/svg2gcode/actions/workflows/workspace.yml)
+[![Check svg2gcode-web](https://github.com/sameer/svg2gcode/actions/workflows/web.yml/badge.svg)](https://github.com/sameer/svg2gcode/actions/workflows/web.yml)
 [![Deploy svg2gcode-web](https://github.com/sameer/svg2gcode/actions/workflows/web-deploy.yml/badge.svg)](https://github.com/sameer/svg2gcode/actions/workflows/web-deploy.yml)
 
 [![codecov](https://codecov.io/gh/sameer/svg2gcode/branch/master/graph/badge.svg)](https://codecov.io/gh/sameer/svg2gcode)
@@ -15,9 +12,9 @@ Convert vector graphics to g-code for pen plotters, laser engravers, and other C
 
 ### Web interface
 
-Check it out at https://sameer.github.io/svg2gcode. Just select an SVG and click generate!
+Check it out at https://sameer.github.io/svg2gcode. Select an SVG and click generate.
 
-![SVG selected on web interface](https://user-images.githubusercontent.com/11097096/129305765-f78da85d-cf4f-4286-a97c-7124a716b5fa.png)
+<img width="500" alt="image" src="examples/island_web_ui.png" />
 
 ### Command line interface (CLI)
 
@@ -28,6 +25,10 @@ cargo install svg2gcode-cli
 ```
 
 #### Usage
+
+<details>
+<summary>CLI Help</summary>
+
 ```
 Arguments:
   [FILE]
@@ -111,24 +112,25 @@ Options:
           Print version
 ```
 
+</details>
+
 #### Example
 
 ```sh
-svg2gcode-cli examples/Vanderbilt_Commodores_logo.svg --off 'M4' --on 'M5' -o out.gcode
+svg2gcode-cli examples/island.svg --off 'M4' --on 'M5' -o out.gcode
 ```
 
+_To convert curves to G02/G03 Gcode commands, use the flag `--circular-interpolation true`._
 
-To convert curves to G02/G03 Gcode commands, use flag `--circular-interpolation true`.
+<img src="examples/island.svg" width="250">
 
-![Vanderbilt Commodores Logo](examples/Vanderbilt_Commodores_logo.svg)
-
-#### Output, rendered at [https://ncviewer.com](https://ncviewer.com)
 
 ```sh
 cat out.gcode
 ```
+Rendered using NC Viewer:
+<img width="500" alt="image" src="examples/island_nc_viewer.png" />
 
-![Vanderbilt Commodores Logo Gcode](examples/Vanderbilt_Commodores_logo_gcode.png)
 
 ### Library
 
