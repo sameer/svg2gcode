@@ -60,7 +60,9 @@ struct Opt {
     /// Use `-` to export to standard out.
     #[arg(long)]
     export: Option<PathBuf>,
-    /// Coordinates for the bottom left corner of the machine
+    /// Position (mm) of the bottom-left corner of the page, with Y increasing upward
+    ///
+    /// Leave an axis empty to disable (i.e. "5," or ",5").
     #[arg(long, allow_hyphen_values = true)]
     origin: Option<String>,
     /// Override the width and height of the SVG (i.e. 210mm,297mm)

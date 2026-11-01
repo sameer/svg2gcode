@@ -69,14 +69,14 @@ form_input! {
         settings.conversion.inner.dpi,
     }
     OriginX {
-        "Origin X",
-        "X-axis coordinate for the lower left corner of the machine",
+        "Origin X (mm)",
+        "X-axis position of the bottom-left corner of the page. Leave empty to disable.",
         origin => 0,
         settings.conversion.inner.origin => 0,
     }
     OriginY {
-        "Origin Y",
-        "Y-axis coordinate for the lower left corner of the machine",
+        "Origin Y (mm)",
+        "Y-axis position of the bottom-left corner of the page. Leave empty to disable.",
         origin => 1,
         settings.conversion.inner.origin => 1,
     }

@@ -10,7 +10,6 @@ use uom::si::{
     length::{inch, millimeter},
 };
 
-use self::units::CSS_DEFAULT_DPI;
 use crate::{
     lower::selector::SelectorList,
     turtle::{
@@ -34,7 +33,11 @@ mod visit;
 pub struct ConversionConfig {
     /// Dots per inch for pixels, picas, points, etc.
     pub dpi: f64,
-    /// Set the origin point in millimeters for this conversion
+    /// Set the position in millimeters of the page's origin corner (see [`CoordinateSystem`]).
+    ///
+    /// If the drawing has negative coordiantes, it is shifted so it starts at the origin.
+    ///
+    /// Setting an axis to `None` disables the behavior.
     pub origin: [Option<f64>; 2],
     /// Set extra attribute to add when printing node name
     pub extra_attribute_name: Option<String>,
@@ -191,27 +194,25 @@ pub fn svg_to_turtle<T: Turtle>(
     };
 
     // Convert from millimeters to user units
-    let origin = config
-        .origin
-        .map(|dim| dim.map(|d| UomLength::new::<millimeter>(d).get::<inch>() * CSS_DEFAULT_DPI));
+    let mm_to_user_units = |mm: f64| UomLength::new::<millimeter>(mm).get::<inch>() * config.dpi;
 
-    // Convert from millimeters to user units
-    let starting_point = config
-        .starting_point
-        .map(|dim| dim.map(|d| UomLength::new::<millimeter>(d).get::<inch>() * CSS_DEFAULT_DPI));
+    let starting_point = config.starting_point.map(|dim| dim.map(mm_to_user_units));
 
-    let origin_transform = match origin {
+    let origin_transform = match config.origin {
         [None, Some(origin_y)] => {
             let bb = bounding_box_generator();
-            Transform2D::translation(0., origin_y - bb.min.y)
+            Transform2D::translation(0., mm_to_user_units(origin_y - bb.min.y))
         }
         [Some(origin_x), None] => {
             let bb = bounding_box_generator();
-            Transform2D::translation(origin_x - bb.min.x, 0.)
+            Transform2D::translation(mm_to_user_units(origin_x - bb.min.x), 0.)
         }
         [Some(origin_x), Some(origin_y)] => {
             let bb = bounding_box_generator();
-            Transform2D::translation(origin_x - bb.min.x, origin_y - bb.min.y)
+            Transform2D::translation(
+                mm_to_user_units(origin_x - bb.min.x),
+                mm_to_user_units(origin_y - bb.min.y),
+            )
         }
         [None, None] => Transform2D::identity(),
     };
