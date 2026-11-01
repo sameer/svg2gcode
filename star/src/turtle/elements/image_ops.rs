@@ -27,6 +27,7 @@ pub fn transform_image(
     // TODO: should this be more coarse?
     const EPSILON: f64 = f64::EPSILON;
     const MAX_NON_AFFINE_SCALE: f64 = 2.;
+    const ONE_PIXEL: f64 = 1.;
 
     let orig_w = image.width();
     let orig_h = image.height();
@@ -49,7 +50,11 @@ pub fn transform_image(
     let aspect_ratios_match = {
         let orig_aspect_ratio = f64::from(orig_w) / f64::from(orig_h);
         let final_aspect_ratio = user_bounds.width() / user_bounds.height();
+        let expected_w = f64::from(orig_h) * final_aspect_ratio;
+        let expected_h = f64::from(orig_w) / final_aspect_ratio;
         (orig_aspect_ratio - final_aspect_ratio).abs() < EPSILON
+            || ((f64::from(orig_w) - expected_w).abs() < ONE_PIXEL
+                && (f64::from(orig_h) - expected_h).abs() < ONE_PIXEL)
     };
     let is_simple_orthogonal_rotation = is_transform_axis_aligned
         && (preserve_aspect_ratio.align == svgtypes::Align::None || aspect_ratios_match);
@@ -72,8 +77,8 @@ pub fn transform_image(
         // During non-aligned rotation, the corners need to be transparent
         image = add_alpha_channel(image);
 
-        let scale_x = image_to_final.transform_vector(vector(1.0, 0.0)).length();
-        let scale_y = image_to_final.transform_vector(vector(0.0, 1.0)).length();
+        let scale_x = image_to_user.transform_vector(vector(1.0, 0.0)).length();
+        let scale_y = image_to_user.transform_vector(vector(0.0, 1.0)).length();
 
         // Clamp the scale factors proportionally (preserve aspect ratio) to avoid an unnecessarily
         // large buffer.
