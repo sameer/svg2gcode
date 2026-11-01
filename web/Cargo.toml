@@ -1,6 +1,6 @@
 [package]
 name = "svg2gcode-web"
-version = "0.0.18"
+version = "0.0.19"
 description = "Convert vector graphics to g-code for pen plotters, laser engravers, and other CNC machines"
 homepage = "https://sameer.github.io/svg2gcode/"
 authors.workspace = true

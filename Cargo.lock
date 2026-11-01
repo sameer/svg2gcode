@@ -1340,7 +1340,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "svg2gcode"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "g-code",
  "lyon_geom",
@@ -1356,7 +1356,7 @@ dependencies = [
 
 [[package]]
 name = "svg2gcode-cli"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "clap",
  "codespan-reporting",
@@ -1371,7 +1371,7 @@ dependencies = [
 
 [[package]]
 name = "svg2gcode-web"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "base64",
  "codespan-reporting",
@@ -1400,7 +1400,7 @@ dependencies = [
 
 [[package]]
 name = "svg2star"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "base64",
  "euclid",

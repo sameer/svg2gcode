@@ -1,6 +1,6 @@
 [package]
 name = "svg2gcode-cli"
-version = "0.0.18"
+version = "0.0.19"
 description = "Command line interface for svg2gcode"
 authors.workspace = true
 edition.workspace = true
