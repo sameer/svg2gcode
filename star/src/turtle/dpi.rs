@@ -10,7 +10,7 @@ use uom::si::{
 
 use super::{
     Turtle,
-    elements::{DrawCommand, FillPolygon, Stroke},
+    elements::{DrawCommand, Shape, Stroke},
 };
 
 /// Wrapper turtle that converts from user units to millimeters at a given DPI
@@ -52,6 +52,7 @@ impl<T: Turtle> DpiConvertingTurtle<T> {
             self.point_to_mm(stroke.start_point()),
             stroke
                 .into_commands()
+                .into_iter()
                 .map(|cmd| match cmd {
                     DrawCommand::LineTo(LineSegment { from, to }) => {
                         DrawCommand::LineTo(LineSegment {
@@ -65,13 +66,23 @@ impl<T: Turtle> DpiConvertingTurtle<T> {
                         radii,
                         x_rotation,
                         flags,
-                    }) => DrawCommand::Arc(SvgArc {
-                        from: self.point_to_mm(from),
-                        to: self.point_to_mm(to),
-                        radii: self.vector_to_mm(radii),
-                        x_rotation,
-                        flags,
-                    }),
+                    }) => {
+                        let arc = SvgArc {
+                            from: self.point_to_mm(from),
+                            to: self.point_to_mm(to),
+                            radii: self.vector_to_mm(radii),
+                            x_rotation,
+                            flags,
+                        };
+                        if arc.is_straight_line() {
+                            DrawCommand::LineTo(LineSegment {
+                                from: arc.from,
+                                to: arc.to,
+                            })
+                        } else {
+                            DrawCommand::Arc(arc)
+                        }
+                    }
                     DrawCommand::CubicBezier(CubicBezierSegment {
                         from,
                         ctrl1,
@@ -118,10 +129,10 @@ impl<T: Turtle> Turtle for DpiConvertingTurtle<T> {
         });
     }
 
-    fn fill_polygon(&mut self, polygon: FillPolygon) {
-        self.inner.fill_polygon(FillPolygon {
-            outer: self.stroke_to_mm(polygon.outer),
-            holes: polygon
+    fn fill(&mut self, shape: Shape) {
+        self.inner.fill(Shape {
+            outer: self.stroke_to_mm(shape.outer),
+            holes: shape
                 .holes
                 .into_iter()
                 .map(|s| self.stroke_to_mm(s))

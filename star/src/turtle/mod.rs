@@ -9,13 +9,15 @@ use lyon_geom::{
 };
 use svgtypes::PathSegment;
 
-use self::elements::{FillPolygon, Transformed};
+use self::elements::{Shape, Transformed};
 use crate::turtle::elements::{DrawCommand, FillRule, Stroke, clip::ClipStack};
+
+/// Intermediate representation of elements used by a [`Turtle`].
+pub mod elements;
 
 mod collect;
 mod dpi;
-/// Intermediate representation of elements used by a [`Turtle`].
-pub mod elements;
+
 mod preprocess;
 mod svg_preview;
 
@@ -48,7 +50,7 @@ pub trait Turtle: Debug {
 
     #[cfg(feature = "image")]
     fn image(&mut self, image: self::elements::RasterImage);
-    fn fill_polygon(&mut self, polygon: FillPolygon);
+    fn fill(&mut self, shape: Shape);
 }
 
 /// Handles SVG complexities outside of [Turtle] scope (transforms, position, offsets, etc.)
@@ -88,11 +90,11 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         }
     }
 
-    pub fn push_clip_layer(&mut self, polys: Vec<FillPolygon>) {
-        self.clip_stack.push_clip(polys);
+    pub fn push_clip_layer(&mut self, shapes: Vec<Shape>) {
+        self.clip_stack.push_clip(shapes);
     }
 
-    pub fn pop_clip_layer(&mut self) -> Option<Vec<FillPolygon>> {
+    pub fn pop_clip_layer(&mut self) -> Option<Vec<Shape>> {
         self.clip_stack.pop_clip()
     }
 
@@ -112,7 +114,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         let p2 = t.transform_point(point(viewport_box.max.x, viewport_box.min.y));
         let p3 = t.transform_point(point(viewport_box.max.x, viewport_box.max.y));
         let p4 = t.transform_point(point(viewport_box.min.x, viewport_box.max.y));
-        self.push_clip_layer(vec![FillPolygon {
+        self.push_clip_layer(vec![Shape {
             outer: Stroke::new(
                 p1,
                 vec![
@@ -590,11 +592,13 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         }
     }
 
-    pub fn to_fill_polygons(
+    /// Simplifies a sequence of closed paths into a list of [`Shape`],
+    /// applying the SVG fill rule. Does not affect the turtle.
+    pub fn to_shapes(
         &self,
-        segments: impl IntoIterator<Item = PathSegment>,
+        closed_paths: impl IntoIterator<Item = PathSegment>,
         fill_rule: FillRule,
-    ) -> Vec<elements::FillPolygon> {
+    ) -> Vec<Shape> {
         let mut sub = Terrarium {
             has_begun: false,
             turtle: StrokeCollectingTurtle::default(),
@@ -609,26 +613,30 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             bounds_stack: vec![],
             clip_stack: self.clip_stack.clone(),
         };
-        sub.apply_path(segments);
-        let strokes = sub.finish().into_strokes();
-        let polys = self::elements::fill::into_fill_polygons(&strokes, fill_rule);
+        sub.apply_path(closed_paths);
+        let mut strokes = sub.finish().into_strokes();
+        for s in &mut strokes {
+            s.closed();
+        }
+        let shapes = self::elements::fill::strokes_to_shapes(&strokes, fill_rule);
         if self.clip_stack.is_active() {
-            // TODO: polygon clipping is non-trivial
-            warn!("Polygon clipping is not yet unimplemented, skipping clip");
-            polys
+            // TODO: shape clipping is non-trivial, does this technically work because the inner is
+            // does clipping on strokes?
+            warn!("Clipping is not yet unimplemented, skipping clip");
+            shapes
         } else {
-            polys
+            shapes
         }
     }
 
-    /// Converts an SVG polygon into [FillPolygon(s)](FillPolygon) on a turtle.
-    pub fn apply_polygon(
+    /// Calculates the underlying shapes represented by the closed path and passes them to the turtle.
+    pub fn apply_fill(
         &mut self,
-        segments: impl IntoIterator<Item = PathSegment>,
+        closed_paths: impl IntoIterator<Item = PathSegment>,
         fill_rule: FillRule,
     ) {
-        for polygon in self.to_fill_polygons(segments, fill_rule) {
-            self.turtle.fill_polygon(polygon);
+        for shape in self.to_shapes(closed_paths, fill_rule) {
+            self.turtle.fill(shape);
         }
     }
 
@@ -659,14 +667,14 @@ mod tests {
 
         #[derive(Debug, Default)]
         struct TestTurtle {
-            polygons: Vec<FillPolygon>,
+            shapes: Vec<Shape>,
         }
         impl Turtle for TestTurtle {
             fn begin(&mut self) {}
             fn end(&mut self) {}
             fn stroke(&mut self, _stroke: Stroke) {}
-            fn fill_polygon(&mut self, polygon: FillPolygon) {
-                self.polygons.push(polygon);
+            fn fill(&mut self, shape: Shape) {
+                self.shapes.push(shape);
             }
             #[cfg(feature = "image")]
             fn image(&mut self, _image: super::elements::RasterImage) {}
@@ -682,10 +690,10 @@ mod tests {
             CoordinateSystem::YDown,
         );
 
-        // All emitted polygons must have non-zero area and bounding boxes strictly inside [0, 20] x [0, 20]
-        assert!(!result.polygons.is_empty(), "Should emit clipped polygons");
-        for poly in &result.polygons {
-            let bbox = poly.outer.bounding_box();
+        // All emitted shapes must have non-zero area and bounding boxes strictly inside [0, 20] x [0, 20]
+        assert!(!result.shapes.is_empty(), "Should emit clipped shapes");
+        for shape in &result.shapes {
+            let bbox = shape.outer.bounding_box();
             assert!(
                 bbox.min.x >= -1e-3,
                 "Min X should be within bounds: {}",
@@ -726,7 +734,7 @@ mod tests {
                     None => b,
                 });
             }
-            fn fill_polygon(&mut self, _polygon: FillPolygon) {}
+            fn fill(&mut self, _shape: Shape) {}
             #[cfg(feature = "image")]
             fn image(&mut self, _image: super::elements::RasterImage) {}
         }

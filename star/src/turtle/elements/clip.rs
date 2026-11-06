@@ -2,38 +2,42 @@ use std::iter;
 
 use lyon_geom::Point;
 
-use super::intersect::{Intersections, PARAM_EPSILON};
-use crate::turtle::elements::{DrawCommand, FillPolygon, PointLocation, Stroke};
+use super::{
+    FillRule,
+    intersect::{Intersections, PARAM_EPSILON},
+};
+use crate::turtle::elements::{DrawCommand, PointLocation, Shape, Stroke};
 
 #[derive(Debug, Clone)]
 struct ActiveClip {
-    clip_polygons: Vec<FillPolygon>,
+    shapes: Vec<Shape>,
     boundary_commands: Vec<DrawCommand>,
 }
 
-/// Stack of active polygon clip boundaries.
+/// Stack of active shape clip boundaries.
 #[derive(Debug, Clone, Default)]
 pub struct ClipStack {
     stack: Vec<ActiveClip>,
 }
 
 impl ClipStack {
-    pub fn push_clip(&mut self, clip_polygons: Vec<FillPolygon>) {
+    pub fn push_clip(&mut self, shapes: Vec<Shape>) {
         self.stack.push(ActiveClip {
-            boundary_commands: clip_polygons
+            boundary_commands: shapes
                 .iter()
-                .flat_map(|polygon| {
-                    iter::once(&polygon.outer)
-                        .chain(&polygon.holes)
-                        .flat_map(Stroke::closed_commands)
+                .flat_map(|shape| {
+                    iter::once(&shape.outer)
+                        .chain(&shape.holes)
+                        .flat_map(Stroke::commands)
                 })
+                .copied()
                 .collect(),
-            clip_polygons,
+            shapes,
         });
     }
 
-    pub fn pop_clip(&mut self) -> Option<Vec<FillPolygon>> {
-        self.stack.pop().map(|c| c.clip_polygons)
+    pub fn pop_clip(&mut self) -> Option<Vec<Shape>> {
+        self.stack.pop().map(|c| c.shapes)
     }
 
     /// Returns whether there is any clip.
@@ -64,7 +68,7 @@ impl ClipStack {
     /// Splits `cmd` into clipped segments on the given active layer.
     fn clip_draw_command(active: &ActiveClip, cmd: DrawCommand, cmds: &mut Vec<DrawCommand>) {
         // Find all the intersections of `cmd` with the clip.
-        // This creates ranges that may or may not be in a clip polygon.
+        // This creates ranges that may or may not be in a clip shape.
         let mut ts: Vec<f64> = vec![0.0, 1.0];
         for clip_cmd in &active.boundary_commands {
             for (cmd_t, _boundary_t) in cmd.intersections(clip_cmd) {
@@ -74,12 +78,12 @@ impl ClipStack {
         ts.sort_by(f64::total_cmp);
         ts.dedup_by(|a, b| (*a - *b).abs() < PARAM_EPSILON);
 
-        // Draw ranges that are active within some clipping polygon
+        // Draw ranges that are active within some clipping shape
         let is_inside = |pt: Point<f64>| {
             active
-                .clip_polygons
+                .shapes
                 .iter()
-                .any(|p| p.contains_point(pt) == PointLocation::Interior)
+                .any(|p| p.contains_point(pt, FillRule::EvenOdd) == PointLocation::Interior)
         };
         for (&t_a, &t_b) in ts.iter().zip(ts.iter().skip(1)) {
             let t_mid = f64::midpoint(t_a, t_b);
@@ -158,12 +162,12 @@ mod tests {
             .to_vec(),
             None,
         );
-        let poly = FillPolygon {
+        let shape = Shape {
             outer,
             holes: vec![],
         };
         let mut cs = ClipStack::default();
-        cs.push_clip(vec![poly]);
+        cs.push_clip(vec![shape]);
         cs
     }
 
@@ -285,7 +289,7 @@ mod tests {
                 .into_iter()
                 .next()
                 .unwrap()
-                .clip_polygons
+                .shapes
                 .into_iter()
                 .next()
                 .unwrap(),
@@ -293,7 +297,7 @@ mod tests {
                 .into_iter()
                 .next()
                 .unwrap()
-                .clip_polygons
+                .shapes
                 .into_iter()
                 .next()
                 .unwrap(),

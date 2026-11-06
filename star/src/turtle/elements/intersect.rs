@@ -576,7 +576,7 @@ impl Intersections<SvgArc<f64>> for SvgArc<f64> {
 }
 
 /// Returns true if two bounding boxes overlap with allowance for tangents.
-const fn bounding_boxes_overlap(b1: &Box2D<f64>, b2: &Box2D<f64>) -> bool {
+pub const fn bounding_boxes_overlap(b1: &Box2D<f64>, b2: &Box2D<f64>) -> bool {
     b1.min.x <= b2.max.x + ROUNDOFF_EPSILON
         && b2.min.x <= b1.max.x + ROUNDOFF_EPSILON
         && b1.min.y <= b2.max.y + ROUNDOFF_EPSILON

@@ -1,9 +1,9 @@
 //! Atomic units operated on by a turtle.
 
-use std::{mem::swap, ops::Range};
+use std::{iter, mem::swap, ops::Range};
 
 use lyon_geom::{
-    ArcFlags, Box2D, CubicBezierSegment, LineSegment, Point, QuadraticBezierSegment, SvgArc,
+    Box2D, CubicBezierSegment, LineSegment, Point, QuadraticBezierSegment, SvgArc, Vector,
 };
 
 pub use self::{
@@ -20,13 +20,16 @@ mod tsp;
 /// Find intersections between curves and lines in parameterized (t, u) form.
 mod intersect;
 
+/// SVG clipping operations.
 pub(crate) mod clip;
+
+/// Simplifies an ambiguous filled SVG path (list of [`Stroke`]s) into well-formed [`Shape`]s.
 pub(crate) mod fill;
 
 #[cfg(feature = "image")]
 pub(crate) mod image_ops;
 
-/// Defines the algorithm used to calculate how a polygon is filled.
+/// Defines the algorithm used to calculate how a shape is filled.
 ///
 /// <https://www.w3.org/TR/SVG/painting.html#FillRuleProperty>
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -34,7 +37,7 @@ pub enum FillRule {
     /// A point is inside if the winding number of the path around it is non-zero (SVG default).
     #[default]
     NonZero,
-    /// A point is inside if the number of path crossings is odd.
+    /// A point is inside if the number of path crossings with a ray from this point is odd.
     EvenOdd,
 }
 
@@ -46,15 +49,30 @@ pub enum PointLocation {
     Exterior,
 }
 
-/// A filled region: one outer closed contour and zero or more hole contours punched out of it.
+/// A filled region consisting of one closed outer [`Stroke`] with one
+/// or more closed [`Stroke`] holes punched out of it.
 ///
-/// The SVG fill rule is resolved such that `outer` is the boundary of the filled area and
-/// each entry in `holes` is a region to subtract.
+/// It is guaranteed that `outer` is the boundary of the filled area and
+/// each entry in `holes` is a region to subtract within `outer`.
 #[derive(Debug, Clone)]
-pub struct FillPolygon {
+pub struct Shape {
     pub outer: Stroke,
     /// Regions to subtract from [`Self::outer`].
     pub holes: Vec<Stroke>,
+}
+
+impl Shape {
+    pub fn bounding_box(&self) -> Box2D<f64> {
+        iter::once(&self.outer)
+            .chain(self.holes.iter())
+            .map(Stroke::bounding_box)
+            .fold(
+                Box2D::new(self.outer.start_point, self.outer.start_point),
+                |bbox, cmd_bbox| {
+                    Box2D::from_points([bbox.min, bbox.max, cmd_bbox.min, cmd_bbox.max])
+                },
+            )
+    }
 }
 
 /// Raster image decoded from an inline PNG/JPEG.
@@ -67,7 +85,26 @@ pub struct RasterImage {
     pub image: image::DynamicImage,
 }
 
+#[cfg(feature = "image")]
+impl RasterImage {
+    pub fn bounding_box(&self) -> Box2D<f64> {
+        self.dimensions
+    }
+}
+
+#[cfg(feature = "image")]
+impl rstar::RTreeObject for RasterImage {
+    type Envelope = rstar::AABB<[f64; 2]>;
+    fn envelope(&self) -> Self::Envelope {
+        let Box2D { min, max } = self.dimensions;
+        rstar::AABB::from_corners([min.x, min.y], [max.x, max.y])
+    }
+}
+
 /// Atomic unit of a [Stroke].
+///
+/// A backend may support native curve commands,
+/// so the library does not simplify to line segments.
 #[derive(Debug, Clone, Copy)]
 pub enum DrawCommand {
     LineTo(LineSegment<f64>),
@@ -86,30 +123,12 @@ impl DrawCommand {
         }
     }
 
-    pub fn set_start_point(&mut self, pt: Point<f64>) {
-        match self {
-            Self::LineTo(line) => line.from = pt,
-            Self::Arc(arc) => arc.from = pt,
-            Self::CubicBezier(cbs) => cbs.from = pt,
-            Self::QuadraticBezier(qbs) => qbs.from = pt,
-        }
-    }
-
     pub fn end_point(&self) -> Point<f64> {
         match self {
             Self::LineTo(line) => line.to,
             Self::Arc(arc) => arc.to,
             Self::CubicBezier(cbs) => cbs.to,
             Self::QuadraticBezier(qbs) => qbs.to,
-        }
-    }
-
-    pub fn set_end_point(&mut self, pt: Point<f64>) {
-        match self {
-            Self::LineTo(line) => line.to = pt,
-            Self::Arc(arc) => arc.to = pt,
-            Self::CubicBezier(cbs) => cbs.to = pt,
-            Self::QuadraticBezier(qbs) => qbs.to = pt,
         }
     }
 
@@ -122,6 +141,62 @@ impl DrawCommand {
         }
     }
 
+    /// Calculates the point at parameterized `t` on the curve in [0, 1].
+    pub fn sample(&self, t: f64) -> Point<f64> {
+        match self {
+            Self::LineTo(line) => line.sample(t),
+            Self::Arc(arc) => arc.to_arc().sample(t),
+            Self::CubicBezier(cbs) => cbs.sample(t),
+            Self::QuadraticBezier(qbs) => qbs.sample(t),
+        }
+    }
+
+    /// Returns a sub-curve within the given t-range.
+    pub fn split_range(&self, range: Range<f64>) -> Self {
+        match self {
+            Self::LineTo(line) => Self::LineTo(line.split_range(range)),
+            Self::Arc(svg_arc) => {
+                let svg_sub_arc = svg_arc.to_arc().split_range(range).to_svg_arc();
+                if svg_sub_arc.is_straight_line() {
+                    Self::LineTo(LineSegment {
+                        from: svg_sub_arc.from,
+                        to: svg_sub_arc.to,
+                    })
+                } else {
+                    Self::Arc(svg_sub_arc)
+                }
+            }
+            Self::CubicBezier(cbs) => Self::CubicBezier(cbs.split_range(range)),
+            Self::QuadraticBezier(qbs) => Self::QuadraticBezier(qbs.split_range(range)),
+        }
+    }
+
+    /// Returns the unit tangent vector at `t`.
+    pub fn tangent(&self, t: f64) -> Vector<f64> {
+        match self {
+            Self::LineTo(line) => line.to_vector().normalize(),
+            Self::Arc(svg_arc) => {
+                let arc = svg_arc.to_arc();
+                let tangent_vector = arc.sample_tangent(t).normalize();
+                // `sample_tangent` points along increasing angle, sign must be flipped if the arc sweeps backward.
+                if arc.sweep_angle.get().is_sign_negative() {
+                    -tangent_vector
+                } else {
+                    tangent_vector
+                }
+            }
+            Self::QuadraticBezier(qbs) => qbs.derivative(t).normalize(),
+            Self::CubicBezier(cbs) => cbs.derivative(t).normalize(),
+        }
+    }
+
+    /// Returns the unit normal vector at `t`, perpendicular to the tangent vector.
+    pub fn normal(&self, t: f64) -> Vector<f64> {
+        let tangent = self.tangent(t);
+        Vector::new(-tangent.y, tangent.x)
+    }
+
+    /// Reverses the command so it runs from [`Self::end_point`] to [`Self::start_point`].
     pub fn reverse(&mut self) {
         match self {
             Self::LineTo(line) => {
@@ -140,36 +215,13 @@ impl DrawCommand {
             }
         }
     }
+}
 
-    pub fn sample(&self, t: f64) -> Point<f64> {
-        match self {
-            Self::LineTo(line) => line.sample(t),
-            Self::Arc(arc) => arc.to_arc().sample(t),
-            Self::CubicBezier(cbs) => cbs.sample(t),
-            Self::QuadraticBezier(qbs) => qbs.sample(t),
-        }
-    }
-
-    /// Returns a sub-curve within the given t-range.
-    pub fn split_range(&self, range: Range<f64>) -> Self {
-        match self {
-            Self::LineTo(line) => Self::LineTo(line.split_range(range)),
-            Self::Arc(svg_arc) => {
-                let sub_arc = svg_arc.to_arc().split_range(range);
-                Self::Arc(SvgArc {
-                    from: sub_arc.from(),
-                    to: sub_arc.to(),
-                    radii: svg_arc.radii,
-                    x_rotation: svg_arc.x_rotation,
-                    flags: ArcFlags {
-                        large_arc: sub_arc.sweep_angle.radians.abs() >= std::f64::consts::PI,
-                        sweep: sub_arc.sweep_angle.radians.is_sign_positive(),
-                    },
-                })
-            }
-            Self::CubicBezier(cbs) => Self::CubicBezier(cbs.split_range(range)),
-            Self::QuadraticBezier(qbs) => Self::QuadraticBezier(qbs.split_range(range)),
-        }
+impl rstar::RTreeObject for DrawCommand {
+    type Envelope = rstar::AABB<[f64; 2]>;
+    fn envelope(&self) -> Self::Envelope {
+        let Box2D { min, max } = self.bounding_box();
+        rstar::AABB::from_corners([min.x, min.y], [max.x, max.y])
     }
 }
 
@@ -195,45 +247,22 @@ impl Stroke {
         }
     }
 
+    pub fn start_point(&self) -> Point<f64> {
+        self.start_point
+    }
+
     pub fn end_point(&self) -> Point<f64> {
         self.commands
             .last()
             .map_or(self.start_point, DrawCommand::end_point)
     }
 
-    /// Reverses the stroke so it runs from [`Self::end_point`] to [`Self::start_point`].
-    pub fn reversed(&mut self) {
-        self.start_point = self.end_point();
-        self.commands.reverse();
-        self.commands.iter_mut().for_each(DrawCommand::reverse);
+    pub fn commands(&self) -> &[DrawCommand] {
+        &self.commands
     }
 
-    pub fn start_point(&self) -> Point<f64> {
-        self.start_point
-    }
-
-    pub fn commands(&self) -> impl Iterator<Item = &DrawCommand> {
-        self.commands.iter()
-    }
-
-    pub fn into_commands(self) -> impl Iterator<Item = DrawCommand> {
-        self.commands.into_iter()
-    }
-
-    /// Same as [`Self::commands`] but with an explicit closing line segment if unclosed.
-    ///
-    /// Usually relevant when the spec says it is implicitly closed (i.e. fills).
-    pub fn closed_commands(&self) -> impl Iterator<Item = DrawCommand> + '_ {
-        self.commands()
-            .copied()
-            .chain(
-                (!self.commands.is_empty() && !self.is_closed()).then_some(DrawCommand::LineTo(
-                    LineSegment {
-                        from: self.end_point(),
-                        to: self.start_point(),
-                    },
-                )),
-            )
+    pub fn into_commands(self) -> Vec<DrawCommand> {
+        self.commands
     }
 
     /// Whether the stroke explicitly ends at the start.
@@ -243,7 +272,7 @@ impl Stroke {
 
     /// Calculate the bounding box of the stroke.
     pub fn bounding_box(&self) -> Box2D<f64> {
-        self.commands().map(DrawCommand::bounding_box).fold(
+        self.commands().iter().map(DrawCommand::bounding_box).fold(
             Box2D::new(self.start_point, self.start_point),
             |bbox, cmd_bbox| Box2D::from_points([bbox.min, bbox.max, cmd_bbox.min, cmd_bbox.max]),
         )
@@ -251,5 +280,40 @@ impl Stroke {
 
     pub fn comment(&self) -> Option<&str> {
         self.comment.as_deref()
+    }
+
+    /// Reverses the stroke so it runs from [`Self::end_point`] to [`Self::start_point`].
+    pub fn reverse(&mut self) {
+        self.start_point = self.end_point();
+        self.commands.reverse();
+        self.commands.iter_mut().for_each(DrawCommand::reverse);
+    }
+
+    /// Makes this stroke closed if it wasn't already.
+    ///
+    /// Usually relevant when the spec says it is implicitly closed (i.e. fills).
+    pub fn closed(&mut self) {
+        if !self.commands.is_empty() && !self.is_closed() {
+            self.commands.push(DrawCommand::LineTo(LineSegment {
+                from: self.end_point(),
+                to: self.start_point(),
+            }));
+        }
+    }
+}
+
+impl rstar::RTreeObject for Stroke {
+    type Envelope = rstar::AABB<[f64; 2]>;
+    fn envelope(&self) -> Self::Envelope {
+        let Box2D { min, max } = self.bounding_box();
+        rstar::AABB::from_corners([min.x, min.y], [max.x, max.y])
+    }
+}
+
+impl rstar::RTreeObject for Shape {
+    type Envelope = rstar::AABB<[f64; 2]>;
+    fn envelope(&self) -> Self::Envelope {
+        let Box2D { min, max } = self.bounding_box();
+        rstar::AABB::from_corners([min.x, min.y], [max.x, max.y])
     }
 }

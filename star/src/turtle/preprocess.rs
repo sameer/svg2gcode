@@ -1,8 +1,6 @@
-use std::iter;
-
 use lyon_geom::Box2D;
 
-use super::{Turtle, elements::FillPolygon};
+use super::{Turtle, elements::Shape};
 
 /// Generates a bounding box for all draw operations, used to properly apply [`crate::lower::ConversionConfig::origin`]
 ///
@@ -25,31 +23,20 @@ impl Turtle for PreprocessTurtle {
 
     #[cfg(feature = "image")]
     fn image(&mut self, image: super::elements::RasterImage) {
-        self.bounding_box = Box2D::from_points([
-            self.bounding_box.min,
-            self.bounding_box.max,
-            image.dimensions.min,
-            image.dimensions.max,
-        ]);
+        let Box2D { min, max } = image.bounding_box();
+        self.bounding_box =
+            Box2D::from_points([self.bounding_box.min, self.bounding_box.max, min, max]);
     }
 
-    fn fill_polygon(&mut self, polygon: FillPolygon) {
-        self.bounding_box = iter::once(polygon.outer)
-            .chain(polygon.holes)
-            .flat_map(super::elements::Stroke::into_commands)
-            .map(|c| c.bounding_box())
-            .fold(self.bounding_box, |acc, b| {
-                Box2D::from_points([acc.min, acc.max, b.min, b.max])
-            });
+    fn fill(&mut self, shape: Shape) {
+        let Box2D { min, max } = shape.bounding_box();
+        self.bounding_box =
+            Box2D::from_points([self.bounding_box.min, self.bounding_box.max, min, max]);
     }
 
     fn stroke(&mut self, stroke: super::elements::Stroke) {
-        let stroke_bounding_box = stroke.bounding_box();
-        self.bounding_box = Box2D::from_points([
-            self.bounding_box.min,
-            self.bounding_box.max,
-            stroke_bounding_box.min,
-            stroke_bounding_box.max,
-        ]);
+        let Box2D { min, max } = stroke.bounding_box();
+        self.bounding_box =
+            Box2D::from_points([self.bounding_box.min, self.bounding_box.max, min, max]);
     }
 }
