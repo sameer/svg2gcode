@@ -1,6 +1,7 @@
 use std::iter;
 
 use lyon_geom::Point;
+use rstar::{RTree, RTreeObject};
 
 use super::{
     FillRule,
@@ -11,7 +12,7 @@ use crate::turtle::elements::{DrawCommand, PointLocation, Shape, Stroke};
 #[derive(Debug, Clone)]
 struct ActiveClip {
     shapes: Vec<Shape>,
-    boundary_commands: Vec<DrawCommand>,
+    boundary_tree: RTree<DrawCommand>,
 }
 
 /// Stack of active shape clip boundaries.
@@ -22,17 +23,19 @@ pub struct ClipStack {
 
 impl ClipStack {
     pub fn push_clip(&mut self, shapes: Vec<Shape>) {
+        let boundary_commands: Vec<DrawCommand> = shapes
+            .iter()
+            .flat_map(|shape| {
+                iter::once(&shape.outer)
+                    .chain(&shape.holes)
+                    .flat_map(Stroke::commands)
+            })
+            .copied()
+            .collect();
+        let boundary_tree = RTree::bulk_load(boundary_commands);
         self.stack.push(ActiveClip {
-            boundary_commands: shapes
-                .iter()
-                .flat_map(|shape| {
-                    iter::once(&shape.outer)
-                        .chain(&shape.holes)
-                        .flat_map(Stroke::commands)
-                })
-                .copied()
-                .collect(),
             shapes,
+            boundary_tree,
         });
     }
 
@@ -70,7 +73,10 @@ impl ClipStack {
         // Find all the intersections of `cmd` with the clip.
         // This creates ranges that may or may not be in a clip shape.
         let mut ts: Vec<f64> = vec![0.0, 1.0];
-        for clip_cmd in &active.boundary_commands {
+        for clip_cmd in active
+            .boundary_tree
+            .locate_in_envelope_intersecting(cmd.envelope())
+        {
             for (cmd_t, _boundary_t) in cmd.intersections(clip_cmd) {
                 ts.push(cmd_t);
             }
@@ -190,7 +196,7 @@ mod tests {
 
         assert!(!cmds.is_empty(), "Should output clipped commands");
         assert!(
-            matches!(cmds[0], DrawCommand::CubicBezier(_)),
+            matches!(cmds.first(), Some(DrawCommand::CubicBezier(_))),
             "Clipped cubic curve must remain a native DrawCommand::CubicBezier"
         );
     }
@@ -213,7 +219,7 @@ mod tests {
 
         assert!(!cmds.is_empty(), "Should output clipped commands");
         assert!(
-            matches!(cmds[0], DrawCommand::QuadraticBezier(_)),
+            matches!(cmds.first(), Some(DrawCommand::QuadraticBezier(_))),
             "Clipped quadratic curve must remain a native DrawCommand::QuadraticBezier"
         );
     }
@@ -274,7 +280,7 @@ mod tests {
 
         assert!(!cmds.is_empty(), "Should output clipped arc commands");
         assert!(
-            matches!(cmds[0], DrawCommand::Arc(_)),
+            matches!(cmds.first(), Some(DrawCommand::Arc(_))),
             "Clipped arc must remain a native DrawCommand::Arc"
         );
     }
@@ -318,9 +324,27 @@ mod tests {
             2,
             "Clipped stroke crossing two disconnected regions must produce 2 distinct strokes"
         );
-        assert!((clipped[0].start_point().x - 0.0).abs() < 1e-5);
-        assert!((clipped[0].end_point().x - 2.0).abs() < 1e-5);
-        assert!((clipped[1].start_point().x - 8.0).abs() < 1e-5);
-        assert!((clipped[1].end_point().x - 10.0).abs() < 1e-5);
+        let c0 = clipped.first().unwrap();
+        let c1 = clipped.get(1).unwrap();
+        assert!((c0.start_point().x - 0.0).abs() < 1e-5);
+        assert!((c0.end_point().x - 2.0).abs() < 1e-5);
+        assert!((c1.start_point().x - 8.0).abs() < 1e-5);
+        assert!((c1.end_point().x - 10.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_clip_stroke_entirely_outside() {
+        let cs = make_rect_clip(0.0, 0.0, 10.0, 10.0);
+        let stroke = Stroke::new(
+            point(20.0, 20.0),
+            vec![DrawCommand::LineTo(LineSegment {
+                from: point(20.0, 20.0),
+                to: point(30.0, 30.0),
+            })],
+            None,
+        );
+
+        let clipped = cs.clip_strokes(vec![stroke]).collect::<Vec<_>>();
+        assert!(clipped.is_empty(), "Stroke entirely outside clip boundary should be clipped out completely");
     }
 }
