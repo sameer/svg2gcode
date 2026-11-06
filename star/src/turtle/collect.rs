@@ -23,7 +23,7 @@ impl Turtle for StrokeCollectingTurtle {
     #[cfg(feature = "image")]
     fn image(&mut self, _image: super::elements::RasterImage) {}
 
-    fn fill_polygon(&mut self, _polygon: super::elements::FillPolygon) {
+    fn fill(&mut self, _shape: super::elements::Shape) {
         // TODO?
     }
 }

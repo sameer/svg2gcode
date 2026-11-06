@@ -1,71 +1,134 @@
-use std::f64::consts;
+use std::{
+    f64::consts,
+    iter,
+    ops::{AddAssign, Range},
+};
 
-use log::warn;
 use lyon_geom::{LineSegment, Point, Vector};
+use rstar::{
+    RTree, RTreeObject,
+    primitives::{GeomWithData, ObjectRef},
+};
+use rustc_hash::FxHashMap;
 
 use super::intersect::{Intersections, PARAM_EPSILON};
-use crate::turtle::elements::{DrawCommand, FillPolygon, FillRule, PointLocation, Stroke};
+use crate::turtle::elements::{DrawCommand, FillRule, PointLocation, Shape, Stroke};
 
-fn cross(a: Point<f64>, b: Point<f64>) -> f64 {
-    a.to_vector().cross(b.to_vector())
+/// Minimum padding beyond bounding box `max.x` for ray casting.
+const RAY_PADDING: f64 = 10.0;
+
+/// Irrational slope factor for ray casting to avoid hitting rational vertices horizontally.
+const RAY_SLOPE: f64 = consts::E * 1e-4;
+
+/// Distance tolerance for snapping endpoints into a single topological vertex.
+const VERTEX_SNAP_EPSILON: f64 = 1e-7;
+const VERTEX_SNAP_EPSILON_SQ: f64 = VERTEX_SNAP_EPSILON * VERTEX_SNAP_EPSILON;
+
+/// Minimum absolute signed area for a boundary loop to be considered non-degenerate.
+const MIN_LOOP_AREA: f64 = 1e-6;
+
+/// Fraction of segment scale used to offset midpoint samples along the normal.
+const SAMPLE_OFFSET_FRACTION: f64 = 0.05;
+const MIN_SAMPLE_OFFSET: f64 = 1e-4;
+const MAX_SAMPLE_OFFSET: f64 = 0.5;
+
+/// Result of evaluating a point against one or more closed non-overlapping [`Stroke`]s.
+#[derive(Default)]
+struct PointRelation {
+    /// Number of times a ray from the point crossed a closed stroke(s).
+    crossings: usize,
+    /// Signed winding number based on stroke direction relative to the ray.
+    winding: i32,
+    /// Whether the ray origin lies directly on a stroke boundary.
+    on_boundary: bool,
+}
+
+impl AddAssign for PointRelation {
+    fn add_assign(&mut self, rhs: Self) {
+        self.crossings += rhs.crossings;
+        self.winding += rhs.winding;
+        self.on_boundary |= rhs.on_boundary;
+    }
+}
+
+impl PointRelation {
+    /// Classifies the point relative to the shape under the given [`FillRule`].
+    const fn location(&self, rule: FillRule) -> PointLocation {
+        if self.on_boundary {
+            PointLocation::Boundary
+        } else if self.is_filled(rule) {
+            PointLocation::Interior
+        } else {
+            PointLocation::Exterior
+        }
+    }
+
+    /// Whether the point is considered filled under the given [`FillRule`].
+    const fn is_filled(&self, rule: FillRule) -> bool {
+        match rule {
+            FillRule::EvenOdd => !self.crossings.is_multiple_of(2),
+            FillRule::NonZero => self.winding != 0,
+        }
+    }
 }
 
 impl Stroke {
     /// Signed area of a closed [`Stroke`] using Green's theorem.
-    /// Sign indicates winding, (negative = clockwise, positive = counterclockwise).
+    ///
+    /// Negative = clockwise, Positive = counterclockwise.
     ///
     /// <https://en.wikipedia.org/wiki/Green%27s_theorem>
-    pub fn signed_area(&self) -> f64 {
-        self.closed_commands().map(|cmd| cmd.area()).sum::<f64>()
+    fn signed_area(&self) -> f64 {
+        self.commands().iter().map(DrawCommand::area).sum::<f64>()
     }
 
-    /// Classifies `point` relative to `self`.
+    /// Calculates the relationship with `point`, i.e. if point lies within stroke.
+    ///
+    /// If `max_x` is provided, the ray extends at least to `max_x + 10.0`.
+    /// If `None`, `self.bounding_box().max.x` is used.
     ///
     /// <https://en.wikipedia.org/wiki/Point_in_polygon#Ray_casting_algorithm>
-    pub fn contains_point(&self, point: Point<f64>) -> PointLocation {
-        // Helpful intuition:
-        //
-        // Given a shape S a point P, we want to determine if P lies in S.
-        // Let R be a ray from P going to the right horizontally to infinite x.
-        // If we count the intersections of S and R, there are two cases,
-        // by the Jordan Curve Theorem (https://en.wikipedia.org/wiki/Jordan_curve_theorem#Application)
-        // 1. even: P lies outside S. 0 is a special case meaning the y coordinate of P does not lie
-        //          in the y-range of S.
-        // 2. odd: P lies inside S.
-        //
-        // Thinking about the JCT more literally:
-        // 1. "if you are outside, you must enter and exit"
-        // 2. "if you are inside you must exit (and enter and exit)"
-        //
-        // And since R extends infinitely, it will eventually exit S.
-        let bbox = self.bounding_box();
-        if !bbox.inflate(PARAM_EPSILON, PARAM_EPSILON).contains(point) {
-            return PointLocation::Exterior;
+    fn point_relationship(&self, point: Point<f64>) -> PointRelation {
+        let bbox = self.bounding_box().inflate(PARAM_EPSILON, PARAM_EPSILON);
+        if bbox.max.x + PARAM_EPSILON < point.x || bbox.max.y + PARAM_EPSILON < point.y {
+            return PointRelation::default();
         }
 
-        // Cast a ray beyond the stroke bounding box.
-        // It is perturbed slightly to prevent degenerate cases.
-        let dx = bbox.max.x - point.x + 10.0;
-        let dy = dx * (consts::E * 1e-4);
+        let dx = (bbox.max.x - point.x + RAY_PADDING).max(RAY_PADDING);
+        let dy = dx * RAY_SLOPE;
+        if bbox.min.y - PARAM_EPSILON > point.y + dy {
+            return PointRelation::default();
+        }
+
+        let ray_vec = Vector::new(dx, dy);
         let ray = LineSegment {
             from: point,
-            to: point + Vector::new(dx, dy),
+            to: point + ray_vec,
         };
 
-        let mut crossings = 0usize;
-        for cmd in self.closed_commands() {
-            for (_t_cmd, u_ray) in cmd.intersections(&ray) {
-                if u_ray <= PARAM_EPSILON {
-                    return PointLocation::Boundary;
+        self.commands()
+            .iter()
+            .fold(PointRelation::default(), |mut acc, cmd| {
+                for (t_cmd, u_ray) in cmd.intersections(&ray) {
+                    if u_ray <= PARAM_EPSILON {
+                        acc.on_boundary = true;
+                    } else {
+                        let curve_tangent = cmd.tangent(t_cmd);
+                        acc.crossings += 1;
+                        acc.winding += if ray_vec.cross(curve_tangent).is_sign_positive() {
+                            1
+                        } else {
+                            -1
+                        };
+                    }
                 }
-                crossings += 1;
-            }
-        }
-        if crossings.is_multiple_of(2) {
-            PointLocation::Exterior
-        } else {
-            PointLocation::Interior
-        }
+                acc
+            })
+    }
+
+    /// Checks if this stroke contains `point` under the given [`FillRule`].
+    fn contains_point(&self, point: Point<f64>, rule: FillRule) -> PointLocation {
+        self.point_relationship(point).location(rule)
     }
 }
 
@@ -134,6 +197,9 @@ impl DrawCommand {
         // = (2u^3 + 4tu^2) * (A x C) + (4ut^2 - 2t^3) * (C x B) - 2ut^2 * (C x B) - 2ut^2 (B x A)
         // = (2u^3 + 4tu^2) * (A x C) + (4ut^2 - 2t^3 - 2ut^2) * (C x B) - 2ut^2 (B x A)
         // to be continued...
+
+        let cross = |a: Point<f64>, b: Point<f64>| -> f64 { a.to_vector().cross(b.to_vector()) };
+
         0.5 * match *self {
             DrawCommand::LineTo(LineSegment { from, to }) => cross(from, to),
             DrawCommand::Arc(svg_arc) => {
@@ -157,17 +223,51 @@ impl DrawCommand {
             }
         }
     }
+
+    /// Whether this command is negligibly small.
+    fn is_degenerate(&self) -> bool {
+        let eps_sq = PARAM_EPSILON.powi(2);
+        (self.end_point() - self.start_point()).square_length() <= eps_sq
+    }
+
+    /// Checks whether two commands are approximately equal within [`VERTEX_SNAP_EPSILON`].
+    fn approx_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::LineTo(l1), Self::LineTo(l2)) => {
+                (l1.from - l2.from).square_length() < VERTEX_SNAP_EPSILON_SQ
+                    && (l1.to - l2.to).square_length() < VERTEX_SNAP_EPSILON_SQ
+            }
+            (Self::QuadraticBezier(q1), Self::QuadraticBezier(q2)) => {
+                (q1.from - q2.from).square_length() < VERTEX_SNAP_EPSILON_SQ
+                    && (q1.to - q2.to).square_length() < VERTEX_SNAP_EPSILON_SQ
+                    && (q1.ctrl - q2.ctrl).square_length() < VERTEX_SNAP_EPSILON_SQ
+            }
+            (Self::CubicBezier(c1), Self::CubicBezier(c2)) => {
+                (c1.from - c2.from).square_length() < VERTEX_SNAP_EPSILON_SQ
+                    && (c1.to - c2.to).square_length() < VERTEX_SNAP_EPSILON_SQ
+                    && (c1.ctrl1 - c2.ctrl1).square_length() < VERTEX_SNAP_EPSILON_SQ
+                    && (c1.ctrl2 - c2.ctrl2).square_length() < VERTEX_SNAP_EPSILON_SQ
+            }
+            (Self::Arc(a1), Self::Arc(a2)) => {
+                (a1.from - a2.from).square_length() < VERTEX_SNAP_EPSILON_SQ
+                    && (a1.to - a2.to).square_length() < VERTEX_SNAP_EPSILON_SQ
+                    && a1.flags == a2.flags
+                    && (a1.radii - a2.radii).square_length() < VERTEX_SNAP_EPSILON_SQ
+                    && (a1.x_rotation.radians - a2.x_rotation.radians).abs() < VERTEX_SNAP_EPSILON
+            }
+            _ => false,
+        }
+    }
 }
 
-impl FillPolygon {
-    /// Classifies `point` relative to this filled polygon (outer contour minus holes).
-    pub fn contains_point(&self, point: Point<f64>) -> PointLocation {
-        match self.outer.contains_point(point) {
-            PointLocation::Exterior => PointLocation::Exterior,
-            PointLocation::Boundary => PointLocation::Boundary,
+impl Shape {
+    /// Classifies `point` relative to this filled shape under the given [`FillRule`].
+    pub fn contains_point(&self, point: Point<f64>, rule: FillRule) -> PointLocation {
+        match self.outer.contains_point(point, rule) {
+            loc @ (PointLocation::Exterior | PointLocation::Boundary) => loc,
             PointLocation::Interior => {
                 for hole in &self.holes {
-                    match hole.contains_point(point) {
+                    match hole.contains_point(point, rule) {
                         PointLocation::Interior => return PointLocation::Exterior,
                         PointLocation::Boundary => return PointLocation::Boundary,
                         PointLocation::Exterior => {}
@@ -180,6 +280,33 @@ impl FillPolygon {
 }
 
 impl Stroke {
+    /// Ensures this stroke has counter-clockwise or counter-clockwise winding.
+    fn normalize_direction(&mut self, ccw: bool) {
+        let area = self.signed_area();
+        if (ccw && area.is_sign_negative()) || (!ccw && area.is_sign_positive()) {
+            self.reverse();
+        }
+    }
+
+    /// Given two curves that are disjoint (strictly do not intersect), we can simply check
+    /// their bounding box and an arbitrary point
+    fn contains_disjoint(&self, rhs: &Stroke) -> bool {
+        self.bounding_box().contains_box(&rhs.bounding_box())
+            && self.contains_point(rhs.start_point(), FillRule::EvenOdd) == PointLocation::Interior
+    }
+
+    /// Checks if `self` encloses `rhs` given that the two curves
+    /// are non-crossing (namely, their boundaries do not cross, though they may
+    /// touch at vertices).
+    fn contains_non_crossing(&self, rhs: &Stroke) -> bool {
+        let sample_pt = rhs
+            .commands()
+            .first()
+            .map_or_else(|| rhs.start_point(), |c| c.sample(0.5));
+
+        self.contains_point(sample_pt, FillRule::EvenOdd) == PointLocation::Interior
+    }
+
     /// Checks if `self` strictly contains `rhs`.
     pub fn contains(&self, rhs: &Stroke) -> bool {
         // If the two curves do not intersect, there are three possible scenarios:
@@ -189,332 +316,679 @@ impl Stroke {
         //
         // For (2) to be true:
         // - self and rhs have no intersections
-        // - a point in rhs (i.e. start point) lies in self
+        // - a point in rhs lies in self
 
-        // Fast check
-        self.bounding_box().contains_box(&rhs.bounding_box())
-            // Swap the two conditions for speed
-            && self.contains_point(rhs.start_point()) == PointLocation::Interior
+        // Fast check first
+        self.contains_disjoint(rhs)
             && self
-                .closed_commands()
+                .commands()
+                .iter()
                 .flat_map(|cmd_self| {
-                    rhs.closed_commands()
+                    rhs.commands()
+                        .iter()
                         .map(move |cmd_rhs| (cmd_self, cmd_rhs))
                 })
-                .all(|(cmd_self, cmd_rhs)| cmd_self.intersections(&cmd_rhs).is_empty())
+                .all(|(cmd_self, cmd_rhs)| cmd_self.intersections(cmd_rhs).is_empty())
     }
 }
 
-/// Partitions raw SVG subpaths into [`FillPolygon`]s, one per outer contour, with holes
-/// assigned to their closest enclosing outer.
-///
-/// `fill_rule` is flattened here:
-/// - `EvenOdd`: even = outer
-/// - `NonZero`: 0 cumulative winding = outer
-pub(crate) fn into_fill_polygons(subpaths: &[Stroke], fill_rule: FillRule) -> Vec<FillPolygon> {
-    if subpaths.is_empty() {
-        return vec![];
+/// Queries the crossing count and winding number at `point` relative to `strokes`.
+fn query_point(strokes: &[Stroke], point: Point<f64>) -> PointRelation {
+    strokes
+        .iter()
+        .fold(PointRelation::default(), |mut total, stroke| {
+            total += stroke.point_relationship(point);
+            total
+        })
+}
+
+/// A directed edge connecting two topological vertices in the planar boundary arrangement.
+struct DirectedEdge {
+    from: usize,
+    to: usize,
+    command: DrawCommand,
+    tan_from: Vector<f64>,
+    tan_to: Vector<f64>,
+}
+
+/// Raw input to [`strokes_to_shapes`].
+struct InputStrokes<'a> {
+    strokes: &'a [Stroke],
+    fill_rule: FillRule,
+}
+
+impl<'a> InputStrokes<'a> {
+    fn new(strokes: &'a [Stroke], fill_rule: FillRule) -> Option<Self> {
+        if strokes.is_empty() {
+            None
+        } else {
+            Some(Self { strokes, fill_rule })
+        }
     }
 
-    // For each subpath, the indices of all other subpaths that enclose it.
-    let containers: Vec<Vec<_>> = (0..subpaths.len())
-        .map(|i| {
-            (0..subpaths.len())
-                .filter(|&j| j != i)
-                .filter(|&j| subpaths[j].contains(&subpaths[i]))
-                .collect()
-        })
-        .collect();
+    /// Attempts the fast path when all strokes are disjoint.
+    fn try_fast_path(&self) -> Option<Vec<Shape>> {
+        if self.has_intersections() {
+            None
+        } else {
+            Some(self.to_nested_shapes())
+        }
+    }
 
-    // TODO: EvenOdd fill for overlapping but non-nested subpaths isn't handled.
-    // We need to XOR without flattening somehow.
-    if fill_rule == FillRule::EvenOdd {
-        let bboxes: Vec<_> = subpaths.iter().map(super::Stroke::bounding_box).collect();
-        for i in 0..subpaths.len() {
-            for j in (i + 1)..subpaths.len() {
-                let boxes_overlap = bboxes[i].intersects(&bboxes[j]);
-                let neither_contains_the_other =
-                    !containers[i].contains(&j) && !containers[j].contains(&i);
-                if boxes_overlap && neither_contains_the_other {
-                    warn!(
-                        "`even-odd` fill rule with overlapping (non-nested) subpaths is not implemented! this won't be drawn correctly"
-                    );
-                    break;
+    /// If there are no intersections (aside from segments touching), the fast path is valid.
+    fn has_intersections(&self) -> bool {
+        let commands: Vec<(&DrawCommand, usize, usize, usize)> = self
+            .strokes
+            .iter()
+            .enumerate()
+            .flat_map(|(s_idx, stroke)| {
+                let s_len = stroke.commands().len();
+                stroke
+                    .commands()
+                    .iter()
+                    .enumerate()
+                    .map(move |(c_idx, cmd)| (cmd, s_idx, c_idx, s_len))
+            })
+            .collect();
+
+        if commands.len() < 2 {
+            return false;
+        }
+
+        let tree = RTree::bulk_load(
+            commands
+                .iter()
+                .map(|&(cmd, s_idx, c_idx, s_len)| {
+                    GeomWithData::new(ObjectRef::new(cmd), (s_idx, c_idx, s_len))
+                })
+                .collect(),
+        );
+
+        for &(cmd_i, s_i, c_i, n_i) in &commands {
+            for entry in tree.locate_in_envelope_intersecting(cmd_i.envelope()) {
+                let (s_j, c_j, _) = entry.data;
+                if (s_j, c_j) <= (s_i, c_i) {
+                    continue;
+                }
+
+                let cmd_j: &DrawCommand = entry.geom();
+                if s_i == s_j {
+                    let intersections = cmd_i.intersections(cmd_j);
+                    if intersections.is_empty() {
+                        continue;
+                    }
+
+                    let forward_adjacent = c_i + 1 == c_j;
+                    let reverse_adjacent = c_i == 0 && c_j + 1 == n_i;
+
+                    for (t, u) in intersections {
+                        let at_end1_start2 = (t - 1.0).abs() <= PARAM_EPSILON && u <= PARAM_EPSILON;
+                        let at_start1_end2 = t <= PARAM_EPSILON && (u - 1.0).abs() <= PARAM_EPSILON;
+
+                        let is_valid_touch = (forward_adjacent && at_end1_start2)
+                            || (reverse_adjacent && at_start1_end2);
+                        if !is_valid_touch {
+                            return true;
+                        }
+                    }
+                } else if !cmd_i.intersections(cmd_j).is_empty() {
+                    return true;
                 }
             }
         }
+
+        false
     }
 
-    // Classify each subpath as outer (contributes filled area) or hole (removes it).
-    let is_outer: Vec<Option<bool>> = match fill_rule {
-        FillRule::EvenOdd => containers
-            .iter()
-            .map(|containing| Some(containing.len().is_multiple_of(2)))
-            .collect(),
-        FillRule::NonZero => {
-            let areas: Vec<f64> = subpaths.iter().map(Stroke::signed_area).collect();
+    /// Assuming there are no intersections, arranges the strokes down into shapes.
+    fn to_nested_shapes(&self) -> Vec<Shape> {
+        if let [outer] = &self.strokes {
+            let mut outer = outer.clone();
+            outer.normalize_direction(true);
+            return vec![Shape {
+                outer,
+                holes: vec![],
+            }];
+        }
 
-            containers
+        let stroke_areas: Vec<f64> = self.strokes.iter().map(Stroke::signed_area).collect();
+
+        let stroke_tree = RTree::bulk_load(
+            self.strokes
                 .iter()
-                .zip(areas.iter())
-                .map(|(container, &area)| {
-                    let cumulative_winding: i32 = container
-                        .iter()
-                        .map(|&j| if areas[j] > 0.0 { 1i32 } else { -1i32 })
-                        .sum();
+                .zip(&stroke_areas)
+                .enumerate()
+                .map(|(idx, (stroke, area))| {
+                    GeomWithData::new(ObjectRef::new(stroke), (idx, area.abs()))
+                })
+                .collect(),
+        );
 
-                    if cumulative_winding == 0 {
-                        Some(true)
+        // Because the curves are disjoint, the parent of `i` is the container with the least area.
+        let parents: Vec<Option<usize>> = self
+            .strokes
+            .iter()
+            .zip(&stroke_areas)
+            .enumerate()
+            .map(|(i, (sub_i, area_i))| {
+                let abs_area_i = area_i.abs();
+
+                stroke_tree
+                    .locate_in_envelope_intersecting(sub_i.envelope())
+                    .filter(|entry| {
+                        let (j, abs_area_j) = entry.data;
+                        j != i && abs_area_j > abs_area_i && entry.geom().contains_disjoint(sub_i)
+                    })
+                    .min_by(|a, b| a.data.1.total_cmp(&b.data.1))
+                    .map(|entry| entry.data.0)
+            })
+            .collect();
+
+        #[derive(Copy, Clone, PartialEq, Eq)]
+        enum Role {
+            Outer,
+            Hole,
+            Discarded,
+        }
+
+        let roles: Vec<Role> = match self.fill_rule {
+            FillRule::EvenOdd => parents
+                .iter()
+                .map(|&parent_i| {
+                    let depth =
+                        iter::successors(parent_i, |&i| parents.get(i).copied().flatten()).count();
+                    if depth.is_multiple_of(2) {
+                        Role::Outer
                     } else {
-                        let winding_inside = cumulative_winding + if area > 0.0 { 1 } else { -1 };
-                        if winding_inside == 0 {
-                            Some(false)
-                        } else {
-                            // Attempting to fill a region inside an already-filled region.
-                            // If `winding_inside` was zero, it would be a hole.
-                            None
-                        }
+                        Role::Hole
                     }
                 })
-                .collect()
+                .collect(),
+            FillRule::NonZero => stroke_areas
+                .iter()
+                .zip(parents.iter())
+                .map(|(&area, &p_i)| {
+                    let cumulative_winding =
+                        iter::successors(p_i, |&i| parents.get(i).copied().flatten())
+                            .map(|i| {
+                                if let Some(&area) = stroke_areas.get(i) {
+                                    if area.is_sign_positive() { 1 } else { -1 }
+                                } else {
+                                    0
+                                }
+                            })
+                            .sum::<isize>();
+                    let winding_inside =
+                        cumulative_winding + if area.is_sign_positive() { 1 } else { -1 };
+
+                    match (cumulative_winding, winding_inside) {
+                        (0, _) => Role::Outer,
+                        (_, 0) => Role::Hole,
+                        _ => Role::Discarded,
+                    }
+                })
+                .collect(),
+        };
+
+        // Build the top-down tree
+        let mut children: Vec<Vec<usize>> = vec![Vec::new(); self.strokes.len()];
+        for (i, p) in parents.iter().enumerate() {
+            if let Some(p_idx) = *p
+                && let Some(p_children) = children.get_mut(p_idx)
+            {
+                p_children.push(i);
+            }
         }
+
+        // Sort to output pre-order DFS.
+        let mut ordered_outers = Vec::with_capacity(self.strokes.len());
+        {
+            let mut dfs_stack: Vec<usize> = parents
+                .iter()
+                .enumerate()
+                .filter_map(|(i, p)| p.is_none().then_some(i))
+                .collect();
+            dfs_stack.reverse();
+
+            while let Some(node) = dfs_stack.pop() {
+                if roles.get(node).copied() == Some(Role::Outer) {
+                    ordered_outers.push(node);
+                }
+                if let Some(node_children) = children.get(node) {
+                    dfs_stack.extend(node_children.iter().rev().copied());
+                }
+            }
+        }
+
+        ordered_outers
+            .into_iter()
+            .filter_map(|i| self.strokes.get(i).map(|s| (i, s)))
+            .map(|(i, sub_i)| {
+                let mut outer = sub_i.clone();
+                outer.normalize_direction(true);
+
+                // Get the direct holes for this outer (e.g. not the hole in a nested donut).
+                let mut hole_indices = Vec::new();
+                {
+                    let mut stack = children.get(i).cloned().unwrap_or_default();
+                    while let Some(child_idx) = stack.pop() {
+                        match roles.get(child_idx) {
+                            Some(Role::Hole) => hole_indices.push(child_idx),
+                            Some(Role::Discarded) => {
+                                if let Some(grand_children) = children.get(child_idx) {
+                                    stack.extend(grand_children);
+                                }
+                            }
+                            Some(Role::Outer) | None => {}
+                        }
+                    }
+                }
+                hole_indices.sort_unstable();
+
+                let holes = hole_indices
+                    .into_iter()
+                    .filter_map(|j| self.strokes.get(j))
+                    .cloned()
+                    .map(|mut sub_j| {
+                        sub_j.normalize_direction(false);
+                        sub_j
+                    })
+                    .collect();
+
+                Shape { outer, holes }
+            })
+            .collect()
+    }
+
+    /// Subdivides all commands at non-endpoint intersections into [`SubdividedSegments::segments`].
+    fn subdivide_intersections(self) -> SubdividedSegments<'a> {
+        let commands: Vec<DrawCommand> = self
+            .strokes
+            .iter()
+            .flat_map(|s| s.commands().iter().copied())
+            .collect();
+
+        let mut splits_by_t: Vec<Vec<f64>> = vec![vec![0.0, 1.0]; commands.len()];
+
+        let tree = RTree::bulk_load(
+            commands
+                .iter()
+                .enumerate()
+                .map(|(idx, cmd)| GeomWithData::new(ObjectRef::new(cmd), idx))
+                .collect(),
+        );
+
+        for (i, cmd_i) in commands.iter().enumerate() {
+            for entry in tree.locate_in_envelope_intersecting(cmd_i.envelope()) {
+                let j = entry.data;
+                if j > i {
+                    let cmd_j: &DrawCommand = entry.geom();
+                    for (t_i, t_j) in cmd_i.intersections(cmd_j) {
+                        const NON_ENDPOINT: Range<f64> = PARAM_EPSILON..(1.0 - PARAM_EPSILON);
+                        if NON_ENDPOINT.contains(&t_i)
+                            && let Some(s) = splits_by_t.get_mut(i)
+                        {
+                            s.push(t_i);
+                        }
+                        if NON_ENDPOINT.contains(&t_j)
+                            && let Some(s) = splits_by_t.get_mut(j)
+                        {
+                            s.push(t_j);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut segments = Vec::new();
+        for (cmd, mut ts) in commands.into_iter().zip(splits_by_t) {
+            ts.sort_unstable_by(f64::total_cmp);
+            ts.dedup_by(|a, b| (*a - *b).abs() < PARAM_EPSILON);
+
+            segments.extend(ts.iter().zip(ts.iter().skip(1)).filter_map(|(&t_a, &t_b)| {
+                let sub = cmd.split_range(t_a..t_b);
+                // TODO: is this check overkill?
+                (!sub.is_degenerate()).then_some(sub)
+            }));
+        }
+
+        SubdividedSegments {
+            input_strokes: self.strokes,
+            fill_rule: self.fill_rule,
+            segments,
+        }
+    }
+}
+
+/// Strokes subdivided into segments at any non-endpoint intersections.
+struct SubdividedSegments<'a> {
+    input_strokes: &'a [Stroke],
+    fill_rule: FillRule,
+    segments: Vec<DrawCommand>,
+}
+
+impl SubdividedSegments<'_> {
+    /// Builds a directed graph of boundary edges from the given subdivided segments.
+    ///
+    /// A segment is included in the graph if it is a boundary (namely if one side is filled, the other is not),
+    /// and normalized to be CCW (facing the direction of the curve, the left side will be filled).
+    ///
+    /// If two segments overlap, they overlap completely by way of [InputStrokes::subdivide_intersections] and the duplicate is skipped.
+    fn build_boundary_graph(self) -> BoundaryGraph {
+        let mut vertex_tree: RTree<GeomWithData<[f64; 2], usize>> = RTree::new();
+        let mut edges: Vec<DirectedEdge> = Vec::new();
+        let mut adjacency_map: FxHashMap<usize, Vec<usize>> = FxHashMap::default();
+
+        let mut snap_vertex = |point: Point<f64>| {
+            let pt = [point.x, point.y];
+            if let Some(entry) = vertex_tree
+                .locate_within_distance(pt, VERTEX_SNAP_EPSILON_SQ)
+                .next()
+            {
+                entry.data
+            } else {
+                let idx = vertex_tree.size();
+                vertex_tree.insert(GeomWithData::new(pt, idx));
+                idx
+            }
+        };
+
+        for mut segment in self.segments {
+            let start = segment.start_point();
+            let end = segment.end_point();
+            let midpoint = segment.sample(0.5);
+
+            // Skip segments too small to even work with.
+            if (end - start).square_length() < VERTEX_SNAP_EPSILON_SQ
+                && (midpoint - start).square_length() < VERTEX_SNAP_EPSILON_SQ
+            {
+                continue;
+            }
+
+            // Sample a point on either side of the segment to classify it.
+            let normal = segment.normal(0.5);
+            let bbox = segment.bounding_box();
+            let seg_scale = bbox.width().max(bbox.height());
+            let eps =
+                (seg_scale * SAMPLE_OFFSET_FRACTION).clamp(MIN_SAMPLE_OFFSET, MAX_SAMPLE_OFFSET);
+
+            // Consider a line segment l. The line segment k through p_left and p_right
+            // has length 2*eps, is perpendicular to l, and passes through the midpoint of l.
+            let p_left = midpoint + normal * eps;
+            let p_right = midpoint - normal * eps;
+
+            let left_query = query_point(self.input_strokes, p_left);
+            let right_query = query_point(self.input_strokes, p_right);
+
+            let left_filled = left_query.is_filled(self.fill_rule);
+            let right_filled = right_query.is_filled(self.fill_rule);
+
+            // Not a boundary, fully within or fully outside the filled region.
+            if left_filled == right_filled {
+                continue;
+            }
+
+            // Reversing the segment normalizes the following logic for CCW orientation.
+            // After this, left will always be filled.
+            if !left_filled && right_filled {
+                segment.reverse();
+            }
+            let from = snap_vertex(segment.start_point());
+            let to = snap_vertex(segment.end_point());
+
+            // The act of snapping could create a degenerate segment.
+            if from == to && (midpoint - start).square_length() <= VERTEX_SNAP_EPSILON_SQ {
+                continue;
+            }
+
+            // If two strokes shared any part of an edge, it may already exist as a segment.
+            let already_exists = adjacency_map
+                .get(&from)
+                .into_iter()
+                .flatten()
+                .filter_map(|&edge_idx| edges.get(edge_idx))
+                .any(|e| e.from == from && e.to == to && e.command.approx_eq(&segment));
+
+            if already_exists {
+                continue;
+            }
+
+            let edge_idx = edges.len();
+            edges.push(DirectedEdge {
+                from,
+                to,
+                command: segment,
+                tan_from: segment.tangent(0.0),
+                tan_to: segment.tangent(1.0),
+            });
+            adjacency_map.entry(from).or_default().push(edge_idx);
+        }
+
+        BoundaryGraph {
+            edges,
+            adjacency_map,
+        }
+    }
+}
+
+/// Boundary segments (edges) in a directed graph.
+struct BoundaryGraph {
+    edges: Vec<DirectedEdge>,
+    adjacency_map: FxHashMap<usize, Vec<usize>>,
+}
+
+impl BoundaryGraph {
+    /// Walks the forest of edges to build closed [`Stroke`] loops.
+    ///
+    /// Starting from some edge, we compare the tangent vectors at joints to find the
+    /// next unvisited edge that continues the loop as sharply right as possible.
+    /// Every segment is a boundary segment, so this will build a bunch of loops.
+    fn extract_boundary_loops(self) -> BoundaryLoops {
+        let mut visited = vec![false; self.edges.len()];
+        let mut loops = Vec::new();
+
+        for (start_edge_idx, start_edge) in self.edges.iter().enumerate() {
+            if visited.get(start_edge_idx).copied() == Some(true) {
+                continue;
+            }
+            let start_vertex = start_edge.from;
+
+            let mut current_edge_idx = start_edge_idx;
+            let mut loop_cmds = Vec::new();
+
+            loop {
+                if let Some(v) = visited.get_mut(current_edge_idx) {
+                    *v = true;
+                }
+                let Some(current_edge) = self.edges.get(current_edge_idx) else {
+                    break;
+                };
+                loop_cmds.push(current_edge.command);
+                let next_vertex = current_edge.to;
+
+                if next_vertex == start_vertex {
+                    let start_point = loop_cmds
+                        .first()
+                        .map_or(Point::zero(), DrawCommand::start_point);
+                    loops.push(Stroke::new(start_point, loop_cmds, None));
+                    break;
+                }
+
+                let tan_to = current_edge.tan_to;
+                let outgoing_candidates = self.adjacency_map.get(&next_vertex);
+
+                // Find the unvisited outgoing edge with the tightest rightward turn
+                let best_next = outgoing_candidates
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                    .filter(|&next_idx| visited.get(next_idx).copied() != Some(true))
+                    .filter_map(|next_idx| {
+                        let tan_from = self.edges.get(next_idx)?.tan_from;
+                        let angle = tan_to.angle_to(tan_from).radians;
+                        Some((angle, next_idx))
+                    })
+                    .min_by(|(angle_a, _), (angle_b, _)| angle_a.total_cmp(angle_b))
+                    .map(|(_, next_idx)| next_idx);
+
+                match best_next {
+                    Some(next_idx) => {
+                        current_edge_idx = next_idx;
+                    }
+                    None => {
+                        break;
+                    }
+                }
+            }
+        }
+
+        BoundaryLoops::new(loops)
+    }
+}
+
+/// Closed, non-crossing boundary loops partitioned into outers and holes.
+struct BoundaryLoops {
+    outers: Vec<(Stroke, f64)>,
+    holes: Vec<(Stroke, f64)>,
+}
+
+impl BoundaryLoops {
+    /// Partitions boundary loops into outers (positive area) and holes (negative area),
+    /// discarding any loops smaller than [`MIN_LOOP_AREA`].
+    fn new(loops: Vec<Stroke>) -> Self {
+        let (outers, holes): (Vec<_>, Vec<_>) = loops
+            .into_iter()
+            .map(|stroke| {
+                let area = stroke.signed_area();
+                (stroke, area)
+            })
+            .filter(|(_, area)| area.abs() >= MIN_LOOP_AREA)
+            .partition(|(_, area)| area.is_sign_positive());
+
+        Self { outers, holes }
+    }
+
+    /// Classifies holes into their parent outers, then builds [`Shape`]s from them.
+    fn into_shapes(self) -> Vec<Shape> {
+        if self.holes.is_empty() || self.outers.is_empty() {
+            return self
+                .outers
+                .into_iter()
+                .map(|(outer, _)| Shape {
+                    outer,
+                    holes: Vec::new(),
+                })
+                .collect();
+        }
+
+        let outer_tree = RTree::bulk_load(
+            self.outers
+                .iter()
+                .enumerate()
+                .map(|(idx, (outer, area))| GeomWithData::new(ObjectRef::new(outer), (idx, *area)))
+                .collect(),
+        );
+
+        let mut holes_by_outer: Vec<Vec<Stroke>> = vec![Vec::new(); self.outers.len()];
+
+        for (hole, hole_area) in self.holes {
+            let hole_area_abs = hole_area.abs();
+
+            let containing_outer = outer_tree
+                .locate_in_envelope_intersecting(hole.envelope())
+                .filter(|entry| {
+                    let (_, outer_area) = entry.data;
+                    outer_area >= hole_area_abs && entry.geom().contains_non_crossing(&hole)
+                })
+                .min_by(|a, b| a.data.1.total_cmp(&b.data.1));
+
+            if let Some(entry) = containing_outer
+                && let Some(holes) = holes_by_outer.get_mut(entry.data.0)
+            {
+                holes.push(hole);
+            }
+        }
+
+        self.outers
+            .into_iter()
+            .zip(holes_by_outer)
+            .map(|((outer, _), holes)| Shape { outer, holes })
+            .collect()
+    }
+}
+
+/// Simplifies closed paths into [`Shape`]s.
+pub fn strokes_to_shapes(closed_paths: &[Stroke], fill_rule: FillRule) -> Vec<Shape> {
+    let Some(input) = InputStrokes::new(closed_paths, fill_rule) else {
+        return vec![];
     };
 
-    // For each outer, collect its immediate holes — holes for which this outer is the innermost
-    // enclosing outer (no other outer sits between them).
-    (0..subpaths.len())
-        .filter(|&i| is_outer[i] == Some(true))
-        .map(|i| {
-            let holes = (0..subpaths.len())
-                .filter(|&j| is_outer[j] == Some(false) && subpaths[i].contains(&subpaths[j]))
-                .filter(|&j| {
-                    // No other outer k is strictly between outer i and hole j.
-                    !containers[j]
-                        .iter()
-                        .any(|&k| k != i && is_outer[k] == Some(true) && containers[k].contains(&i))
-                })
-                .map(|j| subpaths[j].clone())
-                .collect();
-            FillPolygon {
-                outer: subpaths[i].clone(),
-                holes,
-            }
-        })
-        .collect()
+    if let Some(shapes) = input.try_fast_path() {
+        return shapes;
+    }
+
+    // Staged native curve planar arrangement pipeline for intersecting geometry.
+    input
+        .subdivide_intersections()
+        .build_boundary_graph()
+        .extract_boundary_loops()
+        .into_shapes()
 }
 
 #[cfg(test)]
 mod tests {
     use std::slice;
 
-    use lyon_geom::Point;
+    use lyon_geom::{
+        Angle, ArcFlags, CubicBezierSegment, LineSegment, Point, QuadraticBezierSegment, SvgArc,
+        Vector,
+    };
 
     use super::*;
     use crate::turtle::elements::{DrawCommand, FillRule, Stroke};
 
-    #[test]
-    fn test_nonzero_nested_ccw() {
-        // Subpath 0: CCW square (0,0) to (10,10)
-        let s0 = Stroke::new(
-            Point::new(0.0, 0.0),
-            vec![
+    /// Helper to construct a closed polygonal stroke from 2D points.
+    fn poly_stroke(pts: &[(f64, f64)]) -> Stroke {
+        let first = pts
+            .first()
+            .copied()
+            .map(|(x, y)| Point::new(x, y))
+            .unwrap_or_default();
+        let commands = pts
+            .iter()
+            .zip(pts.iter().cycle().skip(1))
+            .take(pts.len())
+            .map(|(&(x1, y1), &(x2, y2))| {
                 DrawCommand::LineTo(LineSegment {
-                    from: Point::new(0.0, 0.0),
-                    to: Point::new(10.0, 0.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(10.0, 0.0),
-                    to: Point::new(10.0, 10.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(10.0, 10.0),
-                    to: Point::new(0.0, 10.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(0.0, 10.0),
-                    to: Point::new(0.0, 0.0),
-                }),
-            ],
-            None,
-        );
-
-        // Subpath 1: CCW square (2,2) to (8,8)
-        let s1 = Stroke::new(
-            Point::new(2.0, 2.0),
-            vec![
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(2.0, 2.0),
-                    to: Point::new(8.0, 2.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(8.0, 2.0),
-                    to: Point::new(8.0, 8.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(8.0, 8.0),
-                    to: Point::new(2.0, 8.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(2.0, 8.0),
-                    to: Point::new(2.0, 2.0),
-                }),
-            ],
-            None,
-        );
-
-        // Subpath 2: CCW square (4,4) to (6,6)
-        let s2 = Stroke::new(
-            Point::new(4.0, 4.0),
-            vec![
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(4.0, 4.0),
-                    to: Point::new(6.0, 4.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(6.0, 4.0),
-                    to: Point::new(6.0, 6.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(6.0, 6.0),
-                    to: Point::new(4.0, 6.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(4.0, 6.0),
-                    to: Point::new(4.0, 4.0),
-                }),
-            ],
-            None,
-        );
-
-        let polygons = into_fill_polygons(&[s0.clone(), s1.clone(), s2.clone()], FillRule::NonZero);
-
-        // For NonZero, since all are CCW, the winding numbers are 1, 2, and 3.
-        // All are non-zero, so the whole area should be filled.
-        // In terms of FillPolygon, it should be one outer (s0) with no holes.
-        assert_eq!(polygons.len(), 1);
-        assert_eq!(polygons[0].outer.start_point(), s0.start_point());
-        assert_eq!(polygons[0].holes.len(), 0);
+                    from: Point::new(x1, y1),
+                    to: Point::new(x2, y2),
+                })
+            })
+            .collect();
+        Stroke::new(first, commands, None)
     }
 
-    #[test]
-    fn test_nonzero_overlapping_not_nested() {
-        // Subpath 0: CCW square from (0,0) to (10,10)
-        let s0 = Stroke::new(
-            Point::new(0.0, 0.0),
-            vec![
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(0.0, 0.0),
-                    to: Point::new(10.0, 0.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(10.0, 0.0),
-                    to: Point::new(10.0, 10.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(10.0, 10.0),
-                    to: Point::new(0.0, 10.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(0.0, 10.0),
-                    to: Point::new(0.0, 0.0),
-                }),
-            ],
-            None,
-        );
-
-        // Subpath 1: CCW square from (5,5) to (15,15) - overlapping but not nested
-        let s1 = Stroke::new(
-            Point::new(5.0, 5.0),
-            vec![
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(5.0, 5.0),
-                    to: Point::new(15.0, 5.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(15.0, 5.0),
-                    to: Point::new(15.0, 15.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(15.0, 15.0),
-                    to: Point::new(5.0, 15.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(5.0, 15.0),
-                    to: Point::new(5.0, 5.0),
-                }),
-            ],
-            None,
-        );
-
-        let polygons = into_fill_polygons(&[s0.clone(), s1.clone()], FillRule::NonZero);
-
-        // Since they overlap but are not nested (neither bbox is inside the other),
-        // they should be classified as two independent outer contours.
-        assert_eq!(polygons.len(), 2);
+    /// Helper for a CCW axis-aligned rectangle.
+    fn rect(min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> Stroke {
+        poly_stroke(&[
+            (min_x, min_y),
+            (max_x, min_y),
+            (max_x, max_y),
+            (min_x, max_y),
+        ])
     }
 
-    /// Pentagram (5-pointed star) drawn as a single self-intersecting M…Z subpath
-    ///
-    /// The path visits the five outer tips in "skip-one" order, crossing itself five times
-    /// and enclosing an inner pentagon whose fill depends on the fill rule:
-    ///
-    ///  - `EvenOdd`: hole in the center (incorrect currently)
-    ///  - `NonZero`: filled
-    #[test]
-    #[ignore = "self-intersecting single subpaths are not yet handled"]
-    fn test_self_intersecting_pentagram() {
-        let star = Stroke::new(
-            Point::new(110.0, 45.0),
-            vec![
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(110.0, 45.0),
-                    to: Point::new(162.0, 195.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(162.0, 195.0),
-                    to: Point::new(24.0, 100.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(24.0, 100.0),
-                    to: Point::new(196.0, 100.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(196.0, 100.0),
-                    to: Point::new(58.0, 195.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: Point::new(58.0, 195.0),
-                    to: Point::new(110.0, 45.0),
-                }),
-            ],
-            None,
-        );
-
-        let evenodd = into_fill_polygons(slice::from_ref(&star), FillRule::EvenOdd);
-        assert_eq!(evenodd.len(), 1, "EvenOdd: expected one outer contour");
-        assert_eq!(
-            evenodd[0].holes.len(),
-            1,
-            "EvenOdd: expected one hole (the inner pentagon)"
-        );
-
-        let nonzero = into_fill_polygons(&[star], FillRule::NonZero);
-        assert_eq!(nonzero.len(), 1, "NonZero: expected one outer contour");
-        assert_eq!(
-            nonzero[0].holes.len(),
-            0,
-            "NonZero: expected no holes (inner pentagon is filled)"
-        );
+    /// Helper for a CCW axis-aligned square.
+    fn square(min: f64, max: f64) -> Stroke {
+        rect(min, min, max, max)
     }
 
-    #[test]
-    fn test_contains_point_circle_tangency() {
-        use lyon_geom::{Angle, ArcFlags, SvgArc, point, vector};
-
+    /// Helper for a circular stroke centered at origin.
+    fn circle_stroke(r: f64) -> Stroke {
         let top_arc = SvgArc {
-            from: point(5.0, 0.0),
-            to: point(-5.0, 0.0),
-            radii: vector(5.0, 5.0),
+            from: Point::new(r, 0.0),
+            to: Point::new(-r, 0.0),
+            radii: Vector::new(r, r),
             x_rotation: Angle::zero(),
             flags: ArcFlags {
                 large_arc: false,
@@ -522,110 +996,134 @@ mod tests {
             },
         };
         let bottom_arc = SvgArc {
-            from: point(-5.0, 0.0),
-            to: point(5.0, 0.0),
-            radii: vector(5.0, 5.0),
+            from: Point::new(-r, 0.0),
+            to: Point::new(r, 0.0),
+            radii: Vector::new(r, r),
             x_rotation: Angle::zero(),
             flags: ArcFlags {
                 large_arc: false,
                 sweep: true,
             },
         };
-
-        let circle = Stroke::new(
-            point(5.0, 0.0),
+        Stroke::new(
+            Point::new(r, 0.0),
             vec![DrawCommand::Arc(top_arc), DrawCommand::Arc(bottom_arc)],
             None,
+        )
+    }
+
+    #[test]
+    fn test_nonzero_nested_ccw() {
+        let s0 = square(0.0, 10.0);
+        let s1 = square(2.0, 8.0);
+        let s2 = square(4.0, 6.0);
+
+        let shapes = strokes_to_shapes(&[s0.clone(), s1, s2], FillRule::NonZero);
+
+        // For NonZero, since all are CCW, the winding numbers are 1, 2, and 3.
+        // All are non-zero, so the whole area should be filled.
+        // In terms of Shape, it should be one outer (s0) with no holes.
+        assert_eq!(shapes.len(), 1);
+        let first = shapes.first().unwrap();
+        assert_eq!(first.outer.start_point(), s0.start_point());
+        assert_eq!(first.holes.len(), 0);
+    }
+
+    #[test]
+    fn test_nonzero_overlapping_not_nested() {
+        let s0 = square(0.0, 10.0);
+        let s1 = square(5.0, 15.0);
+
+        let shapes = strokes_to_shapes(&[s0, s1], FillRule::NonZero);
+
+        // Overlapping strokes under NonZero are unified into 1 outer contour (geometric union)
+        assert_eq!(shapes.len(), 1);
+        let first = shapes.first().unwrap();
+        assert_eq!(first.holes.len(), 0);
+        assert!((first.outer.signed_area() - 175.0).abs() < 1e-4);
+    }
+
+    /// Pentagram (5-pointed star) drawn as a single self-intersecting M…Z stroke
+    ///
+    /// The path visits the five outer tips in "skip-one" order, crossing itself five times
+    /// and enclosing an inner pentagon whose fill depends on the fill rule:
+    ///
+    ///  - `EvenOdd`: hole in the center
+    ///  - `NonZero`: filled
+    #[test]
+    fn test_self_intersecting_pentagram() {
+        let star = poly_stroke(&[
+            (110.0, 45.0),
+            (162.0, 195.0),
+            (24.0, 100.0),
+            (196.0, 100.0),
+            (58.0, 195.0),
+        ]);
+
+        let evenodd = strokes_to_shapes(slice::from_ref(&star), FillRule::EvenOdd);
+        assert_eq!(evenodd.len(), 1, "EvenOdd: expected one outer contour");
+        assert_eq!(
+            evenodd.first().map(|s| s.holes.len()),
+            Some(1),
+            "EvenOdd: expected one hole (the inner pentagon)"
         );
 
+        let nonzero = strokes_to_shapes(&[star], FillRule::NonZero);
+        assert_eq!(nonzero.len(), 1, "NonZero: expected one outer contour");
         assert_eq!(
-            circle.contains_point(point(0.0, 0.0)),
+            nonzero.first().map(|s| s.holes.len()),
+            Some(0),
+            "NonZero: expected no holes (inner pentagon is filled)"
+        );
+    }
+
+    #[test]
+    fn test_contains_point_circle_tangency() {
+        let circle = circle_stroke(5.0);
+
+        assert_eq!(
+            circle.contains_point(Point::new(0.0, 0.0), FillRule::EvenOdd),
             PointLocation::Interior
         );
         assert_eq!(
-            circle.contains_point(point(0.0, 2.0)),
+            circle.contains_point(Point::new(0.0, 2.0), FillRule::EvenOdd),
             PointLocation::Interior
         );
         assert_eq!(
-            circle.contains_point(point(10.0, 0.0)),
+            circle.contains_point(Point::new(10.0, 0.0), FillRule::EvenOdd),
             PointLocation::Exterior
         );
         assert_eq!(
-            circle.contains_point(point(-10.0, 0.0)),
+            circle.contains_point(Point::new(-10.0, 0.0), FillRule::EvenOdd),
             PointLocation::Exterior
         );
         // Point at same height as top apex (y = 5.0), but to the left (x = -8.0):
         // Horizontal ray along y = 5.0 touches the top of the circle tangentially.
         // It must not count as a crossing, so the point must be classified as OUTSIDE.
         assert_eq!(
-            circle.contains_point(point(-8.0, 5.0)),
+            circle.contains_point(Point::new(-8.0, 5.0), FillRule::EvenOdd),
             PointLocation::Exterior
         );
     }
 
     #[test]
     fn test_stroke_contains_stroke_catches_bulging_curves() {
-        use lyon_geom::{CubicBezierSegment, point};
-
-        let outer = Stroke::new(
-            point(0.0, 0.0),
-            vec![
-                DrawCommand::LineTo(LineSegment {
-                    from: point(0.0, 0.0),
-                    to: point(10.0, 0.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: point(10.0, 0.0),
-                    to: point(10.0, 10.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: point(10.0, 10.0),
-                    to: point(0.0, 10.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: point(0.0, 10.0),
-                    to: point(0.0, 0.0),
-                }),
-            ],
-            None,
-        );
-
-        let inner_nested = Stroke::new(
-            point(2.0, 2.0),
-            vec![
-                DrawCommand::LineTo(LineSegment {
-                    from: point(2.0, 2.0),
-                    to: point(8.0, 2.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: point(8.0, 2.0),
-                    to: point(8.0, 8.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: point(8.0, 8.0),
-                    to: point(2.0, 8.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: point(2.0, 8.0),
-                    to: point(2.0, 2.0),
-                }),
-            ],
-            None,
-        );
+        let outer = square(0.0, 10.0);
+        let inner_nested = square(2.0, 8.0);
         assert!(outer.contains(&inner_nested));
 
         let inner_bulging = Stroke::new(
-            point(2.0, 5.0),
+            Point::new(2.0, 5.0),
             vec![
                 DrawCommand::CubicBezier(CubicBezierSegment {
-                    from: point(2.0, 5.0),
-                    ctrl1: point(3.0, 15.0),
-                    ctrl2: point(7.0, 15.0),
-                    to: point(8.0, 5.0),
+                    from: Point::new(2.0, 5.0),
+                    ctrl1: Point::new(3.0, 15.0),
+                    ctrl2: Point::new(7.0, 15.0),
+                    to: Point::new(8.0, 5.0),
                 }),
                 DrawCommand::LineTo(LineSegment {
-                    from: point(8.0, 5.0),
-                    to: point(2.0, 5.0),
+                    from: Point::new(8.0, 5.0),
+                    to: Point::new(2.0, 5.0),
                 }),
             ],
             None,
@@ -635,106 +1133,185 @@ mod tests {
 
     #[test]
     fn test_contains_point_polygon_and_bezier() {
-        use lyon_geom::{QuadraticBezierSegment, point};
-
-        let rect = Stroke::new(
-            point(0.0, 0.0),
-            vec![
-                DrawCommand::LineTo(LineSegment {
-                    from: point(0.0, 0.0),
-                    to: point(10.0, 0.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: point(10.0, 0.0),
-                    to: point(10.0, 10.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: point(10.0, 10.0),
-                    to: point(0.0, 10.0),
-                }),
-                DrawCommand::LineTo(LineSegment {
-                    from: point(0.0, 10.0),
-                    to: point(0.0, 0.0),
-                }),
-            ],
-            None,
-        );
+        let r = square(0.0, 10.0);
 
         assert_eq!(
-            rect.contains_point(point(5.0, 5.0)),
+            r.contains_point(Point::new(5.0, 5.0), FillRule::EvenOdd),
             PointLocation::Interior
         );
         assert_eq!(
-            rect.contains_point(point(-5.0, 5.0)),
+            r.contains_point(Point::new(-5.0, 5.0), FillRule::EvenOdd),
             PointLocation::Exterior
         );
         assert_eq!(
-            rect.contains_point(point(15.0, 5.0)),
+            r.contains_point(Point::new(15.0, 5.0), FillRule::EvenOdd),
             PointLocation::Exterior
         );
         assert_eq!(
-            rect.contains_point(point(5.0, -5.0)),
+            r.contains_point(Point::new(5.0, -5.0), FillRule::EvenOdd),
             PointLocation::Exterior
         );
         assert_eq!(
-            rect.contains_point(point(5.0, 15.0)),
+            r.contains_point(Point::new(5.0, 15.0), FillRule::EvenOdd),
             PointLocation::Exterior
         );
-        // Test point horizontally aligned with bottom edge/vertices
         assert_eq!(
-            rect.contains_point(point(-2.0, 0.0)),
+            r.contains_point(Point::new(-2.0, 0.0), FillRule::EvenOdd),
             PointLocation::Exterior
         );
-        // Test boundary points on different edges
         assert_eq!(
-            rect.contains_point(point(0.0, 5.0)),
+            r.contains_point(Point::new(0.0, 5.0), FillRule::EvenOdd),
             PointLocation::Boundary
         );
         assert_eq!(
-            rect.contains_point(point(10.0, 5.0)),
+            r.contains_point(Point::new(10.0, 5.0), FillRule::EvenOdd),
             PointLocation::Boundary
         );
         assert_eq!(
-            rect.contains_point(point(5.0, 0.0)),
+            r.contains_point(Point::new(5.0, 0.0), FillRule::EvenOdd),
             PointLocation::Boundary
         );
         assert_eq!(
-            rect.contains_point(point(5.0, 10.0)),
+            r.contains_point(Point::new(5.0, 10.0), FillRule::EvenOdd),
             PointLocation::Boundary
         );
 
-        // Heart-like / arched shape using quadratic bezier
         let arch = Stroke::new(
-            point(0.0, 0.0),
+            Point::new(0.0, 0.0),
             vec![
                 DrawCommand::QuadraticBezier(QuadraticBezierSegment {
-                    from: point(0.0, 0.0),
-                    ctrl: point(5.0, 10.0),
-                    to: point(10.0, 0.0),
+                    from: Point::new(0.0, 0.0),
+                    ctrl: Point::new(5.0, 10.0),
+                    to: Point::new(10.0, 0.0),
                 }),
                 DrawCommand::LineTo(LineSegment {
-                    from: point(10.0, 0.0),
-                    to: point(0.0, 0.0),
+                    from: Point::new(10.0, 0.0),
+                    to: Point::new(0.0, 0.0),
                 }),
             ],
             None,
         );
 
         assert_eq!(
-            arch.contains_point(point(5.0, 2.0)),
+            arch.contains_point(Point::new(5.0, 2.0), FillRule::EvenOdd),
             PointLocation::Interior
         );
         assert_eq!(
-            arch.contains_point(point(5.0, 8.0)),
+            arch.contains_point(Point::new(5.0, 8.0), FillRule::EvenOdd),
             PointLocation::Exterior
         );
         assert_eq!(
-            arch.contains_point(point(-1.0, 2.0)),
+            arch.contains_point(Point::new(-1.0, 2.0), FillRule::EvenOdd),
             PointLocation::Exterior
         );
         assert_eq!(
-            arch.contains_point(point(5.0, 0.0)),
+            arch.contains_point(Point::new(5.0, 0.0), FillRule::EvenOdd),
             PointLocation::Boundary
         );
+    }
+
+    #[test]
+    fn test_contains_point_with_rule() {
+        // An hourglass / bow-tie stroke: (0,0) -> (10,10) -> (0,10) -> (10,0) -> (0,0)
+        let hourglass = poly_stroke(&[(0.0, 0.0), (10.0, 10.0), (0.0, 10.0), (10.0, 0.0)]);
+
+        let pt_top = Point::new(5.0, 8.0);
+        let hit_top = hourglass.point_relationship(pt_top);
+        assert!(!hit_top.on_boundary);
+        assert_eq!(
+            hourglass.contains_point(pt_top, FillRule::EvenOdd),
+            PointLocation::Interior
+        );
+        assert_eq!(
+            hourglass.contains_point(pt_top, FillRule::NonZero),
+            PointLocation::Interior
+        );
+
+        let pt_out = Point::new(15.0, 5.0);
+        assert_eq!(
+            hourglass.contains_point(pt_out, FillRule::EvenOdd),
+            PointLocation::Exterior
+        );
+        assert_eq!(
+            hourglass.contains_point(pt_out, FillRule::NonZero),
+            PointLocation::Exterior
+        );
+    }
+
+    #[test]
+    fn test_fast_path_donut_evenodd() {
+        let outer = square(0.0, 10.0);
+        let inner = square(2.0, 8.0);
+
+        let strokes = [outer, inner];
+        let input = InputStrokes::new(&strokes, FillRule::EvenOdd).unwrap();
+        assert!(!input.has_intersections());
+
+        let shapes = input.try_fast_path().expect("fast path should succeed");
+        assert_eq!(shapes.len(), 1);
+        let first = shapes.first().unwrap();
+        assert_eq!(first.holes.len(), 1);
+        assert!(first.outer.signed_area() > 0.0);
+        assert!(first.holes.first().unwrap().signed_area() < 0.0);
+    }
+
+    #[test]
+    fn test_fast_path_disjoint_strokes() {
+        let s0 = square(0.0, 10.0);
+        let s1 = square(20.0, 30.0);
+
+        let strokes = [s0, s1];
+        let input = InputStrokes::new(&strokes, FillRule::NonZero).unwrap();
+        assert!(!input.has_intersections());
+
+        let shapes = input.try_fast_path().expect("fast path should succeed");
+        assert_eq!(shapes.len(), 2);
+        assert_eq!(shapes.first().unwrap().holes.len(), 0);
+        assert_eq!(shapes.get(1).unwrap().holes.len(), 0);
+    }
+
+    #[test]
+    fn test_inner_island_does_not_steal_enclosing_hole() {
+        let outer = square(0.0, 100.0);
+        let mut hole = square(10.0, 90.0);
+        hole.reverse();
+        let island = square(40.0, 60.0);
+
+        // Verify BoundaryLoops::into_shapes assigns the hole to the large outer, not the small island
+        let shapes = BoundaryLoops::new(vec![outer, hole, island]).into_shapes();
+
+        assert_eq!(shapes.len(), 2);
+        // Preserves loop extraction order: first is large outer (0..100), second is island (40..60)
+        assert_eq!(shapes.first().map(|s| s.holes.len()), Some(1));
+        assert_eq!(shapes.get(1).map(|s| s.holes.len()), Some(0));
+    }
+
+    #[test]
+    fn test_fast_path_dfs_preorder_traversal() {
+        // Outer A (0..100), Hole A (10..90), Island A (40..60)
+        let outer_a = square(0.0, 100.0);
+        let hole_a = square(10.0, 90.0);
+        let island_a = square(40.0, 60.0);
+        // Separate Outer B (200..300)
+        let outer_b = square(200.0, 300.0);
+
+        // Intentionally provide strokes in interleaved order: Outer A, Outer B, Hole A, Island A
+        let strokes = [outer_a, outer_b, hole_a, island_a];
+        let input = InputStrokes::new(&strokes, FillRule::EvenOdd).unwrap();
+        let shapes = input.try_fast_path().expect("fast path succeeds");
+
+        assert_eq!(shapes.len(), 3);
+        // Top-down Pre-order DFS: Outer A (0..100) -> its child Island A (40..60) -> Outer B (200..300)
+        let first = shapes.first().unwrap();
+        assert_eq!(first.outer.bounding_box().min, Point::new(0.0, 0.0));
+        assert_eq!(first.holes.len(), 1);
+
+        let second = shapes.get(1).unwrap();
+        assert_eq!(second.outer.bounding_box().min, Point::new(40.0, 40.0));
+        assert_eq!(second.holes.len(), 0);
+
+        let third = shapes.get(2).unwrap();
+        assert_eq!(third.outer.bounding_box().min, Point::new(200.0, 200.0));
+        assert_eq!(third.holes.len(), 0);
     }
 }

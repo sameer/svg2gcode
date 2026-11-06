@@ -25,6 +25,7 @@ uom.workspace = true
 roxmltree.workspace = true
 svgtypes.workspace = true
 smallvec.workspace = true
+rstar = "0.14.0"
 
 [dependencies.serde]
 workspace = true

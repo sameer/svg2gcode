@@ -5,7 +5,7 @@ use lyon_geom::{LineSegment, Point, SvgArc};
 use rust_decimal::{Decimal, prelude::*};
 use svg2star::turtle::{
     Turtle,
-    elements::{ArcOrLineSegment, DrawCommand, FillPolygon, FlattenWithArcs, Stroke},
+    elements::{ArcOrLineSegment, DrawCommand, FlattenWithArcs, Shape, Stroke},
 };
 
 use crate::machine::Machine;
@@ -254,7 +254,7 @@ impl Turtle for GCodeTurtle<'_> {
         // TODO (?)
     }
 
-    fn fill_polygon(&mut self, _polygon: FillPolygon) {
+    fn fill(&mut self, _shape: Shape) {
         // TODO
     }
 }

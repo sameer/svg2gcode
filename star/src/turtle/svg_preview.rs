@@ -67,7 +67,7 @@ impl Turtle for SvgPreviewTurtle {
         // TODO
     }
 
-    fn fill_polygon(&mut self, _polygon: super::elements::FillPolygon) {
+    fn fill(&mut self, _shape: super::elements::Shape) {
         // TODO
     }
 
@@ -107,7 +107,7 @@ impl Turtle for SvgPreviewTurtle {
                         svg_arc.to.y,
                     )
                     .unwrap();
-                    self.add_box(svg_arc.to_arc().bounding_box());
+                    self.add_box(DrawCommand::Arc(svg_arc).bounding_box());
                     self.current_pos = svg_arc.to;
                 }
                 DrawCommand::CubicBezier(cbs) => {

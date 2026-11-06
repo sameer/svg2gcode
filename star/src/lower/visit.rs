@@ -743,7 +743,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             {
                 self.visit_pattern(node, pattern_id, segments, fill_rule);
             } else {
-                self.terrarium.apply_polygon(segments, fill_rule);
+                self.terrarium.apply_fill(segments, fill_rule);
             }
         }
     }
@@ -789,24 +789,18 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
         fill_rule: FillRule,
     ) {
         let doc = container.document();
-        let container_polygons = self
-            .terrarium
-            .to_fill_polygons(container_segments, fill_rule);
-        let [first, ..] = container_polygons.as_slice() else {
+        let container_shapes = self.terrarium.to_shapes(container_segments, fill_rule);
+        let [first, rest @ ..] = container_shapes.as_slice() else {
             return;
         };
-        let container_bbox =
-            container_polygons
-                .iter()
-                .skip(1)
-                .fold(first.outer.bounding_box(), |bbox, fp| {
-                    Box2D::from_points([
-                        bbox.min,
-                        bbox.max,
-                        fp.outer.bounding_box().min,
-                        fp.outer.bounding_box().max,
-                    ])
-                });
+        let container_bbox = rest.iter().fold(first.outer.bounding_box(), |bbox, fp| {
+            Box2D::from_points([
+                bbox.min,
+                bbox.max,
+                fp.outer.bounding_box().min,
+                fp.outer.bounding_box().max,
+            ])
+        });
 
         // TODO: does this handle xlink:href on a pattern correctly?
         // seems like we need some kind of recursion here
@@ -865,13 +859,13 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
             )
         };
 
-        self.terrarium.push_clip_layer(container_polygons);
+        self.terrarium.push_clip_layer(container_shapes);
 
         // Apply the pattern by repeated translation. Clipping crops the border patterns to the container.
         for col in min_col..=max_col {
             for row in min_row..=max_row {
                 // TODO: use a fast container checks to verify that some point in the pattern bbox is even
-                // in the container. This is probably wasteful for a polygon with holes.
+                // in the container. This is probably wasteful for a shape with holes.
                 let offset_transform =
                     Transform2D::translation(f64::from(col) * width, f64::from(row) * height);
                 let combined = pattern_origin_transform

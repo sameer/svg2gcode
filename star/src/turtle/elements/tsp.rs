@@ -72,7 +72,7 @@ fn nearest_neighbor_greedy(
 
         let mut stroke = remaining.swap_remove(best_idx);
         if best_is_reversed {
-            stroke.reversed();
+            stroke.reverse();
         }
         pos = stroke.end_point();
         result.push(stroke);
@@ -124,7 +124,7 @@ fn stroke_distances(path: &[Stroke]) -> Vec<f64> {
 fn reverse_and_flip(strokes: &mut [Stroke]) {
     strokes.reverse();
     for s in strokes.iter_mut() {
-        s.reversed();
+        s.reverse();
     }
 }
 
@@ -218,7 +218,7 @@ fn local_improvement_with_tabu_search(
                     stuck_operators.clear();
                     let mut stroke = current.remove(i);
                     if reversed {
-                        stroke.reversed();
+                        stroke.reverse();
                     }
                     let insert_at = if j < i { j + 1 } else { j };
                     current.insert(insert_at, stroke);
