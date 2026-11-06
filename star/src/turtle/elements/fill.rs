@@ -952,8 +952,8 @@ mod tests {
         let first = pts
             .first()
             .copied()
-            .map(|(x, y)| Point::new(x, y))
-            .unwrap_or_default();
+            .map_or_default(|(x, y)| Point::new(x, y));
+
         let commands = pts
             .iter()
             .zip(pts.iter().cycle().skip(1))
