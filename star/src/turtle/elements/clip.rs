@@ -345,6 +345,9 @@ mod tests {
         );
 
         let clipped = cs.clip_strokes(vec![stroke]).collect::<Vec<_>>();
-        assert!(clipped.is_empty(), "Stroke entirely outside clip boundary should be clipped out completely");
+        assert!(
+            clipped.is_empty(),
+            "Stroke entirely outside clip boundary should be clipped out completely"
+        );
     }
 }
