@@ -43,7 +43,6 @@ pub fn minimize_travel_time(strokes: Vec<Stroke>, starting_point: [Option<f64>; 
     let candidate_neighbors = StrokeNeighbors::k_nearest_neighbors(&endpoints, &endpoint_tree);
     drop(endpoint_tree);
 
-    tour.disentangle_crossings();
     tour.local_improvement(&candidate_neighbors, starting_point);
     tour.disentangle_crossings();
 
