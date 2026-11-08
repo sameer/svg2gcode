@@ -178,8 +178,9 @@ impl Distribution<Operator> for StandardUniform {
 }
 
 struct RelocateMove {
-    from_index: usize,
-    to_index: usize,
+    block_start: usize,
+    block_len: usize,
+    target_index: usize,
     reversed: bool,
     improvement: f64,
 }
@@ -322,6 +323,7 @@ impl<'a> Tour<'a> {
         self.inner.get(tour_index)
     }
 
+    #[cfg(test)]
     fn stroke_index(&self, tour_index: usize) -> Option<usize> {
         self.inner.get(tour_index).map(|n| n.stroke_index)
     }
@@ -365,32 +367,35 @@ impl<'a> Tour<'a> {
     fn apply_relocate(
         &mut self,
         RelocateMove {
-            from_index,
-            to_index,
+            block_start,
+            block_len,
+            target_index,
             reversed,
             improvement: _,
         }: RelocateMove,
-    ) -> usize {
-        let insert_at = if to_index < from_index {
-            to_index + 1
+    ) {
+        let block_end = block_start + block_len - 1;
+
+        let (min, max, new_block_start, new_block_end) = if target_index > block_end {
+            if let Some(slice) = self.inner.get_mut(block_start..=target_index) {
+                slice.rotate_left(block_len);
+            }
+            let new_start = target_index - block_len + 1;
+            (block_start, target_index, new_start, target_index)
         } else {
-            to_index
+            if let Some(slice) = self.inner.get_mut((target_index + 1)..=block_end) {
+                slice.rotate_right(block_len);
+            }
+            let new_start = target_index + 1;
+            let new_end = target_index + block_len;
+            (target_index + 1, block_end, new_start, new_end)
         };
 
-        let (min, max) = if from_index < insert_at {
-            if let Some(slice) = self.inner.get_mut(from_index..=insert_at) {
-                slice.rotate_left(1);
+        if reversed && let Some(slice) = self.inner.get_mut(new_block_start..=new_block_end) {
+            slice.reverse();
+            for node in slice.iter_mut() {
+                node.reversed = !node.reversed;
             }
-            (from_index, insert_at)
-        } else {
-            if let Some(slice) = self.inner.get_mut(insert_at..=from_index) {
-                slice.rotate_right(1);
-            }
-            (insert_at, from_index)
-        };
-
-        if reversed && let Some(node) = self.inner.get_mut(insert_at) {
-            node.reversed = !node.reversed;
         }
 
         // Update indices and distance after rotation
@@ -407,8 +412,6 @@ impl<'a> Tour<'a> {
         for k in dist_start..=dist_end {
             self.recalculate_distance_at(k);
         }
-
-        insert_at
     }
 
     fn reverse_range(&mut self, range: RangeInclusive<usize>) {
@@ -525,54 +528,92 @@ impl<'a> Tour<'a> {
     }
 
     fn find_best_relocate(&self, node_neighbors: &[StrokeNeighbors]) -> Option<RelocateMove> {
-        let max_index = self.len().saturating_sub(1);
+        let tour_len = self.len();
+        if tour_len < 4 {
+            return None;
+        }
 
-        (1..max_index)
-            .filter_map(|from_index| {
-                let stroke_index = self.stroke_index(from_index)?;
-                let prev_dist = self.distance_at(from_index - 1)?;
-                let curr_dist = self.distance_at(from_index)?;
-                let prev_end = self.end_point_of(from_index - 1)?;
-                let next_start = self.start_point_of(from_index + 1)?;
+        let max_block_len = 3.min(tour_len.saturating_sub(3));
+        if max_block_len == 0 {
+            return None;
+        }
 
-                let unlink_saving = (prev_dist + curr_dist) - dist(prev_end, next_start);
-                let neighbors = node_neighbors.get(stroke_index)?;
-                Some((from_index, unlink_saving, neighbors))
-            })
-            .flat_map(|(from_index, unlink_saving, neighbors)| {
-                neighbors
-                    .start_neighbors
-                    .iter()
-                    .chain(&neighbors.end_neighbors)
-                    .filter_map(|&neighbor| self.stroke_index_to_tour_index(neighbor))
-                    .filter(move |&target_index| {
-                        target_index != from_index && target_index + 1 != from_index
-                    })
-                    .map(move |target_index| (from_index, target_index, unlink_saving))
-            })
-            .filter_map(|(from_index, target_index, unlink_saving)| {
-                let base_saving = self.distance_at(target_index)? + unlink_saving;
-                let target_end = self.end_point_of(target_index)?;
-                let target_next_start = self.start_point_of(target_index + 1)?;
-                let from_start = self.start_point_of(from_index)?;
-                let from_end = self.end_point_of(from_index)?;
+        (1..=max_block_len)
+            .flat_map(|block_len| {
+                let max_start = tour_len.saturating_sub(block_len);
+                (1..max_start).filter_map(move |block_start| {
+                    let block_end = block_start + block_len - 1;
 
-                let cost_normal = dist(target_end, from_start) + dist(from_end, target_next_start);
-                let cost_reversed =
-                    dist(target_end, from_end) + dist(from_start, target_next_start);
+                    let prev_dist = self.distance_at(block_start - 1)?;
+                    let curr_dist = self.distance_at(block_end)?;
+                    let prev_end = self.end_point_of(block_start - 1)?;
+                    let next_start = self.start_point_of(block_end + 1)?;
 
-                let (cost, reversed) = if cost_normal <= cost_reversed {
-                    (cost_normal, false)
-                } else {
-                    (cost_reversed, true)
-                };
+                    let unlink_saving = (prev_dist + curr_dist) - dist(prev_end, next_start);
 
-                let improvement = base_saving - cost;
-                (improvement > 0.).then_some(RelocateMove {
-                    from_index,
-                    to_index: target_index,
-                    reversed,
-                    improvement,
+                    let first_start = self.start_point_of(block_start)?;
+                    let last_end = self.end_point_of(block_end)?;
+
+                    let start_node = self.node(block_start)?;
+                    let end_node = self.node(block_end)?;
+                    let start_neighbors = node_neighbors.get(start_node.stroke_index)?;
+                    let end_neighbors = node_neighbors.get(end_node.stroke_index)?;
+
+                    // Select neighbors matching the block's true external entry and exit endpoints:
+                    let entry_candidates = if start_node.reversed {
+                        &start_neighbors.end_neighbors
+                    } else {
+                        &start_neighbors.start_neighbors
+                    };
+
+                    let exit_candidates = if end_node.reversed {
+                        &end_neighbors.start_neighbors
+                    } else {
+                        &end_neighbors.end_neighbors
+                    };
+
+                    // Entry candidates attach before the block (insert after neighbor):
+                    let entry_targets = entry_candidates
+                        .iter()
+                        .filter_map(|&stroke| self.stroke_index_to_tour_index(stroke));
+
+                    // Exit candidates attach after the block (insert before neighbor):
+                    let exit_targets = exit_candidates.iter().filter_map(|&stroke| {
+                        self.stroke_index_to_tour_index(stroke)?.checked_sub(1)
+                    });
+
+                    entry_targets
+                        .chain(exit_targets)
+                        .filter(|&target_index| {
+                            target_index + 1 < tour_len
+                                && (target_index + 1 < block_start || target_index > block_end)
+                        })
+                        .filter_map(|target_index| {
+                            let base_saving = self.distance_at(target_index)? + unlink_saving;
+                            let target_end = self.end_point_of(target_index)?;
+                            let target_next_start = self.start_point_of(target_index + 1)?;
+
+                            let cost_normal =
+                                dist(target_end, first_start) + dist(last_end, target_next_start);
+                            let cost_reversed =
+                                dist(target_end, last_end) + dist(first_start, target_next_start);
+
+                            let (cost, reversed) = if cost_normal <= cost_reversed {
+                                (cost_normal, false)
+                            } else {
+                                (cost_reversed, true)
+                            };
+
+                            let improvement = base_saving - cost;
+                            (improvement > 0.).then_some(RelocateMove {
+                                block_start,
+                                block_len,
+                                target_index,
+                                reversed,
+                                improvement,
+                            })
+                        })
+                        .max_by(|a, b| a.improvement.total_cmp(&b.improvement))
                 })
             })
             .max_by(|a, b| a.improvement.total_cmp(&b.improvement))
@@ -976,5 +1017,72 @@ mod tests {
         assert_eq!(tour.stroke_index(2), Some(1));
         assert_eq!(tour.node(2).map(|n| n.reversed), Some(true));
         assert_eq!(tour.stroke_index(3), Some(3));
+    }
+
+    #[test]
+    fn test_block_relocate_moves_multi_stroke_block() {
+        let s0 = make_line_stroke(-1.0, 0.0, 0.0, 0.0);
+        let s1 = make_line_stroke(0.0, 0.5, 0.0, 1.5);
+        let s2 = make_line_stroke(0.0, 2.0, -1.0, 2.0);
+        let s3 = make_line_stroke(100.0, 0.0, 101.0, 0.0);
+        let s4 = make_line_stroke(101.0, 0.5, 100.0, 0.5);
+        let s5 = make_line_stroke(100.0, 2.0, 101.0, 2.0);
+
+        let strokes = vec![s0, s1, s2, s3, s4, s5];
+        let endpoints: Vec<(Point<f64>, Point<f64>)> = strokes
+            .iter()
+            .map(|s| (s.start_point(), s.end_point()))
+            .collect();
+
+        let endpoint_tree = StrokeEndpointData::new_tree(&endpoints);
+        let candidate_neighbors = StrokeNeighbors::k_nearest_neighbors(&endpoints, &endpoint_tree);
+        drop(endpoint_tree);
+
+        // Tour: S0 -> S3 -> S4 -> S1 -> S2 -> S5
+        let nodes = vec![
+            Node {
+                stroke_index: 0,
+                reversed: false,
+            },
+            Node {
+                stroke_index: 3,
+                reversed: false,
+            },
+            Node {
+                stroke_index: 4,
+                reversed: false,
+            },
+            Node {
+                stroke_index: 1,
+                reversed: false,
+            },
+            Node {
+                stroke_index: 2,
+                reversed: false,
+            },
+            Node {
+                stroke_index: 5,
+                reversed: false,
+            },
+        ];
+
+        let mut tour = Tour::new_for_test(nodes, &endpoints);
+        let initial_dist = tour.total_distance(point(-1.0, 0.0));
+        assert!(
+            initial_dist > 200.0,
+            "Initial tour traverses between clusters twice: {initial_dist}"
+        );
+
+        let mov = tour
+            .find_best_relocate(&candidate_neighbors)
+            .expect("Expected relocate move");
+        assert_eq!(mov.block_len, 2, "Expected 2-stroke block relocate");
+        tour.apply_relocate(mov);
+
+        let optimized_dist = tour.total_distance(point(-1.0, 0.0));
+        assert!(
+            optimized_dist < 150.0,
+            "Expected distance < 150 after block relocate, got {optimized_dist}"
+        );
     }
 }
