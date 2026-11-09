@@ -62,64 +62,85 @@ impl<'input> GCodeTurtle<'input> {
         .as_f64()
     }
 
-    fn line_to(&self, to: Point<f64>) -> Vec<Token<'input>> {
+    fn line_to(&self, to: Point<f64>) -> impl DoubleEndedIterator<Item = Token<'input>> + 'input {
         command!(LinearInterpolation {
             X: self.round(to.x),
             Y: self.round(to.y),
             F: self.feedrate,
         })
-        .into_token_vec()
+        .into_token_iter()
     }
 
-    fn circular_interpolation(&self, svg_arc: SvgArc<f64>) -> Vec<Token<'input>> {
-        debug_assert!((svg_arc.radii.x.abs() - svg_arc.radii.y.abs()).abs() < f64::EPSILON);
+    fn push_circular_interpolation(&mut self, svg_arc: SvgArc<f64>) {
+        if svg_arc.is_straight_line() {
+            self.program.extend(self.line_to(svg_arc.to));
+            return;
+        }
+
         match (svg_arc.flags.large_arc, svg_arc.flags.sweep) {
-            (false, true) => command!(CounterclockwiseCircularInterpolation {
-                X: self.round(svg_arc.to.x),
-                Y: self.round(svg_arc.to.y),
-                R: self.round(svg_arc.radii.x),
-                F: self.feedrate,
-            })
-            .into_token_vec(),
-            (false, false) => command!(ClockwiseCircularInterpolation {
-                X: self.round(svg_arc.to.x),
-                Y: self.round(svg_arc.to.y),
-                R: self.round(svg_arc.radii.x),
-                F: self.feedrate,
-            })
-            .into_token_vec(),
+            (false, true) => {
+                self.program.extend(
+                    command!(CounterclockwiseCircularInterpolation {
+                        X: self.round(svg_arc.to.x),
+                        Y: self.round(svg_arc.to.y),
+                        R: self.round(svg_arc.radii.x),
+                        F: self.feedrate,
+                    })
+                    .into_token_iter(),
+                );
+            }
+            (false, false) => {
+                self.program.extend(
+                    command!(ClockwiseCircularInterpolation {
+                        X: self.round(svg_arc.to.x),
+                        Y: self.round(svg_arc.to.y),
+                        R: self.round(svg_arc.radii.x),
+                        F: self.feedrate,
+                    })
+                    .into_token_iter(),
+                );
+            }
             (true, _) => {
                 let (left, right) = svg_arc.to_arc().split(0.5);
-                let mut token_vec = self.circular_interpolation(left.to_svg_arc());
-                token_vec.append(&mut self.circular_interpolation(right.to_svg_arc()));
-                token_vec
+                self.push_circular_interpolation(left.to_svg_arc());
+                self.push_circular_interpolation(right.to_svg_arc());
             }
         }
     }
 
     fn tool_on(&mut self) {
         self.program.extend(self.machine.tool_on());
-        self.program.extend(self.machine.absolute());
+        if let Some(seq) = self.machine.absolute() {
+            self.program.extend(seq);
+        }
     }
 
     fn tool_off(&mut self) {
         self.program.extend(self.machine.tool_off());
-        self.program.extend(self.machine.absolute());
+        if let Some(seq) = self.machine.absolute() {
+            self.program.extend(seq);
+        }
     }
 }
 
 impl Turtle for GCodeTurtle<'_> {
     fn begin(&mut self) {
         self.program
-            .append(&mut command!(UnitsMillimeters {}).into_token_vec());
-        self.program.extend(self.machine.absolute());
+            .extend(command!(UnitsMillimeters {}).into_token_iter());
+        if let Some(seq) = self.machine.absolute() {
+            self.program.extend(seq);
+        }
         self.program.extend(self.machine.program_begin());
-        self.program.extend(self.machine.absolute());
+        if let Some(seq) = self.machine.absolute() {
+            self.program.extend(seq);
+        }
     }
 
     fn end(&mut self) {
         self.program.extend(self.machine.tool_off());
-        self.program.extend(self.machine.absolute());
+        if let Some(seq) = self.machine.absolute() {
+            self.program.extend(seq);
+        }
         self.program.extend(self.machine.program_end());
     }
 
@@ -136,25 +157,25 @@ impl Turtle for GCodeTurtle<'_> {
             });
         }
 
-        self.program.append(
-            &mut command!(RapidPositioning {
+        self.program.extend(
+            command!(RapidPositioning {
                 X: self.round(start.x),
                 Y: self.round(start.y),
             })
-            .into_token_vec(),
+            .into_token_iter(),
         );
         self.tool_on();
 
         for command in stroke.into_commands() {
             match command {
                 DrawCommand::LineTo(LineSegment { from: _, to }) => {
-                    self.program.append(
-                        &mut command!(LinearInterpolation {
+                    self.program.extend(
+                        command!(LinearInterpolation {
                             X: self.round(to.x),
                             Y: self.round(to.y),
                             F: self.feedrate,
                         })
-                        .into_token_vec(),
+                        .into_token_iter(),
                     );
                 }
                 DrawCommand::Arc(svg_arc) => {
@@ -168,16 +189,16 @@ impl Turtle for GCodeTurtle<'_> {
                         {
                             match segment {
                                 ArcOrLineSegment::Arc(arc) => {
-                                    self.program.append(&mut self.circular_interpolation(arc));
+                                    self.push_circular_interpolation(arc);
                                 }
                                 ArcOrLineSegment::Line(line) => {
-                                    self.line_to(line.to);
+                                    self.program.extend(self.line_to(line.to));
                                 }
                             }
                         }
                     } else {
                         for point in svg_arc.to_arc().flattened(self.flattening_tolerance()) {
-                            self.program.append(&mut self.line_to(point));
+                            self.program.extend(self.line_to(point));
                         }
                     }
                 }
@@ -192,16 +213,16 @@ impl Turtle for GCodeTurtle<'_> {
                         {
                             match segment {
                                 ArcOrLineSegment::Arc(arc) => {
-                                    self.program.append(&mut self.circular_interpolation(arc));
+                                    self.push_circular_interpolation(arc);
                                 }
                                 ArcOrLineSegment::Line(line) => {
-                                    self.program.append(&mut self.line_to(line.to));
+                                    self.program.extend(self.line_to(line.to));
                                 }
                             }
                         }
                     } else {
                         for point in cbs.flattened(self.flattening_tolerance()) {
-                            self.program.append(&mut self.line_to(point));
+                            self.program.extend(self.line_to(point));
                         }
                     }
                 }
@@ -217,16 +238,16 @@ impl Turtle for GCodeTurtle<'_> {
                         ) {
                             match segment {
                                 ArcOrLineSegment::Arc(arc) => {
-                                    self.program.append(&mut self.circular_interpolation(arc));
+                                    self.push_circular_interpolation(arc);
                                 }
                                 ArcOrLineSegment::Line(line) => {
-                                    self.program.append(&mut self.line_to(line.to));
+                                    self.program.extend(self.line_to(line.to));
                                 }
                             }
                         }
                     } else {
                         for point in qbs.flattened(self.flattening_tolerance()) {
-                            self.program.append(&mut self.line_to(point));
+                            self.program.extend(self.line_to(point));
                         }
                     }
                 }
