@@ -11,7 +11,7 @@ license.workspace = true
 workspace = true
 
 [features]
-default = ["image"]
+default = []
 serde = ["dep:serde", "g-code/serde", "svg2star/serde"]
 image = ["svg2star/image"]
 

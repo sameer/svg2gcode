@@ -2,6 +2,7 @@ use std::iter;
 
 use lyon_geom::Point;
 use rstar::{RTree, RTreeObject};
+use smallvec::{SmallVec, smallvec};
 
 use super::{
     FillRule,
@@ -72,7 +73,7 @@ impl ClipStack {
     fn clip_draw_command(active: &ActiveClip, cmd: DrawCommand, cmds: &mut Vec<DrawCommand>) {
         // Find all the intersections of `cmd` with the clip.
         // This creates ranges that may or may not be in a clip shape.
-        let mut ts: Vec<f64> = vec![0.0, 1.0];
+        let mut ts: SmallVec<[f64; 2]> = smallvec![0.0, 1.0];
         for clip_cmd in active
             .boundary_tree
             .locate_in_envelope_intersecting(cmd.envelope())
@@ -104,7 +105,7 @@ impl ClipStack {
 /// splitting into a new `Stroke` whenever consecutive commands are not contiguous.
 fn group_commands_into_strokes(cmds: Vec<DrawCommand>) -> Vec<Stroke> {
     let mut strokes = Vec::new();
-    let mut current_cmds = Vec::new();
+    let mut current_cmds = Vec::with_capacity(cmds.len());
     let mut current_start = None;
     let mut prev_end: Option<Point<f64>> = None;
 

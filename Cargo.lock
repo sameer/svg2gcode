@@ -445,9 +445,9 @@ dependencies = [
 
 [[package]]
 name = "g-code"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48435a9d11dd8471a8676fe5c4fafd12104702fbcd023f74ae02c6362629e66a"
+checksum = "0fad31d7c6b1b96864f06ddf8d45606525216155885cc6ddbfd72035da37d70b"
 dependencies = [
  "codespan",
  "codespan-reporting",

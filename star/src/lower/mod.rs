@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::{borrow::Cow, collections::HashMap, fmt::Debug};
 
 use lyon_geom::euclid::default::Transform2D;
 use roxmltree::{Document, Node};
@@ -95,7 +95,7 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
     terrarium: Terrarium<T>,
     /// Whether to flip the Y axis to convert from SVG (Y-down) to the output coordinate system (Y-up?).
     coordinate_system: CoordinateSystem,
-    name_stack: Vec<String>,
+    name_stack: Vec<Cow<'input, str>>,
     /// Used to convert percentage values
     viewport_dim_stack: Vec<[f64; 2]>,
     config: &'a ConversionConfig,
@@ -110,20 +110,7 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
 
 impl<T: Turtle> ConversionVisitor<'_, '_, T> {
     fn comment(&mut self) {
-        let mut comment = String::new();
-        self.name_stack
-            .iter()
-            // Predecessors only
-            .take(self.name_stack.len().saturating_sub(1))
-            .for_each(|name| {
-                comment += name;
-                comment += " > ";
-            });
-        if let Some(name) = self.name_stack.last() {
-            comment += name;
-        }
-
-        self.terrarium.comment(comment);
+        self.terrarium.comment(self.name_stack.join(" > "));
     }
 
     fn should_draw_node(&self, node: Node) -> bool {
@@ -284,22 +271,20 @@ fn svg_to_optimized_strokes(
     minimize_travel_time(strokes, starting_point)
 }
 
-fn node_name(node: &Node, attr_to_print: Option<&str>) -> String {
-    let mut name = node.tag_name().name().to_string();
-    if let Some(id) = node.attribute("id") {
-        name += "#";
-        name += id;
-        if let Some(extra_attr_to_print) = attr_to_print {
-            for a_attr in node.attributes() {
-                if a_attr.name() == extra_attr_to_print {
-                    name += " ( ";
-                    name += a_attr.value();
-                    name += " ) ";
-                }
-            }
-        }
-    }
-    name
+fn node_name<'input>(node: &Node<'_, 'input>, attr_to_print: Option<&str>) -> Cow<'input, str> {
+    let tag = node.tag_name().name();
+
+    node.attribute("id")
+        .map(|id| {
+            Cow::Owned(
+                if let Some(attr_val) = attr_to_print.and_then(|a| node.attribute(a)) {
+                    [tag, "#", id, " ( ", attr_val, " ) "].concat()
+                } else {
+                    [tag, "#", id].concat()
+                },
+            )
+        })
+        .unwrap_or(Cow::Borrowed(tag))
 }
 
 #[cfg(all(test, feature = "serde"))]

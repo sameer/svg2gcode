@@ -10,6 +10,7 @@ use rstar::{
     primitives::{GeomWithData, ObjectRef},
 };
 use rustc_hash::FxHashMap;
+use smallvec::{SmallVec, smallvec};
 
 use super::intersect::{Intersections, PARAM_EPSILON};
 use crate::turtle::elements::{DrawCommand, FillRule, PointLocation, Shape, Stroke};
@@ -483,6 +484,7 @@ impl<'a> InputStrokes<'a> {
                     .map(|entry| entry.data.0)
             })
             .collect();
+        drop(stroke_tree);
 
         #[derive(Copy, Clone, PartialEq, Eq)]
         enum Role {
@@ -529,6 +531,7 @@ impl<'a> InputStrokes<'a> {
                 })
                 .collect(),
         };
+        drop(stroke_areas);
 
         // Build the top-down tree
         let mut children: Vec<Vec<usize>> = vec![Vec::new(); self.strokes.len()];
@@ -559,6 +562,7 @@ impl<'a> InputStrokes<'a> {
                 }
             }
         }
+        drop(parents);
 
         ordered_outers
             .into_iter()
@@ -608,7 +612,7 @@ impl<'a> InputStrokes<'a> {
             .flat_map(|s| s.commands().iter().copied())
             .collect();
 
-        let mut splits_by_t: Vec<Vec<f64>> = vec![vec![0.0, 1.0]; commands.len()];
+        let mut splits_by_t: Vec<SmallVec<[f64; 2]>> = vec![smallvec![0.0, 1.0]; commands.len()];
 
         let tree = RTree::bulk_load(
             commands
@@ -639,6 +643,7 @@ impl<'a> InputStrokes<'a> {
                 }
             }
         }
+        drop(tree);
 
         let mut segments = Vec::new();
         for (cmd, mut ts) in commands.into_iter().zip(splits_by_t) {
@@ -908,6 +913,7 @@ impl BoundaryLoops {
                 holes.push(hole);
             }
         }
+        drop(outer_tree);
 
         self.outers
             .into_iter()

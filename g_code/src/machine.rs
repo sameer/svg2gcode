@@ -91,22 +91,22 @@ impl<'input> Machine<'input> {
     }
 
     /// Output absolute distance field if mode was relative or unknown.
-    pub fn absolute(&mut self) -> Vec<Token<'input>> {
+    pub fn absolute(&mut self) -> Option<impl DoubleEndedIterator<Item = Token<'input>>> {
         if self.distance_mode == Some(Distance::Relative) || self.distance_mode.is_none() {
             self.distance_mode = Some(Distance::Absolute);
-            command!(AbsoluteDistanceMode {}).into_token_vec()
+            Some(command!(AbsoluteDistanceMode {}).into_token_iter())
         } else {
-            vec![]
+            None
         }
     }
 
     /// Output relative distance field if mode was absolute or unknown.
-    pub fn relative(&mut self) -> Vec<Token<'input>> {
+    pub fn relative(&mut self) -> Option<impl DoubleEndedIterator<Item = Token<'input>>> {
         if self.distance_mode == Some(Distance::Absolute) || self.distance_mode.is_none() {
             self.distance_mode = Some(Distance::Relative);
-            command!(RelativeDistanceMode {}).into_token_vec()
+            Some(command!(RelativeDistanceMode {}).into_token_iter())
         } else {
-            vec![]
+            None
         }
     }
 }

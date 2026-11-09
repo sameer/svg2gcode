@@ -28,7 +28,7 @@ items_after_statements = "allow"
 
 [workspace.dependencies]
 codespan-reporting = "0.13"
-g-code = "0.6.0"
+g-code = "0.7.0"
 log = "0"
 lyon_geom = "=1.0.19"
 paste = "1"

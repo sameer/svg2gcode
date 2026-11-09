@@ -14,29 +14,18 @@ use crate::machine::Machine;
 #[derive(Debug)]
 pub struct GCodeTurtle<'input> {
     pub machine: Machine<'input>,
-    pub tolerance: f64,
-    pub feedrate: f64,
+    pub tolerance: Decimal,
+    pub feedrate: Decimal,
     pub program: Vec<Token<'input>>,
 }
 
 impl<'input> GCodeTurtle<'input> {
-    /// Converts [`Self::tolerance`] to a [`Decimal`].
-    fn tolerance_to_decimal(&self) -> Decimal {
-        Decimal::from_f64(self.tolerance)
-            .unwrap_or_default()
-            .normalize()
-    }
-
     /// Rounds `val` to the number of decimal places in [`Self::tolerance`].
     ///
     /// i.e. 3 decimal places for 0.002
-    fn round(&self, val: f64) -> f64 {
-        let places = self.tolerance_to_decimal().scale();
-        Decimal::from_f64(val)
-            .unwrap_or_default()
-            .round_dp(places)
-            .to_f64()
-            .unwrap_or(val)
+    fn round(&self, val: f64) -> Decimal {
+        let places = self.tolerance.scale();
+        Decimal::from_f64(val).unwrap_or_default().round_dp(places)
     }
 
     /// Tolerance passed to [`lyon_geom`] calls for line segments.
@@ -46,15 +35,13 @@ impl<'input> GCodeTurtle<'input> {
     ///
     /// i.e. e.g. 0.002 & 3 dp returns 0.0015 so we have +/- 0.0005
     fn flattening_tolerance(&self) -> f64 {
-        let tolerance = self.tolerance_to_decimal();
-        let rounding_epsilon = Decimal::new(5, tolerance.scale() + 1);
-        if rounding_epsilon < tolerance {
-            (tolerance - rounding_epsilon)
-                .to_f64()
-                .unwrap_or(self.tolerance)
+        let rounding_epsilon = Decimal::new(5, self.tolerance.scale() + 1);
+        if rounding_epsilon < self.tolerance {
+            self.tolerance - rounding_epsilon
         } else {
             self.tolerance
         }
+        .as_f64()
     }
 
     /// Tolerance passed to [`lyon_geom`] calls when circular interpolation is used.
@@ -65,76 +52,95 @@ impl<'input> GCodeTurtle<'input> {
     /// - radius: `rounding_epsilon`
     /// - total: `rounding_epsilon * (sqrt(2) + 1)`
     fn arc_flattening_tolerance(&self) -> f64 {
-        let tolerance = self.tolerance_to_decimal();
-        let rounding_epsilon = Decimal::new(5, tolerance.scale() + 1)
+        let rounding_epsilon = Decimal::new(5, self.tolerance.scale() + 1)
             * Decimal::from_f64(std::f64::consts::SQRT_2 + 1.).unwrap();
-        if rounding_epsilon < tolerance {
-            (tolerance - rounding_epsilon)
-                .to_f64()
-                .unwrap_or(self.tolerance)
+        if rounding_epsilon < self.tolerance {
+            self.tolerance - rounding_epsilon
         } else {
             self.tolerance
         }
+        .as_f64()
     }
 
-    fn line_to(&self, to: Point<f64>) -> Vec<Token<'input>> {
+    fn line_to(&self, to: Point<f64>) -> impl DoubleEndedIterator<Item = Token<'input>> + 'input {
         command!(LinearInterpolation {
             X: self.round(to.x),
             Y: self.round(to.y),
             F: self.feedrate,
         })
-        .into_token_vec()
+        .into_token_iter()
     }
 
-    fn circular_interpolation(&self, svg_arc: SvgArc<f64>) -> Vec<Token<'input>> {
-        debug_assert!((svg_arc.radii.x.abs() - svg_arc.radii.y.abs()).abs() < f64::EPSILON);
+    fn push_circular_interpolation(&mut self, svg_arc: SvgArc<f64>) {
+        if svg_arc.is_straight_line() {
+            self.program.extend(self.line_to(svg_arc.to));
+            return;
+        }
+
         match (svg_arc.flags.large_arc, svg_arc.flags.sweep) {
-            (false, true) => command!(CounterclockwiseCircularInterpolation {
-                X: self.round(svg_arc.to.x),
-                Y: self.round(svg_arc.to.y),
-                R: self.round(svg_arc.radii.x),
-                F: self.feedrate,
-            })
-            .into_token_vec(),
-            (false, false) => command!(ClockwiseCircularInterpolation {
-                X: self.round(svg_arc.to.x),
-                Y: self.round(svg_arc.to.y),
-                R: self.round(svg_arc.radii.x),
-                F: self.feedrate,
-            })
-            .into_token_vec(),
+            (false, true) => {
+                self.program.extend(
+                    command!(CounterclockwiseCircularInterpolation {
+                        X: self.round(svg_arc.to.x),
+                        Y: self.round(svg_arc.to.y),
+                        R: self.round(svg_arc.radii.x),
+                        F: self.feedrate,
+                    })
+                    .into_token_iter(),
+                );
+            }
+            (false, false) => {
+                self.program.extend(
+                    command!(ClockwiseCircularInterpolation {
+                        X: self.round(svg_arc.to.x),
+                        Y: self.round(svg_arc.to.y),
+                        R: self.round(svg_arc.radii.x),
+                        F: self.feedrate,
+                    })
+                    .into_token_iter(),
+                );
+            }
             (true, _) => {
                 let (left, right) = svg_arc.to_arc().split(0.5);
-                let mut token_vec = self.circular_interpolation(left.to_svg_arc());
-                token_vec.append(&mut self.circular_interpolation(right.to_svg_arc()));
-                token_vec
+                self.push_circular_interpolation(left.to_svg_arc());
+                self.push_circular_interpolation(right.to_svg_arc());
             }
         }
     }
 
     fn tool_on(&mut self) {
         self.program.extend(self.machine.tool_on());
-        self.program.extend(self.machine.absolute());
+        if let Some(seq) = self.machine.absolute() {
+            self.program.extend(seq);
+        }
     }
 
     fn tool_off(&mut self) {
         self.program.extend(self.machine.tool_off());
-        self.program.extend(self.machine.absolute());
+        if let Some(seq) = self.machine.absolute() {
+            self.program.extend(seq);
+        }
     }
 }
 
 impl Turtle for GCodeTurtle<'_> {
     fn begin(&mut self) {
         self.program
-            .append(&mut command!(UnitsMillimeters {}).into_token_vec());
-        self.program.extend(self.machine.absolute());
+            .extend(command!(UnitsMillimeters {}).into_token_iter());
+        if let Some(seq) = self.machine.absolute() {
+            self.program.extend(seq);
+        }
         self.program.extend(self.machine.program_begin());
-        self.program.extend(self.machine.absolute());
+        if let Some(seq) = self.machine.absolute() {
+            self.program.extend(seq);
+        }
     }
 
     fn end(&mut self) {
         self.program.extend(self.machine.tool_off());
-        self.program.extend(self.machine.absolute());
+        if let Some(seq) = self.machine.absolute() {
+            self.program.extend(seq);
+        }
         self.program.extend(self.machine.program_end());
     }
 
@@ -151,25 +157,25 @@ impl Turtle for GCodeTurtle<'_> {
             });
         }
 
-        self.program.append(
-            &mut command!(RapidPositioning {
+        self.program.extend(
+            command!(RapidPositioning {
                 X: self.round(start.x),
                 Y: self.round(start.y),
             })
-            .into_token_vec(),
+            .into_token_iter(),
         );
         self.tool_on();
 
         for command in stroke.into_commands() {
             match command {
                 DrawCommand::LineTo(LineSegment { from: _, to }) => {
-                    self.program.append(
-                        &mut command!(LinearInterpolation {
+                    self.program.extend(
+                        command!(LinearInterpolation {
                             X: self.round(to.x),
                             Y: self.round(to.y),
                             F: self.feedrate,
                         })
-                        .into_token_vec(),
+                        .into_token_iter(),
                     );
                 }
                 DrawCommand::Arc(svg_arc) => {
@@ -183,16 +189,16 @@ impl Turtle for GCodeTurtle<'_> {
                         {
                             match segment {
                                 ArcOrLineSegment::Arc(arc) => {
-                                    self.program.append(&mut self.circular_interpolation(arc));
+                                    self.push_circular_interpolation(arc);
                                 }
                                 ArcOrLineSegment::Line(line) => {
-                                    self.line_to(line.to);
+                                    self.program.extend(self.line_to(line.to));
                                 }
                             }
                         }
                     } else {
                         for point in svg_arc.to_arc().flattened(self.flattening_tolerance()) {
-                            self.program.append(&mut self.line_to(point));
+                            self.program.extend(self.line_to(point));
                         }
                     }
                 }
@@ -207,16 +213,16 @@ impl Turtle for GCodeTurtle<'_> {
                         {
                             match segment {
                                 ArcOrLineSegment::Arc(arc) => {
-                                    self.program.append(&mut self.circular_interpolation(arc));
+                                    self.push_circular_interpolation(arc);
                                 }
                                 ArcOrLineSegment::Line(line) => {
-                                    self.program.append(&mut self.line_to(line.to));
+                                    self.program.extend(self.line_to(line.to));
                                 }
                             }
                         }
                     } else {
                         for point in cbs.flattened(self.flattening_tolerance()) {
-                            self.program.append(&mut self.line_to(point));
+                            self.program.extend(self.line_to(point));
                         }
                     }
                 }
@@ -232,16 +238,16 @@ impl Turtle for GCodeTurtle<'_> {
                         ) {
                             match segment {
                                 ArcOrLineSegment::Arc(arc) => {
-                                    self.program.append(&mut self.circular_interpolation(arc));
+                                    self.push_circular_interpolation(arc);
                                 }
                                 ArcOrLineSegment::Line(line) => {
-                                    self.program.append(&mut self.line_to(line.to));
+                                    self.program.extend(self.line_to(line.to));
                                 }
                             }
                         }
                     } else {
                         for point in qbs.flattened(self.flattening_tolerance()) {
-                            self.program.append(&mut self.line_to(point));
+                            self.program.extend(self.line_to(point));
                         }
                     }
                 }

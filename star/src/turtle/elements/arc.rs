@@ -2,6 +2,7 @@ use euclid::Angle;
 use lyon_geom::{
     Arc, ArcFlags, CubicBezierSegment, Line, LineSegment, Point, Scalar, SvgArc, Transform, Vector,
 };
+use smallvec::SmallVec;
 
 pub enum ArcOrLineSegment<S> {
     Arc(SvgArc<S>),
@@ -70,7 +71,13 @@ fn arc_from_endpoints_and_tangents<S: Scalar>(
 }
 
 pub trait FlattenWithArcs<S> {
-    fn flattened(&self, tolerance: S) -> Vec<ArcOrLineSegment<S>>;
+    fn flattened(&self, tolerance: S) -> Vec<ArcOrLineSegment<S>> {
+        let mut acc = vec![];
+        self.flatten_into(tolerance, &mut acc);
+        acc
+    }
+
+    fn flatten_into(&self, tolerance: S, acc: &mut Vec<ArcOrLineSegment<S>>);
 }
 
 impl<S> FlattenWithArcs<S> for CubicBezierSegment<S>
@@ -80,15 +87,15 @@ where
     /// Implementation of [Modeling of Bézier Curves Using a Combination of Linear and Circular Arc Approximations](https://sci-hub.st/https://doi.org/10.1109/CGIV.2012.20)
     ///
     /// Kaewsaiha, P., & Dejdumrong, N. (2012). Modeling of Bézier Curves Using a Combination of Linear and Circular Arc Approximations. 2012 Ninth International Conference on Computer Graphics, Imaging and Visualization. doi:10.1109/cgiv.2012.20
-    fn flattened(&self, tolerance: S) -> Vec<ArcOrLineSegment<S>> {
+    fn flatten_into(&self, tolerance: S, acc: &mut Vec<ArcOrLineSegment<S>>) {
         if (self.to - self.from).square_length() < S::EPSILON {
-            return vec![];
+            return;
         } else if self.is_linear(tolerance) {
-            return vec![ArcOrLineSegment::Line(self.baseline())];
+            acc.push(ArcOrLineSegment::Line(self.baseline()));
+            return;
         }
-        let mut acc = vec![];
 
-        let mut splits = Vec::with_capacity(4);
+        let mut splits: SmallVec<[S; 4]> = SmallVec::new();
         splits.push(S::ZERO);
         self.for_each_inflection_t(&mut |t| {
             if t > S::ZERO {
@@ -127,11 +134,10 @@ where
                 acc.push(ArcOrLineSegment::Arc(svg_arc));
             } else {
                 let (left, right) = inner_bezier.split(S::HALF);
-                acc.append(&mut FlattenWithArcs::flattened(&left, tolerance));
-                acc.append(&mut FlattenWithArcs::flattened(&right, tolerance));
+                left.flatten_into(tolerance, acc);
+                right.flatten_into(tolerance, acc);
             }
         }
-        acc
     }
 }
 
@@ -139,16 +145,18 @@ impl<S> FlattenWithArcs<S> for SvgArc<S>
 where
     S: Scalar,
 {
-    fn flattened(&self, tolerance: S) -> Vec<ArcOrLineSegment<S>> {
+    fn flatten_into(&self, tolerance: S, acc: &mut Vec<ArcOrLineSegment<S>>) {
         if (self.to - self.from).square_length() < S::EPSILON {
-            return vec![];
+            return;
         } else if self.is_straight_line() {
-            return vec![ArcOrLineSegment::Line(LineSegment {
+            acc.push(ArcOrLineSegment::Line(LineSegment {
                 from: self.from,
                 to: self.to,
-            })];
+            }));
+            return;
         } else if (self.radii.x.abs() - self.radii.y.abs()).abs() < S::EPSILON {
-            return vec![ArcOrLineSegment::Arc(*self)];
+            acc.push(ArcOrLineSegment::Arc(*self));
+            return;
         }
 
         let self_arc = self.to_arc();
@@ -168,15 +176,11 @@ where
             }
             max_deviation < tolerance
         }) {
-            vec![ArcOrLineSegment::Arc(svg_arc)]
+            acc.push(ArcOrLineSegment::Arc(svg_arc));
         } else {
             let (left, right) = self_arc.split(S::HALF);
-            let mut acc = FlattenWithArcs::flattened(&left.to_svg_arc(), tolerance);
-            acc.append(&mut FlattenWithArcs::flattened(
-                &right.to_svg_arc(),
-                tolerance,
-            ));
-            acc
+            left.to_svg_arc().flatten_into(tolerance, acc);
+            right.to_svg_arc().flatten_into(tolerance, acc);
         }
     }
 }
