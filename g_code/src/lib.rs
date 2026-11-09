@@ -4,6 +4,7 @@
 
 use g_code::emit::Token;
 use roxmltree::Document;
+use rust_decimal::{Decimal, prelude::FromPrimitive};
 use svg2star::{
     lower::{ConversionOptions, svg_to_turtle},
     turtle::CoordinateSystem,
@@ -30,8 +31,12 @@ pub fn svg_to_gcode<'a, 'input: 'a>(
 ) -> Vec<Token<'input>> {
     let gcode_turtle = self::turtle::GCodeTurtle {
         machine,
-        tolerance: config.tolerance,
-        feedrate: config.feedrate,
+        tolerance: Decimal::from_f64(config.tolerance)
+            .unwrap_or_default()
+            .normalize(),
+        feedrate: Decimal::from_f64(config.feedrate)
+            .unwrap_or_default()
+            .normalize(),
         program: vec![],
     };
     svg_to_turtle(

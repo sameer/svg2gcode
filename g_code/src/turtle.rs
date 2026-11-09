@@ -14,29 +14,18 @@ use crate::machine::Machine;
 #[derive(Debug)]
 pub struct GCodeTurtle<'input> {
     pub machine: Machine<'input>,
-    pub tolerance: f64,
-    pub feedrate: f64,
+    pub tolerance: Decimal,
+    pub feedrate: Decimal,
     pub program: Vec<Token<'input>>,
 }
 
 impl<'input> GCodeTurtle<'input> {
-    /// Converts [`Self::tolerance`] to a [`Decimal`].
-    fn tolerance_to_decimal(&self) -> Decimal {
-        Decimal::from_f64(self.tolerance)
-            .unwrap_or_default()
-            .normalize()
-    }
-
     /// Rounds `val` to the number of decimal places in [`Self::tolerance`].
     ///
     /// i.e. 3 decimal places for 0.002
-    fn round(&self, val: f64) -> f64 {
-        let places = self.tolerance_to_decimal().scale();
-        Decimal::from_f64(val)
-            .unwrap_or_default()
-            .round_dp(places)
-            .to_f64()
-            .unwrap_or(val)
+    fn round(&self, val: f64) -> Decimal {
+        let places = self.tolerance.scale();
+        Decimal::from_f64(val).unwrap_or_default().round_dp(places)
     }
 
     /// Tolerance passed to [`lyon_geom`] calls for line segments.
@@ -46,15 +35,13 @@ impl<'input> GCodeTurtle<'input> {
     ///
     /// i.e. e.g. 0.002 & 3 dp returns 0.0015 so we have +/- 0.0005
     fn flattening_tolerance(&self) -> f64 {
-        let tolerance = self.tolerance_to_decimal();
-        let rounding_epsilon = Decimal::new(5, tolerance.scale() + 1);
-        if rounding_epsilon < tolerance {
-            (tolerance - rounding_epsilon)
-                .to_f64()
-                .unwrap_or(self.tolerance)
+        let rounding_epsilon = Decimal::new(5, self.tolerance.scale() + 1);
+        if rounding_epsilon < self.tolerance {
+            self.tolerance - rounding_epsilon
         } else {
             self.tolerance
         }
+        .as_f64()
     }
 
     /// Tolerance passed to [`lyon_geom`] calls when circular interpolation is used.
@@ -65,16 +52,14 @@ impl<'input> GCodeTurtle<'input> {
     /// - radius: `rounding_epsilon`
     /// - total: `rounding_epsilon * (sqrt(2) + 1)`
     fn arc_flattening_tolerance(&self) -> f64 {
-        let tolerance = self.tolerance_to_decimal();
-        let rounding_epsilon = Decimal::new(5, tolerance.scale() + 1)
+        let rounding_epsilon = Decimal::new(5, self.tolerance.scale() + 1)
             * Decimal::from_f64(std::f64::consts::SQRT_2 + 1.).unwrap();
-        if rounding_epsilon < tolerance {
-            (tolerance - rounding_epsilon)
-                .to_f64()
-                .unwrap_or(self.tolerance)
+        if rounding_epsilon < self.tolerance {
+            self.tolerance - rounding_epsilon
         } else {
             self.tolerance
         }
+        .as_f64()
     }
 
     fn line_to(&self, to: Point<f64>) -> Vec<Token<'input>> {
