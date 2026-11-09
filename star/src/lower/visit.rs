@@ -120,18 +120,6 @@ pub fn parse_css<'a>(doc: &'a Document) -> HashMap<&'a str, HashMap<&'a str, &'a
             let Some((selector, declarations)) = block.split_once('{') else {
                 continue;
             };
-            let props = declarations
-                .split(';')
-                .filter_map(|decl| {
-                    let (k, v) = decl.split_once(':')?;
-                    let k = k.trim();
-                    let v = v.trim();
-                    (!k.is_empty() && !v.is_empty()).then_some((k, v))
-                })
-                .collect::<HashMap<_, _>>();
-            if props.is_empty() {
-                continue;
-            }
             for subselector in selector.split(',') {
                 let Some(class) = subselector.trim().strip_prefix('.') else {
                     continue;
@@ -142,8 +130,18 @@ pub fn parse_css<'a>(doc: &'a Document) -> HashMap<&'a str, HashMap<&'a str, &'a
                     .next()
                     .unwrap_or("")
                     .trim();
-                if !class.is_empty() {
-                    rules.entry(class).or_default().extend(props.iter());
+                if class.is_empty() {
+                    continue;
+                }
+                let class_rules = rules.entry(class).or_default();
+                for decl in declarations.split(';') {
+                    if let Some((k, v)) = decl.split_once(':') {
+                        let k = k.trim();
+                        let v = v.trim();
+                        if !k.is_empty() && !v.is_empty() {
+                            class_rules.insert(k, v);
+                        }
+                    }
                 }
             }
         }
@@ -462,7 +460,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         let has_stroke_attr = calculate_presentation_attr(node, "stroke", &self.css_rules)
             .is_some_and(|attr| attr != "none");
 
-        let segments: SmallVec<[PathSegment; 5]> = match node.tag_name().name() {
+        let segments: SmallVec<[PathSegment; 6]> = match node.tag_name().name() {
             PATH_TAG_NAME => {
                 let Some(d) = node.attribute("d") else {
                     warn!("There is a path node containing no actual path: {node:?}");

@@ -85,18 +85,17 @@ impl Turtle for SvgPreviewTurtle {
         self.add_point(start);
         self.current_pos = start;
 
-        let mut path = String::new();
-        write!(path, "<path d=\"M {},{} ", start.x, start.y).unwrap();
+        write!(self.tool_on_paths, "<path d=\"M {},{} ", start.x, start.y).unwrap();
         for command in stroke.into_commands() {
             match command {
                 DrawCommand::LineTo(LineSegment { from: _, to }) => {
-                    write!(path, "L {},{} ", to.x, to.y).unwrap();
+                    write!(self.tool_on_paths, "L {},{} ", to.x, to.y).unwrap();
                     self.add_point(to);
                     self.current_pos = to;
                 }
                 DrawCommand::Arc(svg_arc) => {
                     write!(
-                        path,
+                        self.tool_on_paths,
                         "A {},{} {} {} {} {},{} ",
                         svg_arc.radii.x,
                         svg_arc.radii.y,
@@ -112,7 +111,7 @@ impl Turtle for SvgPreviewTurtle {
                 }
                 DrawCommand::CubicBezier(cbs) => {
                     write!(
-                        path,
+                        self.tool_on_paths,
                         "C {},{} {},{} {},{} ",
                         cbs.ctrl1.x, cbs.ctrl1.y, cbs.ctrl2.x, cbs.ctrl2.y, cbs.to.x, cbs.to.y,
                     )
@@ -122,7 +121,7 @@ impl Turtle for SvgPreviewTurtle {
                 }
                 DrawCommand::QuadraticBezier(qbs) => {
                     write!(
-                        path,
+                        self.tool_on_paths,
                         "Q {},{} {},{} ",
                         qbs.ctrl.x, qbs.ctrl.y, qbs.to.x, qbs.to.y,
                     )
@@ -133,10 +132,8 @@ impl Turtle for SvgPreviewTurtle {
             }
         }
         writeln!(
-            path,
+            self.tool_on_paths,
             "\" stroke=\"red\" fill=\"none\" stroke-width=\"1\" vector-effect=\"non-scaling-stroke\"/>"
         ).unwrap();
-
-        self.tool_on_paths += &path;
     }
 }

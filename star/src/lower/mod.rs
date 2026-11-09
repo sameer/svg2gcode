@@ -110,20 +110,7 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
 
 impl<T: Turtle> ConversionVisitor<'_, '_, T> {
     fn comment(&mut self) {
-        let mut comment = String::new();
-        self.name_stack
-            .iter()
-            // Predecessors only
-            .take(self.name_stack.len().saturating_sub(1))
-            .for_each(|name| {
-                comment += name;
-                comment += " > ";
-            });
-        if let Some(name) = self.name_stack.last() {
-            comment += name;
-        }
-
-        self.terrarium.comment(comment);
+        self.terrarium.comment(self.name_stack.join(" > "));
     }
 
     fn should_draw_node(&self, node: Node) -> bool {

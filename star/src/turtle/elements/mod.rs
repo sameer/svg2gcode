@@ -3,7 +3,8 @@
 use std::{iter, mem::swap, ops::Range};
 
 use lyon_geom::{
-    Box2D, CubicBezierSegment, LineSegment, Point, QuadraticBezierSegment, SvgArc, Vector,
+    Box2D, CubicBezierSegment, LineSegment, Point, QuadraticBezierSegment, SvgArc, Transform,
+    Vector,
 };
 
 pub use self::{
@@ -72,6 +73,14 @@ impl Shape {
                     Box2D::from_points([bbox.min, bbox.max, cmd_bbox.min, cmd_bbox.max])
                 },
             )
+    }
+
+    /// Transforms the shape (outer boundary and all holes) in-place.
+    pub fn transform(&mut self, transform: &Transform<f64>) {
+        self.outer.transform(transform);
+        for hole in &mut self.holes {
+            hole.transform(transform);
+        }
     }
 }
 
@@ -215,6 +224,38 @@ impl DrawCommand {
             }
         }
     }
+
+    /// Transforms the command in-place.
+    pub fn transform(&mut self, transform: &Transform<f64>) {
+        match self {
+            Self::LineTo(line) => {
+                line.from = transform.transform_point(line.from);
+                line.to = transform.transform_point(line.to);
+            }
+            Self::Arc(arc) => {
+                let transformed = arc.transformed(transform);
+                if transformed.is_straight_line() {
+                    *self = Self::LineTo(LineSegment {
+                        from: transformed.from,
+                        to: transformed.to,
+                    });
+                } else {
+                    *arc = transformed;
+                }
+            }
+            Self::CubicBezier(cbs) => {
+                cbs.from = transform.transform_point(cbs.from);
+                cbs.ctrl1 = transform.transform_point(cbs.ctrl1);
+                cbs.ctrl2 = transform.transform_point(cbs.ctrl2);
+                cbs.to = transform.transform_point(cbs.to);
+            }
+            Self::QuadraticBezier(qbs) => {
+                qbs.from = transform.transform_point(qbs.from);
+                qbs.ctrl = transform.transform_point(qbs.ctrl);
+                qbs.to = transform.transform_point(qbs.to);
+            }
+        }
+    }
 }
 
 impl rstar::RTreeObject for DrawCommand {
@@ -259,6 +300,14 @@ impl Stroke {
 
     pub fn commands(&self) -> &[DrawCommand] {
         &self.commands
+    }
+
+    /// Transforms the stroke in-place, updating its start point and every command.
+    pub fn transform(&mut self, transform: &Transform<f64>) {
+        self.start_point = transform.transform_point(self.start_point);
+        for cmd in &mut self.commands {
+            cmd.transform(transform);
+        }
     }
 
     pub fn into_commands(self) -> Vec<DrawCommand> {
