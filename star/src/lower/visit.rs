@@ -39,6 +39,38 @@ const TEXT_PATH_TAG_NAME: &str = "textPath";
 const VIEW_TAG_NAME: &str = "view";
 
 pub trait XmlVisitor<'a, 'input> {
+    fn visit_dfs(
+        &mut self,
+        start: Node<'a, 'input>,
+        expanding_template: Option<TemplatedExpansion>,
+    ) {
+        let doc = start.document();
+        let mut stack = vec![(start, true)];
+
+        while let Some((node, entering)) = stack.pop() {
+            if !entering {
+                self.visit_exit(node);
+                continue;
+            }
+            if !should_render_node(node, expanding_template) {
+                continue;
+            }
+
+            self.visit_enter(node);
+            if node.tag_name().name() == USE_TAG_NAME
+                && let Some(referenced) = resolve_href(doc, node)
+            {
+                // Expand the target
+                self.visit_dfs(referenced, Some(TemplatedExpansion::Use));
+                self.visit_exit(node);
+            } else {
+                stack.extend(
+                    iter::once((node, false)).chain(node.children().rev().map(|n| (n, true))),
+                );
+            }
+        }
+    }
+
     fn visit_enter(&mut self, node: Node<'a, 'input>);
     fn visit_exit(&mut self, node: Node<'a, 'input>);
 }
@@ -191,35 +223,13 @@ fn get_pattern_id(attr: &str) -> Option<&str> {
     inner.trim_matches(['\'', '"']).strip_prefix('#')
 }
 
-fn visit_node<'a, 'input, V: XmlVisitor<'a, 'input>>(
-    doc: &'a Document<'input>,
-    node: Node<'a, 'input>,
-    visitor: &mut V,
-    expanding_template: Option<TemplatedExpansion>,
-) {
-    if !should_render_node(node, expanding_template) {
-        return;
-    }
-    visitor.visit_enter(node);
-    if node.tag_name().name() == USE_TAG_NAME
-        && let Some(referenced) = resolve_href(doc, node)
-    {
-        // Expand the target
-        visit_node(doc, referenced, visitor, Some(TemplatedExpansion::Use));
-    } else {
-        node.children()
-            .for_each(|child| visit_node(doc, child, visitor, expanding_template));
-    }
-    visitor.visit_exit(node);
-}
-
 pub fn depth_first_visit<'a, 'input, V: XmlVisitor<'a, 'input>>(
     doc: &'a Document<'input>,
     visitor: &mut V,
 ) {
-    doc.root()
-        .children()
-        .for_each(|child| visit_node(doc, child, visitor, None));
+    for c in doc.root().children() {
+        visitor.visit_dfs(c, None);
+    }
 }
 
 impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'input, T> {
@@ -232,17 +242,10 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         let mut viewport_pos_opt = [None, None];
         let mut viewport_size_opt = [1., 1.];
 
-        if node.tag_name().name() == CLIP_PATH_TAG_NAME {
-            warn!("Clip paths are not supported: {node:?}");
-        }
-        if node.tag_name().name() == TEXT_TAG_NAME {
-            warn!("Text is not supported: {node:?}");
-        }
-        if node.tag_name().name() == TEXT_PATH_TAG_NAME {
-            warn!("Text paths are not supported: {node:?}");
-        }
-        if node.tag_name().name() == VIEW_TAG_NAME {
-            warn!("SVG views are not supported: {node:?}");
+        if let tag @ (CLIP_PATH_TAG_NAME | TEXT_TAG_NAME | TEXT_PATH_TAG_NAME | VIEW_TAG_NAME) =
+            node.tag_name().name()
+        {
+            warn!("Tag {tag} is not supported: {node:?}");
         }
 
         let mut flattened_transform = if let Some(transform) = node.attribute("transform") {
@@ -459,6 +462,10 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         // Default to false which is spec compliant.
         let has_stroke_attr = calculate_presentation_attr(node, "stroke", &self.css_rules)
             .is_some_and(|attr| attr != "none");
+
+        if !(has_stroke_attr || has_fill_attr || node.tag_name().name() == "image") {
+            return;
+        }
 
         let segments: SmallVec<[PathSegment; 6]> = match node.tag_name().name() {
             PATH_TAG_NAME => {
@@ -871,12 +878,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
                     .then(&pattern_transform);
 
                 self.terrarium.push_transform(combined);
-                visit_node(
-                    doc,
-                    target_pattern_node,
-                    self,
-                    Some(TemplatedExpansion::Pattern),
-                );
+                self.visit_dfs(target_pattern_node, Some(TemplatedExpansion::Pattern));
                 self.terrarium.pop_transform();
             }
         }
