@@ -61,8 +61,7 @@ pub(crate) struct Terrarium<T: Turtle + std::fmt::Debug> {
     has_begun: bool,
     current_position: Point<f64>,
     initial_position: Point<f64>,
-    current_transform: Transform2D<f64>,
-    pub transform_stack: Vec<Transform2D<f64>>,
+    transform_stack: TransformStack,
     previous_quadratic_control: Option<Point<f64>>,
     previous_cubic_control: Option<Point<f64>>,
     comment: Option<String>,
@@ -79,8 +78,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             has_begun: false,
             current_position: Point::zero(),
             initial_position: Point::zero(),
-            current_transform: Transform2D::identity(),
-            transform_stack: vec![],
+            transform_stack: TransformStack::default(),
             previous_quadratic_control: None,
             previous_cubic_control: None,
             comment: None,
@@ -99,7 +97,9 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     }
 
     pub fn push_viewport_bounds(&mut self, viewport_box: Box2D<f64>) {
-        let new_bounds = self.current_transform.outer_transformed_box(&viewport_box);
+        let new_bounds = self
+            .current_transform()
+            .outer_transformed_box(&viewport_box);
         let combined_bounds = match self.current_bounds {
             Some(parent) => parent.intersection(&new_bounds),
             None => Some(new_bounds),
@@ -142,8 +142,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     /// <https://www.w3.org/TR/SVG/paths.html#PathDataMovetoCommands>
     fn move_to(&mut self, abs: bool, x: f64, y: f64) -> Point<f64> {
         let inverse_transform = self
-            .current_transform
-            .inverse()
+            .current_transform_inverse()
             .expect("transform is invertible");
         let original_current_position = inverse_transform.transform_point(self.current_position);
         let x = if abs {
@@ -158,7 +157,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             original_current_position.y + y
         };
 
-        let to = self.current_transform.transform_point(point(x, y));
+        let to = self.current_transform().transform_point(point(x, y));
         self.current_position = to;
         self.initial_position = to;
         self.previous_quadratic_control = None;
@@ -193,8 +192,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     /// <https://www.w3.org/TR/SVG/paths.html#PathDataLinetoCommands>
     fn line(&mut self, abs: bool, x: Option<f64>, y: Option<f64>) -> DrawCommand {
         let inverse_transform = self
-            .current_transform
-            .inverse()
+            .current_transform_inverse()
             .expect("transform is invertible");
         let original_current_position = inverse_transform.transform_point(self.current_position);
         let x = x.map_or(original_current_position.x, |x| {
@@ -213,7 +211,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         });
 
         let from = self.current_position;
-        let to = self.current_transform.transform_point(point(x, y));
+        let to = self.current_transform().transform_point(point(x, y));
         self.current_position = to;
         self.previous_quadratic_control = None;
         self.previous_cubic_control = None;
@@ -232,15 +230,15 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     ) -> DrawCommand {
         let from = self.current_position;
         if !abs {
-            let inverse_transform = self.current_transform.inverse().unwrap();
+            let inverse_transform = self.current_transform_inverse().unwrap();
             let original_current_position = inverse_transform.transform_point(from);
             ctrl1 = original_current_position + ctrl1.to_vector();
             ctrl2 = original_current_position + ctrl2.to_vector();
             to = original_current_position + to.to_vector();
         }
-        ctrl1 = self.current_transform.transform_point(ctrl1);
-        ctrl2 = self.current_transform.transform_point(ctrl2);
-        to = self.current_transform.transform_point(to);
+        ctrl1 = self.current_transform().transform_point(ctrl1);
+        ctrl2 = self.current_transform().transform_point(ctrl2);
+        to = self.current_transform().transform_point(to);
 
         let cbs = CubicBezierSegment {
             from,
@@ -273,15 +271,14 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         let ctrl1 = self.previous_cubic_control.unwrap_or(self.current_position);
         if !abs {
             let inverse_transform = self
-                .current_transform
-                .inverse()
+                .current_transform_inverse()
                 .expect("transform is invertible");
             let original_current_position = inverse_transform.transform_point(from);
             ctrl2 = original_current_position + ctrl2.to_vector();
             to = original_current_position + to.to_vector();
         }
-        ctrl2 = self.current_transform.transform_point(ctrl2);
-        to = self.current_transform.transform_point(to);
+        ctrl2 = self.current_transform().transform_point(ctrl2);
+        to = self.current_transform().transform_point(to);
 
         let cbs = CubicBezierSegment {
             from,
@@ -311,13 +308,12 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             .unwrap_or(self.current_position);
         if !abs {
             let inverse_transform = self
-                .current_transform
-                .inverse()
+                .current_transform_inverse()
                 .expect("transform is invertible");
             let original_current_position = inverse_transform.transform_point(from);
             to = original_current_position + to.to_vector();
         }
-        to = self.current_transform.transform_point(to);
+        to = self.current_transform().transform_point(to);
 
         let qbs = QuadraticBezierSegment { from, ctrl, to };
 
@@ -344,15 +340,14 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         let from = self.current_position;
         if !abs {
             let inverse_transform = self
-                .current_transform
-                .inverse()
+                .current_transform_inverse()
                 .expect("transform is invertible");
             let original_current_position = inverse_transform.transform_point(from);
             to = original_current_position + to.to_vector();
             ctrl = original_current_position + ctrl.to_vector();
         }
-        ctrl = self.current_transform.transform_point(ctrl);
-        to = self.current_transform.transform_point(to);
+        ctrl = self.current_transform().transform_point(ctrl);
+        to = self.current_transform().transform_point(to);
 
         let qbs = QuadraticBezierSegment { from, ctrl, to };
 
@@ -379,8 +374,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         mut to: Point<f64>,
     ) -> DrawCommand {
         let from = self
-            .current_transform
-            .inverse()
+            .current_transform_inverse()
             .expect("transform is invertible")
             .transform_point(self.current_position);
 
@@ -394,7 +388,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             x_rotation,
             flags,
         }
-        .transformed(&self.current_transform);
+        .transformed(&self.current_transform());
 
         self.current_position = svg_arc.to;
         self.previous_quadratic_control = None;
@@ -420,7 +414,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     /// Reset the position of the turtle to the origin in the current transform stack
     /// Used for starting a new path
     fn reset(&mut self) {
-        self.current_position = self.current_transform.transform_point(Point::zero());
+        self.current_position = self.current_transform().transform_point(Point::zero());
         self.initial_position = self.current_position;
         self.previous_quadratic_control = None;
         self.previous_cubic_control = None;
@@ -437,7 +431,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         let (image, transformed_box) = self::elements::image_ops::transform_image(
             image,
             image_to_user,
-            &self.current_transform,
+            &self.current_transform(),
             preserve_aspect_ratio,
         );
 
@@ -459,22 +453,21 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
     /// Could be any valid CSS transform <https://drafts.csswg.org/css-transforms-1/#typedef-transform-function>
     /// <https://www.w3.org/TR/SVG/coords.html#InterfaceSVGTransform>
     pub fn push_transform(&mut self, trans: Transform2D<f64>) {
-        self.transform_stack.push(self.current_transform);
-        // https://stackoverflow.com/questions/18582935/the-applying-order-of-svg-transforms
-        self.current_transform = trans.then(&self.current_transform);
+        self.transform_stack.push(trans);
     }
 
     /// Pop a generic transform off the stack, returning to the previous transform state
     /// This means that most recent transform went out of scope
     pub fn pop_transform(&mut self) {
-        self.current_transform = self
-            .transform_stack
-            .pop()
-            .expect("pop only called when transforms remain");
+        self.transform_stack.pop();
     }
 
     pub fn current_transform(&self) -> Transform2D<f64> {
-        self.current_transform
+        self.transform_stack.current()
+    }
+
+    fn current_transform_inverse(&self) -> Option<Transform2D<f64>> {
+        self.transform_stack.current_inverse()
     }
 
     pub fn comment(&mut self, comment: String) {
@@ -604,7 +597,6 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             turtle: StrokeCollectingTurtle::default(),
             current_position: self.current_position,
             initial_position: self.initial_position,
-            current_transform: self.current_transform,
             transform_stack: self.transform_stack.clone(),
             previous_quadratic_control: self.previous_quadratic_control,
             previous_cubic_control: self.previous_cubic_control,
@@ -645,6 +637,47 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             self.turtle.end();
         }
         self.turtle
+    }
+}
+
+#[derive(Clone, Debug)]
+struct TransformStack {
+    stack: Vec<(Transform2D<f64>, Option<Transform2D<f64>>)>,
+    current: Transform2D<f64>,
+    inverse_current: Option<Transform2D<f64>>,
+}
+
+impl Default for TransformStack {
+    fn default() -> Self {
+        Self {
+            stack: vec![],
+            current: Transform2D::identity(),
+            inverse_current: Some(Transform2D::identity()),
+        }
+    }
+}
+
+impl TransformStack {
+    fn current(&self) -> Transform2D<f64> {
+        self.current
+    }
+
+    fn current_inverse(&self) -> Option<Transform2D<f64>> {
+        self.inverse_current
+    }
+
+    fn push(&mut self, transform: Transform2D<f64>) {
+        self.stack.push((self.current, self.inverse_current));
+        // https://stackoverflow.com/questions/18582935/the-applying-order-of-svg-transforms
+        self.current = transform.then(&self.current);
+        self.inverse_current = self.current.inverse();
+    }
+
+    fn pop(&mut self) {
+        if let Some((prev_current, prev_inverse_current)) = self.stack.pop() {
+            self.current = prev_current;
+            self.inverse_current = prev_inverse_current;
+        }
     }
 }
 
