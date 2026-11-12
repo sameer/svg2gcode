@@ -33,10 +33,6 @@ impl Node {
         let &(start, end) = stroke_points.get(self.stroke_index)?;
         Some(if self.reversed { start } else { end })
     }
-
-    pub fn reverse(&mut self) {
-        self.reversed = !self.reversed;
-    }
 }
 
 /// A move between two strokes.
@@ -44,7 +40,7 @@ impl Node {
 pub struct Edge {
     pub from: Point<f64>,
     pub to: Point<f64>,
-    pub len_squared: f64,
+    pub len: f64,
 }
 
 impl Edge {
@@ -67,7 +63,7 @@ impl rstar::RTreeObject for Edge {
 pub struct Tour<'a> {
     inner: Vec<Node>,
     /// Necessarily 1 shorter than `inner`.
-    lengths_squared: Vec<f64>,
+    lengths: Vec<f64>,
 
     /// Forward mapping to avoid modifying any pre-computed data structures.
     stroke_index_to_tour_index: Vec<usize>,
@@ -121,13 +117,13 @@ impl<'a> Tour<'a> {
 
     fn from_vertices(vertices: Vec<Node>, stroke_points: &'a [(Point<f64>, Point<f64>)]) -> Self {
         Self {
-            lengths_squared: vertices
+            lengths: vertices
                 .array_windows::<2>()
                 .filter_map(|[a, b]| {
                     Some(
                         (a.normalized_end_point(stroke_points)?
                             - b.normalized_start_point(stroke_points)?)
-                        .square_length(),
+                        .length(),
                     )
                 })
                 .collect(),
@@ -174,14 +170,14 @@ impl<'a> Tour<'a> {
     }
 
     pub fn length_at(&self, edge_index: usize) -> Option<f64> {
-        self.lengths_squared.get(edge_index).copied()
+        self.lengths.get(edge_index).copied()
     }
 
     pub fn edge(&self, edge_index: usize) -> Option<Edge> {
         Some(Edge {
             from: self.end_point_of(edge_index)?,
             to: self.start_point_of(edge_index + 1)?,
-            len_squared: self.length_at(edge_index)?,
+            len: self.length_at(edge_index)?,
         })
     }
 
@@ -189,12 +185,7 @@ impl<'a> Tour<'a> {
         let from_start_point = self
             .start_point_of(0)
             .map_or(0.0, |p| (start_point - p).length());
-        from_start_point
-            + self
-                .lengths_squared
-                .iter()
-                .map(|dist_squared| dist_squared.sqrt())
-                .sum::<f64>()
+        from_start_point + self.lengths.iter().sum::<f64>()
     }
 
     /// Any cached calculations at `tour_index` need to be redone.
@@ -202,9 +193,9 @@ impl<'a> Tour<'a> {
         if let (Some(from), Some(to)) = (
             self.end_point_of(tour_index),
             self.start_point_of(tour_index + 1),
-        ) && let Some(len) = self.lengths_squared.get_mut(tour_index)
+        ) && let Some(len) = self.lengths.get_mut(tour_index)
         {
-            *len = (to - from).square_length();
+            *len = (to - from).length();
         }
     }
 
@@ -284,7 +275,7 @@ impl<'a> Tour<'a> {
         }
 
         // Internal lengths are reversed. `end` is a node so this slice will exist.
-        if let Some(slice) = self.lengths_squared.get_mut(start..end) {
+        if let Some(slice) = self.lengths.get_mut(start..end) {
             slice.reverse();
         }
 

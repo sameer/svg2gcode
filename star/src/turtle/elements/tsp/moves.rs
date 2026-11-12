@@ -1,6 +1,6 @@
 use std::{num::NonZeroUsize, ops::RangeInclusive};
 
-/// Relocates a contiguous block of `block_len` nodes at `block_index` to sit immediately after `target_index`.
+/// Relocates a contiguous block of `block_len` internal nodes at `block_index` to sit immediately after `target_index`.
 ///
 /// `reversed` encodes the option to reverse after relocating since strokes are reversible.
 #[derive(Debug, Clone, Copy)]
@@ -33,18 +33,4 @@ pub enum LinkSwapKind {
 pub struct LinkSwap {
     pub kind: LinkSwapKind,
     pub split_index: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Crossing {
-    pub first_edge_index: usize,
-    pub second_edge_index: usize,
-}
-
-impl Crossing {
-    pub fn two_opt(&self) -> TwoOpt {
-        TwoOpt {
-            range: (self.first_edge_index + 1)..=self.second_edge_index,
-        }
-    }
 }
