@@ -68,20 +68,23 @@ impl StrokeKNearestNeighbors {
             .collect()
     }
 
-    /// Excludes `excluded_index` so a stroke's neigbhors do not include itself.
+    /// Excludes `excluded_index` and duplicate endpoints so a stroke's neighbors are unique and do not include itself.
     fn k_nearest_excluding(
         query_point: Point<f64>,
         excluded_index: usize,
         point_tree: &RTree<GeomWithData<[f64; 2], StrokePointData>>,
     ) -> SmallVec<[usize; Self::K]> {
-        point_tree
-            .nearest_neighbor_iter([query_point.x, query_point.y])
-            .filter_map(|geom_with_data| {
-                let stroke_index = geom_with_data.data.stroke_index;
-                (stroke_index != excluded_index).then_some(stroke_index)
-            })
-            .take(Self::K)
-            .collect()
+        let mut neighbors = SmallVec::with_capacity(Self::K);
+        for geom in point_tree.nearest_neighbor_iter([query_point.x, query_point.y]) {
+            let stroke_index = geom.data.stroke_index;
+            if stroke_index != excluded_index && !neighbors.contains(&stroke_index) {
+                neighbors.push(stroke_index);
+                if neighbors.len() == Self::K {
+                    break;
+                }
+            }
+        }
+        neighbors
     }
 
     pub fn normalized_start_neighbors(&self, reversed: bool) -> &SmallVec<[usize; Self::K]> {
