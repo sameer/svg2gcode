@@ -49,7 +49,7 @@ impl Tour<'_> {
     const MIN_IMPROVEMENT: f64 = 1E-12;
 
     /// Finds some improving relocate operation given a fixed block length and start, if any.
-    fn next_relocate_with_start_and_len(
+    fn next_relocate_with_len_at(
         &self,
         block_start_index: NonZeroUsize,
         block_len: NonZeroUsize,
@@ -134,7 +134,7 @@ impl Tour<'_> {
     }
 
     /// Finds some improving relocate at a given block start, if any.
-    fn next_relocate_with_start(
+    fn next_relocate_at(
         &self,
         block_start: NonZeroUsize,
         node_neighbors: &[StrokeKNearestNeighbors],
@@ -147,7 +147,7 @@ impl Tour<'_> {
         )?);
 
         (NonZeroUsize::MIN..=max_block_len).find_map(|block_len| {
-            self.next_relocate_with_start_and_len(block_start, block_len, node_neighbors)
+            self.next_relocate_with_len_at(block_start, block_len, node_neighbors)
         })
     }
 
@@ -160,7 +160,7 @@ impl Tour<'_> {
         let Some(block_start) = NonZeroUsize::new(tour_idx) else {
             return false;
         };
-        let Some(relocate) = self.next_relocate_with_start(block_start, neighbors) else {
+        let Some(relocate) = self.next_relocate_at(block_start, neighbors) else {
             return false;
         };
 
@@ -178,64 +178,72 @@ impl Tour<'_> {
         true
     }
 
-    /// Finds some improving 2-Opt with one fixed unlink index, if any.
-    fn next_two_opt_with_split_index(
+    /// Finds some improving 2-Opt that unlinks an edge on either side of `tour_index`, if any.
+    fn next_two_opt_at(
         &self,
-        unlink_index: usize,
+        tour_index: usize,
         node_neighbors: &[StrokeKNearestNeighbors],
     ) -> Option<TwoOpt> {
-        let unlink_edge = self.edge(unlink_index)?;
-        let node = self.node(unlink_index)?;
+        let node = self.node(tour_index)?;
         let neighbors = node_neighbors.get(node.stroke_index)?;
-        let forward_neighbors = neighbors.normalized_end_neighbors(node.reversed);
 
-        for &neighbor in forward_neighbors {
-            let Some(neighbor_tour_index) = self.stroke_index_to_tour_index(neighbor) else {
-                continue;
-            };
+        // Unlink the edge leaving `tour_index`.
+        let exit_edge_candidates = neighbors
+            .normalized_end_neighbors(node.reversed)
+            .iter()
+            .filter_map(|&neighbor| self.stroke_index_to_tour_index(neighbor))
+            .map(|neighbor_stroke_index| (tour_index, neighbor_stroke_index));
 
-            // The two edges to unlink cannot be identical or adjacent in the tour.
-            if unlink_index.abs_diff(neighbor_tour_index) < 2 {
-                continue;
-            }
+        // Unlink the edge entering `tour_index`.
+        let entry_edge_candidates = tour_index
+            .checked_sub(1)
+            .into_iter()
+            .flat_map(|entry_edge| {
+                neighbors
+                    .normalized_start_neighbors(node.reversed)
+                    .iter()
+                    .filter_map(move |&neighbor| {
+                        self.stroke_index_to_tour_index(neighbor)?.checked_sub(1)
+                    })
+                    .map(move |neighbor_stroke_index| (entry_edge, neighbor_stroke_index))
+            });
 
-            let Some(neighbor_edge) = self.edge(neighbor_tour_index) else {
-                continue;
-            };
+        exit_edge_candidates.chain(entry_edge_candidates).find_map(
+            |(edge_index_a, edge_index_b)| {
+                // Can't be identical or adjacent.
+                if edge_index_a.abs_diff(edge_index_b) < 2 {
+                    return None;
+                }
 
-            // Reversing the segment between the unlinks connects from with from and to with to.
-            let savings = unlink_edge.len + neighbor_edge.len;
-            let cost = (unlink_edge.from - neighbor_edge.from).length()
-                + (unlink_edge.to - neighbor_edge.to).length();
+                let edge_a = self.edge(edge_index_a)?;
+                let edge_b = self.edge(edge_index_b)?;
 
-            let improvement = savings - cost;
-            if improvement > Self::MIN_IMPROVEMENT {
-                let start = unlink_index.min(neighbor_tour_index) + 1;
-                let end = unlink_index.max(neighbor_tour_index);
-                return Some(TwoOpt { range: start..=end });
-            }
-        }
+                // Reversing the segment between the unlinks connects from with from and to with to.
+                let savings = edge_a.len + edge_b.len;
+                let cost = (edge_a.from - edge_b.from).length() + (edge_a.to - edge_b.to).length();
 
-        None
+                let improvement = savings - cost;
+
+                (improvement > Self::MIN_IMPROVEMENT).then(|| TwoOpt {
+                    range: (edge_index_a.min(edge_index_b) + 1)..=edge_index_a.max(edge_index_b),
+                })
+            },
+        )
     }
 
     fn try_two_opt(
         &mut self,
-        tour_idx: usize,
+        tour_index: usize,
         neighbors: &[StrokeKNearestNeighbors],
         dlb: &mut DontLook,
     ) -> bool {
-        let Some(two_opt) = self.next_two_opt_with_split_index(tour_idx, neighbors) else {
+        let Some(two_opt) = self.next_two_opt_at(tour_index, neighbors) else {
             return false;
         };
 
         let start = *two_opt.range.start();
         let end = *two_opt.range.end();
-        let tour_len = self.len();
-        dlb.enable(
-            self,
-            start.saturating_sub(1)..=((end + 1).min(tour_len.saturating_sub(1))),
-        );
+        dlb.enable(self, [start.saturating_sub(1), start, end, end + 1]);
         self.apply_two_opt(two_opt);
         true
     }
