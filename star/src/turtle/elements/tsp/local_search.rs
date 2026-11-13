@@ -1,43 +1,34 @@
-use std::{iter, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use log::debug;
 use lyon_geom::Point;
 use rand::RngExt;
 
 use super::{
+    index::{EdgeIndex, IndexedVec, StrokeIndex, TourIndex},
     moves::{LinkSwap, LinkSwapKind, Relocate, TwoOpt},
+    stroke_types::StrokeKNearestNeighbors,
     tour::Tour,
-    types::StrokeKNearestNeighbors,
 };
 
-struct DontLook {
-    bits: Vec<bool>,
-}
+struct DontLook(IndexedVec<StrokeIndex, bool>);
 
 impl DontLook {
-    fn new(tour_len: usize) -> Self {
-        Self {
-            bits: vec![true; tour_len],
-        }
+    fn new(neighbors: &IndexedVec<StrokeIndex, StrokeKNearestNeighbors>) -> Self {
+        Self(neighbors.filled_like(true))
     }
 
-    fn enabled(&self, stroke_idx: usize) -> bool {
-        self.bits.get(stroke_idx).copied().unwrap_or(false)
+    fn enabled(&self, stroke_idx: StrokeIndex) -> bool {
+        self.0[stroke_idx]
     }
 
-    fn disable(&mut self, stroke_idx: usize) {
-        if let Some(state) = self.bits.get_mut(stroke_idx) {
-            *state = false;
-        }
+    fn disable(&mut self, stroke_idx: StrokeIndex) {
+        self.0[stroke_idx] = false;
     }
 
-    fn enable(&mut self, tour: &Tour, tour_index_it: impl IntoIterator<Item = usize>) {
+    fn enable(&mut self, tour: &Tour, tour_index_it: impl IntoIterator<Item = TourIndex>) {
         for tour_idx in tour_index_it {
-            if let Some(stroke_idx) = tour.tour_index_to_stroke_index(tour_idx)
-                && let Some(state) = self.bits.get_mut(stroke_idx)
-            {
-                *state = true;
-            }
+            self.0[tour[tour_idx].stroke_index()] = true;
         }
     }
 }
@@ -48,66 +39,55 @@ impl Tour<'_> {
     /// At extremely small float values, the result of a move may not actually improve the tour.
     const MIN_IMPROVEMENT: f64 = 1E-12;
 
-    /// Finds some improving relocate operation given a fixed block length and start, if any.
+    /// Finds some improving relocate operation given a fixed block length and entering edge, if any.
     fn next_relocate_with_len_at(
         &self,
-        block_start_index: NonZeroUsize,
+        before_block: EdgeIndex,
         block_len: NonZeroUsize,
-        node_neighbors: &[StrokeKNearestNeighbors],
+        stroke_neighbors: &IndexedVec<StrokeIndex, StrokeKNearestNeighbors>,
     ) -> Option<Relocate> {
-        let block_end = block_start_index.saturating_add(block_len.get() - 1);
+        let after_block = self.checked_add_edges(before_block, block_len)?;
 
-        // Removing the nodes at block start/end connects the nodes on either side.
-        let (start, end, unlink_saving) = {
-            let edge_to_block_start = self.edge(block_start_index.get() - 1)?;
-            let edge_at_block_end = self.edge(block_end.get())?;
-            let unlink_saving = (edge_to_block_start.len + edge_at_block_end.len)
-                - (edge_to_block_start.from - edge_at_block_end.to).length();
+        // Removing the block connects before_block.from directly to after_block.to.
+        let edge_to_block_start = self.edge(before_block);
+        let edge_at_block_end = self.edge(after_block);
+        let start = edge_to_block_start.to;
+        let end = edge_at_block_end.from;
+        let unlink_saving = (edge_to_block_start.len + edge_at_block_end.len)
+            - (edge_to_block_start.from - edge_at_block_end.to).length();
 
-            (
-                edge_to_block_start.to,
-                edge_at_block_end.from,
-                unlink_saving,
-            )
+        let incident_edges = |idx: TourIndex| {
+            self.exiting_edge(idx)
+                .into_iter()
+                .chain(self.entering_edge(idx))
         };
 
-        let incoming_nearest_neighbors = {
-            let start_node = self.node(block_start_index.get())?;
-            let start_neighbors = node_neighbors.get(start_node.stroke_index)?;
-            start_neighbors
-                .normalized_start_neighbors(start_node.reversed)
-                .iter()
-                .filter_map(|&stroke| self.stroke_index_to_tour_index(stroke))
-                .flat_map(|idx| iter::once(idx).chain(idx.checked_sub(1)))
-        };
+        let start_node = self[before_block.end()];
+        let incoming_nearest_neighbors = start_node
+            .normalized_start_neighbors(start_node.neighbors(stroke_neighbors))
+            .iter()
+            .map(|&stroke| self[stroke])
+            .flat_map(incident_edges);
 
-        let outgoing_nearest_neighbors = {
-            let end_node = self.node(block_end.get())?;
-            let end_neighbors = node_neighbors.get(end_node.stroke_index)?;
-            end_neighbors
-                .normalized_end_neighbors(end_node.reversed)
-                .iter()
-                .filter_map(|&stroke| self.stroke_index_to_tour_index(stroke))
-                .flat_map(|idx| iter::once(idx).chain(idx.checked_sub(1)))
-        };
+        let end_node = self[after_block.start()];
+        let outgoing_nearest_neighbors = end_node
+            .normalized_end_neighbors(end_node.neighbors(stroke_neighbors))
+            .iter()
+            .map(|&stroke| self[stroke])
+            .flat_map(incident_edges);
 
-        let target_index_candidates = incoming_nearest_neighbors.chain(outgoing_nearest_neighbors);
+        let target_edge_candidates = incoming_nearest_neighbors.chain(outgoing_nearest_neighbors);
 
-        let tour_len = self.len();
-        for target_index in target_index_candidates {
-            // Cannot move the range into itself
-            let invalid_targets = (block_start_index.get() - 1)..=block_end.get();
-            if target_index + 1 == tour_len || invalid_targets.contains(&target_index) {
+        for target_edge_idx in target_edge_candidates {
+            // Cannot move the range into itself or its bordering edges.
+            if (before_block..=after_block).contains(&target_edge_idx) {
                 continue;
             }
 
-            let Some(target_edge) = self.edge(target_index) else {
-                continue;
-            };
-
+            let target_edge = self.edge(target_edge_idx);
             let savings = target_edge.len + unlink_saving;
 
-            // `start` will be inserted immediately after `target_index`, breaking `target_edge`.
+            // `start` will be inserted into `target_edge`, breaking it.
             let cost_normal = (target_edge.from - start).length() + (end - target_edge.to).length();
             let cost_reversed =
                 (target_edge.from - end).length() + (start - target_edge.to).length();
@@ -121,58 +101,46 @@ impl Tour<'_> {
 
             let improvement = savings - cost;
             if improvement > Self::MIN_IMPROVEMENT {
-                return Some(Relocate {
-                    block_start_index,
-                    block_len,
-                    target_index,
-                    reversed,
-                });
+                return Relocate::new(before_block, after_block, target_edge_idx, reversed);
             }
         }
 
         None
     }
 
-    /// Finds some improving relocate at a given block start, if any.
+    /// Finds some improving relocate for a block starting immediately after `before_block`, if any.
     fn next_relocate_at(
         &self,
-        block_start: NonZeroUsize,
-        node_neighbors: &[StrokeKNearestNeighbors],
+        before_block: EdgeIndex,
+        stroke_neighbors: &IndexedVec<StrokeIndex, StrokeKNearestNeighbors>,
     ) -> Option<Relocate> {
         const MAX_BLOCK_LEN: NonZeroUsize = NonZeroUsize::new(3).unwrap();
 
-        // Block must be strictly smaller than the tour to be able to move it.
-        let max_block_len = MAX_BLOCK_LEN.min(NonZeroUsize::new(
-            self.len().saturating_sub(block_start.get() + 1),
-        )?);
-
-        (NonZeroUsize::MIN..=max_block_len).find_map(|block_len| {
-            self.next_relocate_with_len_at(block_start, block_len, node_neighbors)
+        (NonZeroUsize::MIN..=MAX_BLOCK_LEN).find_map(|block_len| {
+            self.next_relocate_with_len_at(before_block, block_len, stroke_neighbors)
         })
     }
 
     fn try_relocate(
         &mut self,
-        tour_idx: usize,
-        neighbors: &[StrokeKNearestNeighbors],
+        tour_idx: TourIndex,
+        neighbors: &IndexedVec<StrokeIndex, StrokeKNearestNeighbors>,
         dlb: &mut DontLook,
     ) -> bool {
-        let Some(block_start) = NonZeroUsize::new(tour_idx) else {
+        let Some(before_block) = self.entering_edge(tour_idx) else {
             return false;
         };
-        let Some(relocate) = self.next_relocate_at(block_start, neighbors) else {
+        let Some(relocate) = self.next_relocate_at(before_block, neighbors) else {
             return false;
         };
-
-        let start = relocate.block_start_index.get();
-        let end = start + (relocate.block_len.get() - 1);
 
         dlb.enable(
             self,
-            ((start - 1)..=(end + 1)).chain([
-                relocate.target_index,
-                (relocate.target_index + 1).min(self.len().saturating_sub(1)),
-            ]),
+            TourIndex::range_inclusive(
+                relocate.before_block().start(),
+                relocate.after_block().end(),
+            )
+            .chain(relocate.target_edge().nodes()),
         );
         self.apply_relocate(relocate);
         true
@@ -181,42 +149,40 @@ impl Tour<'_> {
     /// Finds some improving 2-Opt that unlinks an edge on either side of `tour_index`, if any.
     fn next_two_opt_at(
         &self,
-        tour_index: usize,
-        node_neighbors: &[StrokeKNearestNeighbors],
+        tour_index: TourIndex,
+        stroke_neighbors: &IndexedVec<StrokeIndex, StrokeKNearestNeighbors>,
     ) -> Option<TwoOpt> {
-        let node = self.node(tour_index)?;
-        let neighbors = node_neighbors.get(node.stroke_index)?;
+        let node = self[tour_index];
+        let neighbors = node.neighbors(stroke_neighbors);
 
         // Unlink the edge leaving `tour_index`.
-        let exit_edge_candidates = neighbors
-            .normalized_end_neighbors(node.reversed)
-            .iter()
-            .filter_map(|&neighbor| self.stroke_index_to_tour_index(neighbor))
-            .map(|neighbor_stroke_index| (tour_index, neighbor_stroke_index));
+        let exit_edge_candidates =
+            self.exiting_edge(tour_index)
+                .into_iter()
+                .flat_map(|exit_edge| {
+                    node.normalized_end_neighbors(neighbors)
+                        .iter()
+                        .filter_map(move |&neighbor| self.exiting_edge(self[neighbor]))
+                        .map(move |neighbor_edge| (exit_edge, neighbor_edge))
+                });
 
         // Unlink the edge entering `tour_index`.
-        let entry_edge_candidates = tour_index
-            .checked_sub(1)
-            .into_iter()
-            .flat_map(|entry_edge| {
-                neighbors
-                    .normalized_start_neighbors(node.reversed)
-                    .iter()
-                    .filter_map(move |&neighbor| {
-                        self.stroke_index_to_tour_index(neighbor)?.checked_sub(1)
-                    })
-                    .map(move |neighbor_stroke_index| (entry_edge, neighbor_stroke_index))
-            });
+        let entry_edge_candidates =
+            self.entering_edge(tour_index)
+                .into_iter()
+                .flat_map(|entry_edge| {
+                    node.normalized_start_neighbors(neighbors)
+                        .iter()
+                        .filter_map(move |&neighbor| self.entering_edge(self[neighbor]))
+                        .map(move |neighbor_edge| (entry_edge, neighbor_edge))
+                });
 
         exit_edge_candidates.chain(entry_edge_candidates).find_map(
             |(edge_index_a, edge_index_b)| {
-                // Can't be identical or adjacent.
-                if edge_index_a.abs_diff(edge_index_b) < 2 {
-                    return None;
-                }
+                let two_opt = TwoOpt::new(edge_index_a, edge_index_b)?;
 
-                let edge_a = self.edge(edge_index_a)?;
-                let edge_b = self.edge(edge_index_b)?;
+                let edge_a = self.edge(edge_index_a);
+                let edge_b = self.edge(edge_index_b);
 
                 // Reversing the segment between the unlinks connects from with from and to with to.
                 let savings = edge_a.len + edge_b.len;
@@ -224,39 +190,35 @@ impl Tour<'_> {
 
                 let improvement = savings - cost;
 
-                (improvement > Self::MIN_IMPROVEMENT).then(|| TwoOpt {
-                    range: (edge_index_a.min(edge_index_b) + 1)..=edge_index_a.max(edge_index_b),
-                })
+                (improvement > Self::MIN_IMPROVEMENT).then_some(two_opt)
             },
         )
     }
 
     fn try_two_opt(
         &mut self,
-        tour_index: usize,
-        neighbors: &[StrokeKNearestNeighbors],
+        tour_index: TourIndex,
+        neighbors: &IndexedVec<StrokeIndex, StrokeKNearestNeighbors>,
         dlb: &mut DontLook,
     ) -> bool {
         let Some(two_opt) = self.next_two_opt_at(tour_index, neighbors) else {
             return false;
         };
 
-        let start = *two_opt.range.start();
-        let end = *two_opt.range.end();
-        dlb.enable(self, [start.saturating_sub(1), start, end, end + 1]);
+        dlb.enable(self, two_opt.modified());
         self.apply_two_opt(two_opt);
         true
     }
 
     fn find_best_link_swap(&self, origin: Point<f64>) -> Option<LinkSwap> {
-        let tour_start = self.start_point_of(0)?;
-        let tour_end_idx = self.len().saturating_sub(1);
-        let tour_end = self.end_point_of(tour_end_idx)?;
+        let tour_start = self.start_point(TourIndex::MIN);
+        let tour_end = self.end_point(self.last());
         let initial_origin_travel = (origin - tour_start).length();
 
-        (1..tour_end_idx)
-            .filter_map(|split_index| {
-                let split_edge = self.edge(split_index)?;
+        self.edge_indices()
+            .skip(1)
+            .filter_map(|split_edge_idx| {
+                let split_edge = self.edge(split_edge_idx);
 
                 // Change in travel from origin if the tour starts at `split_edge.from` instead of `tour_start`
                 let delta_origin_travel =
@@ -274,7 +236,7 @@ impl Tour<'_> {
                         split_edge.len
                             - ((tour_start - split_edge.to).length() + delta_origin_travel),
                     ),
-                    // Reversing both starts the tour at at split_edge.from and connects tour_start -> tour_end.
+                    // Reversing both starts the tour at split_edge.from and connects tour_start -> tour_end.
                     (
                         LinkSwapKind::Both,
                         split_edge.len - ((tour_start - tour_end).length() + delta_origin_travel),
@@ -283,8 +245,13 @@ impl Tour<'_> {
                 .into_iter()
                 .max_by(|(_, a), (_, b)| a.total_cmp(b))?;
 
-                (best_improvement > Self::MIN_IMPROVEMENT)
-                    .then_some((best_improvement, LinkSwap { kind, split_index }))
+                (best_improvement > Self::MIN_IMPROVEMENT).then_some((
+                    best_improvement,
+                    LinkSwap {
+                        kind,
+                        split_edge: split_edge_idx,
+                    },
+                ))
             })
             .max_by(|(imp_a, _), (imp_b, _)| imp_a.total_cmp(imp_b))
             .map(|(_, mov)| mov)
@@ -295,20 +262,19 @@ impl Tour<'_> {
             return false;
         };
 
-        let tour_end_idx = self.len().saturating_sub(1);
         if matches!(link_swap.kind, LinkSwapKind::Prefix | LinkSwapKind::Both) {
-            dlb.enable(self, 0..=link_swap.split_index);
+            dlb.enable(
+                self,
+                TourIndex::range_inclusive(TourIndex::MIN, link_swap.split_edge.start()),
+            );
         }
         if matches!(link_swap.kind, LinkSwapKind::Suffix | LinkSwapKind::Both) {
-            dlb.enable(self, (link_swap.split_index + 1)..=tour_end_idx);
+            dlb.enable(
+                self,
+                TourIndex::range_inclusive(link_swap.split_edge.end(), self.last()),
+            );
         }
-        dlb.enable(
-            self,
-            [
-                link_swap.split_index.saturating_sub(1),
-                (link_swap.split_index + 1).min(tour_end_idx),
-            ],
-        );
+        dlb.enable(self, link_swap.split_edge.nodes());
         self.apply_link_swap(link_swap);
         true
     }
@@ -318,7 +284,7 @@ impl Tour<'_> {
     /// Uses don't look bits to detect when a node with no known improvement may suddenly be able to change.
     pub fn local_improvement(
         &mut self,
-        neighbors: &[StrokeKNearestNeighbors],
+        neighbors: &IndexedVec<StrokeIndex, StrokeKNearestNeighbors>,
         origin: Point<f64>,
     ) -> bool {
         let tour_len = self.len();
@@ -326,7 +292,7 @@ impl Tour<'_> {
             return false;
         }
 
-        let mut dont_look = DontLook::new(tour_len);
+        let mut dont_look = DontLook::new(neighbors);
         let mut rng = rand::rng();
 
         let mut moves = 0;
@@ -334,10 +300,8 @@ impl Tour<'_> {
             let start_offset = rng.random_range(0..tour_len);
             let mut moves_in_iteration = 0;
 
-            for tour_idx in (start_offset..tour_len).chain(0..start_offset) {
-                let Some(stroke_idx) = self.tour_index_to_stroke_index(tour_idx) else {
-                    continue;
-                };
+            for tour_idx in self.rotated_node_indices_from(start_offset) {
+                let stroke_idx = self[tour_idx].stroke_index();
 
                 if !dont_look.enabled(stroke_idx) {
                     continue;

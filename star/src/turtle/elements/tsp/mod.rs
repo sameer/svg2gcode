@@ -1,14 +1,16 @@
 mod crossings;
+mod index;
 mod local_search;
 mod moves;
+mod stroke_types;
 mod tour;
-mod types;
 
 use lyon_geom::{Point, point};
 
 use self::{
+    index::{IndexedVec, StrokeIndex},
+    stroke_types::{StrokeKNearestNeighbors, StrokePointData},
     tour::Tour,
-    types::{StrokeKNearestNeighbors, StrokePointData},
 };
 use crate::turtle::Stroke;
 
@@ -26,7 +28,7 @@ pub fn minimize_travel_time(strokes: Vec<Stroke>, origin: [Option<f64>; 2]) -> V
         .zip(origin[1])
         .map_or(first.start_point(), |(x, y)| point(x, y));
 
-    let stroke_points: Vec<(Point<f64>, Point<f64>)> = strokes
+    let stroke_points: IndexedVec<StrokeIndex, (Point<f64>, Point<f64>)> = strokes
         .iter()
         .map(|s| (s.start_point(), s.end_point()))
         .collect();
