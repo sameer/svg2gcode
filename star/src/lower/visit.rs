@@ -396,7 +396,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                 );
                 flattened_transform = viewport_transform.then(&flattened_transform);
             }
-            if self.coordinate_system == CoordinateSystem::YUp {
+            if self.coordinate_system == CoordinateSystem::YUp && node.parent_element().is_none() {
                 // Part 2 of converting from SVG (Y-down) to output (Y-up) coordinates:
                 // shift the origin from the top-left to the bottom-left of the viewport.
                 flattened_transform = flattened_transform.then(&Transform2D::translation(
