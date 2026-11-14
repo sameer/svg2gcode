@@ -892,13 +892,19 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
                 })
         };
 
+        let local_bbox = || {
+            let Some(world_to_local) = self.terrarium.current_transform_inverse() else {
+                warn!("Non-invertible transform for objectBoundingBox pattern");
+                return None;
+            };
+            Some(world_to_local.outer_transformed_box(&container_bbox))
+        };
+
         let [width, height, x, y] = match pattern_attr("patternUnits") {
             Some("objectBoundingBox") | None => {
-                let Some(world_to_local) = self.terrarium.current_transform_inverse() else {
-                    warn!("Non-invertible transform for objectBoundingBox pattern");
+                let Some(local_bbox) = local_bbox() else {
                     return;
                 };
-                let local_bbox = world_to_local.outer_transformed_box(&container_bbox);
                 self.viewport_dim_stack.push([1., 1.]);
                 let [w, h, x, y] =
                     ["width", "height", "x", "y"].map(|a| pattern_length_attr(self, a));
@@ -942,9 +948,32 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
             parse_view_box(pattern_node).or_else(|| href_pattern_node.and_then(parse_view_box));
         let preserve_aspect_ratio = pattern_attr("preserveAspectRatio")
             .map(|attr| AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio"));
-        let viewport_transform = view_box.map_or_else(Transform2D::identity, |vb| {
-            get_viewport_transform(vb, preserve_aspect_ratio, [width, height], [None, None])
-        });
+        let (content_transform, pattern_viewport_dims) =
+            match (view_box, pattern_attr("patternContentUnits")) {
+                (Some(vb), _) => (
+                    get_viewport_transform(
+                        vb,
+                        preserve_aspect_ratio,
+                        [width, height],
+                        [None, None],
+                    ),
+                    [vb.w, vb.h],
+                ),
+                (None, Some("objectBoundingBox")) => {
+                    let Some(local_bbox) = local_bbox() else {
+                        return;
+                    };
+                    (
+                        Transform2D::scale(local_bbox.width(), local_bbox.height()),
+                        [1., 1.],
+                    )
+                }
+                (None, Some("userSpaceOnUse") | None) => (Transform2D::identity(), [width, height]),
+                (None, Some(other)) => {
+                    warn!("Invalid patternContentUnits attribute value: {other}");
+                    return;
+                }
+            };
 
         let target_pattern_node = if pattern_node.children().any(|c| c.is_element()) {
             // TODO: unclear what it would mean if there is an href element but the pattern also has its own children
@@ -975,6 +1004,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
         };
 
         self.terrarium.push_clip_layer(container_shapes);
+        self.viewport_dim_stack.push(pattern_viewport_dims);
 
         // Apply the pattern by repeated translation. Clipping crops the border patterns to the container.
         for col in min_col..=max_col {
@@ -983,7 +1013,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
                 // in the container. This is probably wasteful for a shape with holes.
                 let offset_transform =
                     Transform2D::translation(f64::from(col) * width, f64::from(row) * height);
-                let combined = viewport_transform
+                let combined = content_transform
                     .then(&pattern_origin_transform)
                     .then(&offset_transform)
                     .then(&pattern_transform);
@@ -997,6 +1027,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
             }
         }
 
+        self.viewport_dim_stack.pop();
         self.terrarium.pop_clip_layer();
     }
 }
