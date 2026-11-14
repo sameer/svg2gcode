@@ -394,7 +394,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                     viewport_size,
                     viewport_pos,
                 );
-                flattened_transform = flattened_transform.then(&viewport_transform);
+                flattened_transform = viewport_transform.then(&flattened_transform);
             }
             if self.coordinate_system == CoordinateSystem::YUp {
                 // Part 2 of converting from SVG (Y-down) to output (Y-up) coordinates:
@@ -444,7 +444,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                     viewport_size,
                     [None, None],
                 );
-                flattened_transform = flattened_transform.then(&viewport_transform);
+                flattened_transform = viewport_transform.then(&flattened_transform);
                 // Does not need Y-axis translation unlike <svg>, already in g-code coords space.
             }
             view_box_opt = view_box;
