@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, fmt::Debug};
+use std::{borrow::Cow, fmt::Debug};
 
 use lyon_geom::euclid::default::Transform2D;
 use roxmltree::{Document, Node};
@@ -103,13 +103,13 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
     /// Parsed CSS include selector — only draw elements that match (or are inside a matching ancestor)
     selector_filter: Option<selector::SelectorList>,
     /// Resolved CSS class rules
-    css_rules: HashMap<&'input str, HashMap<&'input str, &'input str>>,
+    css_rules: &'a visit::CssRules<'input>,
     /// Stack of active template expansion scopes.
     expansion_stack: Vec<TemplatedExpansion>,
     /// Tracks whether `<svg>` / `<symbol>` pushed a viewport scope onto `viewport_dim_stack` / `terrarium`.
     viewport_pushed_stack: Vec<bool>,
-    /// Width/height overrides from enclosings `<use>` elements when expanding `<symbol>`s.
-    use_size_stack: Vec<[Option<f64>; 2]>,
+    /// Enclosing `<use>` node IDs and width/height overrides for `<symbol>` expansion & inheritance.
+    use_stack: Vec<(roxmltree::NodeId, [Option<f64>; 2])>,
 }
 
 impl<T: Turtle> ConversionVisitor<'_, '_, T> {
@@ -153,6 +153,8 @@ pub fn svg_to_turtle<T: Turtle>(
         .as_deref()
         .map(|s| selector::SelectorList::parse(s).expect("invalid selector_filter"));
 
+    let css_rules = visit::parse_css(doc);
+
     let bounding_box_generator = || {
         let mut visitor = ConversionVisitor {
             terrarium: Terrarium::new(DpiConvertingTurtle::new(
@@ -165,10 +167,10 @@ pub fn svg_to_turtle<T: Turtle>(
             name_stack: vec![],
             viewport_dim_stack: vec![],
             selector_filter: selector_filter.clone(),
-            css_rules: visit::parse_css(doc),
+            css_rules: &css_rules,
             expansion_stack: vec![],
             viewport_pushed_stack: vec![],
-            use_size_stack: vec![],
+            use_stack: vec![],
         };
 
         visitor.begin();
@@ -210,10 +212,10 @@ pub fn svg_to_turtle<T: Turtle>(
         name_stack: vec![],
         viewport_dim_stack: vec![],
         selector_filter: selector_filter.clone(),
-        css_rules: visit::parse_css(doc),
+        css_rules: &css_rules,
         expansion_stack: vec![],
         viewport_pushed_stack: vec![],
-        use_size_stack: vec![],
+        use_stack: vec![],
     };
 
     conversion_visitor
@@ -228,6 +230,7 @@ pub fn svg_to_turtle<T: Turtle>(
             options,
             origin_transform,
             selector_filter,
+            &css_rules,
             coordinate_system,
             starting_point,
         );
@@ -242,12 +245,14 @@ pub fn svg_to_turtle<T: Turtle>(
     conversion_visitor.terrarium.finish().into_inner()
 }
 
-fn svg_to_optimized_strokes(
-    doc: &Document,
-    config: &ConversionConfig,
+#[allow(clippy::too_many_arguments)]
+fn svg_to_optimized_strokes<'a, 'input>(
+    doc: &Document<'input>,
+    config: &'a ConversionConfig,
     options: ConversionOptions,
     origin_transform: Transform2D<f64>,
     selector_filter: Option<SelectorList>,
+    css_rules: &'a visit::CssRules<'input>,
     coordinate_system: CoordinateSystem,
     starting_point: [Option<f64>; 2],
 ) -> Vec<Stroke> {
@@ -259,10 +264,10 @@ fn svg_to_optimized_strokes(
         name_stack: vec![],
         viewport_dim_stack: vec![],
         selector_filter,
-        css_rules: visit::parse_css(doc),
+        css_rules,
         expansion_stack: vec![],
         viewport_pushed_stack: vec![],
-        use_size_stack: vec![],
+        use_stack: vec![],
     };
     collect_visitor.terrarium.push_transform(origin_transform);
     collect_visitor.begin();

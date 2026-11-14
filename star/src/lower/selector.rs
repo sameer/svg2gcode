@@ -210,16 +210,11 @@ impl RelativeSelectorList {
     /// Matches if any relative selector finds a candidate under `node`.
     fn matches(&self, node: Node) -> bool {
         self.0.iter().any(|rel| {
-            let sel = &rel.selector;
-            match rel.leading {
-                None | Some(Combinator::Descendant) => {
-                    node.descendants().skip(1).any(|d| sel.matches(d))
-                }
-                Some(Combinator::Child) => node
-                    .children()
-                    .filter(roxmltree::Node::is_element)
-                    .any(|d| sel.matches(d)),
-            }
+            let leading = rel.leading.as_ref().unwrap_or(&Combinator::Descendant);
+            node.descendants()
+                .skip(1)
+                .filter(roxmltree::Node::is_element)
+                .any(|d| rel.selector.matches_relative(d, node, leading))
         })
     }
 }
@@ -228,28 +223,51 @@ impl CombinatorSelector {
     /// Match by working right-to-left: the rightmost compound must match the node,
     /// then each combinator+compound is satisfied working up the DOM with backtracking.
     fn matches(&self, node: Node) -> bool {
-        // The rightmost compound is the last entry in `rest`
-        let Some((_, rightmost)) = self.rest.last() else {
-            return self.first.matches(node);
-        };
-        rightmost.matches(node) && self.matches_left(self.rest.len() - 1, node)
+        self.matches_scoped(node, None)
     }
 
-    fn matches_left(&self, i: usize, current: Node) -> bool {
-        let (combinator, _) = &self.rest[i];
-        let target = if i == 0 {
+    fn matches_relative(&self, node: Node, scope_root: Node, leading: &Combinator) -> bool {
+        self.matches_scoped(node, Some((scope_root, leading)))
+    }
+
+    fn matches_scoped(&self, node: Node, scope: Option<(Node, &Combinator)>) -> bool {
+        let Some((_, rightmost)) = self.rest.last() else {
+            return self.first.matches(node)
+                && scope.is_none_or(|(root, leading)| match leading {
+                    Combinator::Descendant => true,
+                    Combinator::Child => node.parent() == Some(root),
+                });
+        };
+        rightmost.matches(node) && self.matches_left(self.rest.len() - 1, node, scope)
+    }
+
+    fn matches_left(&self, idx: usize, current: Node, scope: Option<(Node, &Combinator)>) -> bool {
+        let (combinator, _) = &self.rest[idx];
+        let target = if idx == 0 {
             &self.first
         } else {
-            &self.rest[i - 1].1
+            &self.rest[idx - 1].1
         };
 
         let satisfied = |candidate: Node| {
-            target.matches(candidate) && (i == 0 || self.matches_left(i - 1, candidate))
+            if let Some((root, leading)) = scope {
+                if candidate == root {
+                    return false;
+                }
+                if idx == 0
+                    && matches!(leading, Combinator::Child)
+                    && candidate.parent() != Some(root)
+                {
+                    return false;
+                }
+            }
+            target.matches(candidate) && (idx == 0 || self.matches_left(idx - 1, candidate, scope))
         };
 
         match combinator {
             Combinator::Descendant => {
                 std::iter::successors(current.parent(), roxmltree::Node::parent)
+                    .take_while(|n| scope.is_none_or(|(root, _)| *n != root))
                     .filter(roxmltree::Node::is_element)
                     .any(satisfied)
             }
@@ -501,5 +519,38 @@ mod tests {
             .find(|n| n.attribute("id") == Some("p1"))
             .unwrap();
         assert!(sel.matches(p1));
+    }
+
+    #[test]
+    fn test_has_scoping_does_not_match_host() {
+        let svg = r#"<svg>
+            <g id="direct">
+                <path/>
+            </g>
+            <g id="nested">
+                <g>
+                    <path/>
+                </g>
+            </g>
+        </svg>"#;
+        let doc = roxmltree::Document::parse(svg).unwrap();
+        let direct = doc
+            .root()
+            .descendants()
+            .find(|n| n.attribute("id") == Some("direct"))
+            .unwrap();
+        let nested = doc
+            .root()
+            .descendants()
+            .find(|n| n.attribute("id") == Some("nested"))
+            .unwrap();
+
+        let sel = SelectorList::parse(":has(g > path)").unwrap();
+        assert!(!sel.matches(direct));
+        assert!(sel.matches(nested));
+
+        let sel_child = SelectorList::parse(":has(> g > path)").unwrap();
+        assert!(!sel_child.matches(direct));
+        assert!(sel_child.matches(nested));
     }
 }

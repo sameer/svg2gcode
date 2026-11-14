@@ -99,39 +99,53 @@ impl TemplatedExpansion {
     }
 }
 
+pub(crate) type CssRules<'a> = HashMap<&'a str, HashMap<&'a str, (usize, &'a str)>>;
+
 /// Returns the effective value of the given presentation attribute (i.e. stroke),
 /// adhering to precedence rules and checking inheritance.
 ///
 /// 1. Inline style attribute
 /// 2. CSS class rules
 /// 3. Presentation attribute.
-fn calculate_presentation_attr<'input>(
-    node: Node<'input, 'input>,
-    name: &'input str,
-    css_rules: &HashMap<&'input str, HashMap<&'input str, &'input str>>,
-) -> Option<&'input str> {
-    for current in iter::successors(Some(node), Node::parent) {
-        if !current.is_element() {
-            continue;
+fn calculate_presentation_attr<'a, 'input: 'a>(
+    node: Node<'a, 'input>,
+    name: &str,
+    css_rules: &'a CssRules<'input>,
+    use_stack: &[(roxmltree::NodeId, [Option<f64>; 2])],
+) -> Option<&'a str> {
+    let find_in_ancestors = |start: Node<'a, 'input>| {
+        for current in iter::successors(Some(start), Node::parent) {
+            if !current.is_element() {
+                continue;
+            }
+            if let Some(val) = get_node_presentation_attr(current, name, css_rules) {
+                return Some(val);
+            }
+            if matches!(
+                current.tag_name().name(),
+                SVG_TAG_NAME | DEFS_TAG_NAME | SYMBOL_TAG_NAME | PATTERN_TAG_NAME
+            ) {
+                break;
+            }
         }
-        if let Some(val) = get_node_presentation_attr(current, name, css_rules) {
-            return Some(val);
-        }
-        if matches!(
-            current.tag_name().name(),
-            SVG_TAG_NAME | DEFS_TAG_NAME | SYMBOL_TAG_NAME | PATTERN_TAG_NAME
-        ) {
-            break;
-        }
-    }
-    None
+        None
+    };
+
+    find_in_ancestors(node).or_else(|| {
+        let doc = node.document();
+        use_stack
+            .iter()
+            .rev()
+            .filter_map(|&(id, _)| doc.get_node(id))
+            .find_map(find_in_ancestors)
+    })
 }
 
 /// Helper for [calculate_presentation_attr] that only checks the current node.
 fn get_node_presentation_attr<'a, 'input: 'a>(
     node: Node<'a, 'input>,
     name: &str,
-    css_rules: &HashMap<&'input str, HashMap<&'input str, &'input str>>,
+    css_rules: &'a CssRules<'input>,
 ) -> Option<&'a str> {
     node.attribute("style")
         .and_then(|style| {
@@ -144,7 +158,9 @@ fn get_node_presentation_attr<'a, 'input: 'a>(
             node.attribute("class").and_then(|classes| {
                 classes
                     .split_whitespace()
-                    .find_map(|cls| css_rules.get(cls)?.get(name).copied())
+                    .filter_map(|cls| css_rules.get(cls)?.get(name))
+                    .max_by_key(|(order, _)| *order)
+                    .map(|(_, val)| *val)
             })
         })
         .or_else(|| node.attribute(name).map(str::trim))
@@ -152,10 +168,11 @@ fn get_node_presentation_attr<'a, 'input: 'a>(
 
 /// Barebones CSS class rules parser.
 ///
-/// Returns a map from class name to property + value pairs. Only simple, flat class selectors
-/// (`.classname { prop: val; }`) are handled.
-pub fn parse_css<'a>(doc: &'a Document) -> HashMap<&'a str, HashMap<&'a str, &'a str>> {
-    let mut rules: HashMap<&str, HashMap<&str, &str>> = HashMap::new();
+/// Returns a map from class name to property + `(rule_order, value)` pairs. Only simple, flat
+/// class selectors (`.classname { prop: val; }`) are handled.
+pub(crate) fn parse_css<'a>(doc: &'a Document) -> CssRules<'a> {
+    let mut rules: CssRules<'a> = HashMap::new();
+    let mut rule_order = 0usize;
     for node in doc.descendants() {
         if node.tag_name().name() != "style" {
             continue;
@@ -184,7 +201,8 @@ pub fn parse_css<'a>(doc: &'a Document) -> HashMap<&'a str, HashMap<&'a str, &'a
                         let k = k.trim();
                         let v = v.trim();
                         if !k.is_empty() && !v.is_empty() {
-                            class_rules.insert(k, v);
+                            class_rules.insert(k, (rule_order, v));
+                            rule_order += 1;
                         }
                     }
                 }
@@ -262,8 +280,14 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         expanding_template: Option<TemplatedExpansion>,
     ) -> bool {
         is_renderable(node, expanding_template)
-            && get_node_presentation_attr(node, "display", &self.css_rules)
+            && get_node_presentation_attr(node, "display", self.css_rules)
                 .is_none_or(|v| !v.eq_ignore_ascii_case("none"))
+            && (!node.has_tag_name(SVG_TAG_NAME)
+                || self
+                    .svg_explicit_dimensions(node)
+                    .into_iter()
+                    .flatten()
+                    .all(|d| d > 0.))
     }
 
     fn should_draw_node(&self, node: Node<'a, 'input>) -> bool {
@@ -323,23 +347,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map(|attr| {
                 AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
             });
-            let mut viewport_size =
-                ["width", "height"].map(|attr| self.length_attr_to_user_units(&node, attr));
-
-            // SVG root only
-            if node.parent_element().is_none() {
-                let dimensions_override = [
-                    self.options.dimensions[0]
-                        .map(|l| self.length_to_user_units(l, DimensionHint::Horizontal)),
-                    self.options.dimensions[1]
-                        .map(|l| self.length_to_user_units(l, DimensionHint::Vertical)),
-                ];
-                for (original_dim, override_dim) in
-                    viewport_size.iter_mut().zip(dimensions_override)
-                {
-                    *original_dim = override_dim.or(*original_dim);
-                }
-            }
+            let viewport_size = self.svg_explicit_dimensions(node);
 
             // https://www.w3.org/TR/SVG/coords.html#SizingSVGInCSS
             // aka _natural_ aspect ratio
@@ -402,17 +410,23 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
             let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
             flattened_transform = flattened_transform.then(&Transform2D::translation(x, y));
-            self.use_size_stack.push([
-                self.length_attr_to_user_units(&node, "width"),
-                self.length_attr_to_user_units(&node, "height"),
-            ]);
+            self.use_stack.push((
+                node.id(),
+                [
+                    self.length_attr_to_user_units(&node, "width"),
+                    self.length_attr_to_user_units(&node, "height"),
+                ],
+            ));
         } else if node.has_tag_name(SYMBOL_TAG_NAME) {
             let view_box = parse_view_box(node);
             let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map(|attr| {
                 AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
             });
-            let use_size = self.use_size_stack.last().copied().unwrap_or([None, None]);
-            // Viewport size: use override, symbol's own width/height, viewBox dims, or parent viewport
+            let use_size = self
+                .use_stack
+                .last()
+                .map_or([None, None], |&(_, size)| size);
+            // Viewport size: <use> override, symbol's own width/height, viewBox dims, or parent viewport
             let viewport_size = match (
                 use_size[0].or_else(|| self.length_attr_to_user_units(&node, "width")),
                 use_size[1].or_else(|| self.length_attr_to_user_units(&node, "height")),
@@ -481,21 +495,23 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             return;
         }
 
-        let fill_attr = calculate_presentation_attr(node, "fill", &self.css_rules);
+        let fill_attr = calculate_presentation_attr(node, "fill", self.css_rules, &self.use_stack);
         // SVGs fill by default
         let has_fill_attr = fill_attr != Some("none");
-        let fill_rule = calculate_presentation_attr(node, "fill-rule", &self.css_rules)
-            .map_or_default(|v| {
-                if v == "evenodd" {
-                    FillRule::EvenOdd
-                } else {
-                    FillRule::NonZero
-                }
-            });
+        let fill_rule =
+            calculate_presentation_attr(node, "fill-rule", self.css_rules, &self.use_stack)
+                .map_or_default(|v| {
+                    if v == "evenodd" {
+                        FillRule::EvenOdd
+                    } else {
+                        FillRule::NonZero
+                    }
+                });
 
         // Default to false which is spec compliant.
-        let has_stroke_attr = calculate_presentation_attr(node, "stroke", &self.css_rules)
-            .is_some_and(|attr| attr != "none");
+        let has_stroke_attr =
+            calculate_presentation_attr(node, "stroke", self.css_rules, &self.use_stack)
+                .is_some_and(|attr| attr != "none");
 
         if !(has_stroke_attr || has_fill_attr || node.tag_name().name() == "image") {
             return;
@@ -785,6 +801,11 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             }
         };
 
+        let pattern_id = fill_attr
+            .and_then(get_pattern_id)
+            .filter(|_| has_fill_attr)
+            .and_then(|id| find_node_by_id(node.document(), id));
+
         if has_stroke_attr {
             self.comment();
             self.terrarium.apply_path(segments.iter().copied());
@@ -792,10 +813,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         if has_fill_attr {
             self.comment();
             // TODO: no idea what a vectorized gradient fill would mean practically speaking
-            if let Some(pattern_id) = fill_attr
-                .and_then(get_pattern_id)
-                .and_then(|id| find_node_by_id(node.document(), id))
-            {
+            if let Some(pattern_id) = pattern_id {
                 self.visit_pattern(node, pattern_id, segments, fill_rule);
             } else {
                 self.terrarium.apply_fill(segments, fill_rule);
@@ -811,7 +829,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             debug_assert_eq!(popped, Some(expected));
         }
         if node.has_tag_name(USE_TAG_NAME) {
-            self.use_size_stack.pop();
+            self.use_stack.pop();
         }
         if matches!(node.tag_name().name(), SVG_TAG_NAME | SYMBOL_TAG_NAME)
             && self.viewport_pushed_stack.pop() == Some(true)
@@ -826,8 +844,25 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
 }
 
 impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
+    fn svg_explicit_dimensions(&self, node: Node<'a, 'input>) -> [Option<f64>; 2] {
+        let mut size = ["width", "height"].map(|attr| self.length_attr_to_user_units(&node, attr));
+        // SVG root only
+        if node.parent_element().is_none() {
+            let overrides = [
+                self.options.dimensions[0]
+                    .map(|l| self.length_to_user_units(l, DimensionHint::Horizontal)),
+                self.options.dimensions[1]
+                    .map(|l| self.length_to_user_units(l, DimensionHint::Vertical)),
+            ];
+            for (orig, ovr) in size.iter_mut().zip(overrides) {
+                *orig = ovr.or(*orig);
+            }
+        }
+        size
+    }
+
     fn is_overflow_hidden(&self, node: Node<'a, 'input>) -> bool {
-        match calculate_presentation_attr(node, "overflow", &self.css_rules) {
+        match calculate_presentation_attr(node, "overflow", self.css_rules, &self.use_stack) {
             Some("hidden" | "scroll") => true,
             Some(_) => false,
             None => {
@@ -877,13 +912,19 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
                 })
         };
 
+        let local_bbox = || {
+            let Some(world_to_local) = self.terrarium.current_transform_inverse() else {
+                warn!("Non-invertible transform for objectBoundingBox pattern");
+                return None;
+            };
+            Some(world_to_local.outer_transformed_box(&container_bbox))
+        };
+
         let [width, height, x, y] = match pattern_attr("patternUnits") {
             Some("objectBoundingBox") | None => {
-                let Some(world_to_local) = self.terrarium.current_transform_inverse() else {
-                    warn!("Non-invertible transform for objectBoundingBox pattern");
+                let Some(local_bbox) = local_bbox() else {
                     return;
                 };
-                let local_bbox = world_to_local.outer_transformed_box(&container_bbox);
                 self.viewport_dim_stack.push([1., 1.]);
                 let [w, h, x, y] =
                     ["width", "height", "x", "y"].map(|a| pattern_length_attr(self, a));
@@ -927,9 +968,32 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
             parse_view_box(pattern_node).or_else(|| href_pattern_node.and_then(parse_view_box));
         let preserve_aspect_ratio = pattern_attr("preserveAspectRatio")
             .map(|attr| AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio"));
-        let viewport_transform = view_box.map_or_else(Transform2D::identity, |vb| {
-            get_viewport_transform(vb, preserve_aspect_ratio, [width, height], [None, None])
-        });
+        let (content_transform, pattern_viewport_dims) =
+            match (view_box, pattern_attr("patternContentUnits")) {
+                (Some(vb), _) => (
+                    get_viewport_transform(
+                        vb,
+                        preserve_aspect_ratio,
+                        [width, height],
+                        [None, None],
+                    ),
+                    [vb.w, vb.h],
+                ),
+                (None, Some("objectBoundingBox")) => {
+                    let Some(local_bbox) = local_bbox() else {
+                        return;
+                    };
+                    (
+                        Transform2D::scale(local_bbox.width(), local_bbox.height()),
+                        [1., 1.],
+                    )
+                }
+                (None, Some("userSpaceOnUse") | None) => (Transform2D::identity(), [width, height]),
+                (None, Some(other)) => {
+                    warn!("Invalid patternContentUnits attribute value: {other}");
+                    return;
+                }
+            };
 
         let target_pattern_node = if pattern_node.children().any(|c| c.is_element()) {
             // TODO: unclear what it would mean if there is an href element but the pattern also has its own children
@@ -960,6 +1024,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
         };
 
         self.terrarium.push_clip_layer(container_shapes);
+        self.viewport_dim_stack.push(pattern_viewport_dims);
 
         // Apply the pattern by repeated translation. Clipping crops the border patterns to the container.
         for col in min_col..=max_col {
@@ -968,7 +1033,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
                 // in the container. This is probably wasteful for a shape with holes.
                 let offset_transform =
                     Transform2D::translation(f64::from(col) * width, f64::from(row) * height);
-                let combined = viewport_transform
+                let combined = content_transform
                     .then(&pattern_origin_transform)
                     .then(&offset_transform)
                     .then(&pattern_transform);
@@ -982,6 +1047,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
             }
         }
 
+        self.viewport_dim_stack.pop();
         self.terrarium.pop_clip_layer();
     }
 }
