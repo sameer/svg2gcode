@@ -28,8 +28,8 @@ const TEXT_TAG_NAME: &str = "text";
 const TEXT_PATH_TAG_NAME: &str = "textPath";
 const VIEW_TAG_NAME: &str = "view";
 const MASK_TAG_NAME: &str = "mask";
-#[cfg_attr(not(feature = "image"), expect(unused))]
-const IMAGE_TAG_NAME: &str = "image";
+#[cfg(feature = "image")]
+use crate::lower::elements::{IMAGE_TAG_NAME, ImageElement};
 
 pub trait XmlVisitor<'a, 'input> {
     fn visit_dfs(
@@ -365,71 +365,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
 
         #[cfg(feature = "image")]
         if node.tag_name().name() == IMAGE_TAG_NAME {
-            use base64::{Engine, engine::general_purpose::STANDARD};
-
-            let Some(href) = node
-                .attribute("href")
-                .or_else(|| node.attribute(("http://www.w3.org/1999/xlink", "href")))
-            else {
-                warn!("image element has no href: {node:?}");
-                return;
-            };
-            let Some(b64) = href
-                .strip_prefix("data:image/png;base64,")
-                .or_else(|| href.strip_prefix("data:image/jpeg;base64,"))
-            else {
-                warn!("Unsupported image href {href}");
-                return;
-            };
-
-            let b64_no_whitespace: String =
-                b64.chars().filter(|c| !c.is_ascii_whitespace()).collect();
-            let bytes = match STANDARD.decode(&b64_no_whitespace) {
-                Ok(bytes) => bytes,
-                Err(err) => {
-                    warn!("image base64 decode failed: {err}");
-                    return;
-                }
-            };
-            let image = match image::load_from_memory(&bytes) {
-                Ok(img) => img,
-                Err(e) => {
-                    warn!("image decode failed: {e}");
-                    return;
-                }
-            };
-
-            let x = self.length_attr_to_user_units(node, "x").unwrap_or(0.);
-            let y = self.length_attr_to_user_units(node, "y").unwrap_or(0.);
-            let width = self.length_attr_to_user_units(node, "width").unwrap_or(0.);
-            let height = self.length_attr_to_user_units(node, "height").unwrap_or(0.);
-
-            let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map_or(
-                svgtypes::AspectRatio {
-                    defer: false,
-                    align: svgtypes::Align::XMidYMid,
-                    slice: false,
-                },
-                |attr| AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio"),
-            );
-
-            let view_box = svgtypes::ViewBox {
-                x: 0.,
-                y: 0.,
-                w: f64::from(image.width()),
-                h: f64::from(image.height()),
-            };
-            let image_to_user = get_viewport_transform(
-                view_box,
-                Some(preserve_aspect_ratio),
-                [width, height],
-                [Some(x), Some(y)],
-            );
-
-            self.comment();
-            self.terrarium
-                .image(image, image_to_user, preserve_aspect_ratio);
-
+            ImageElement(node).render(self);
             return;
         }
 
