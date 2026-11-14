@@ -2,7 +2,7 @@ use std::{collections::HashMap, iter, result::Result, str::FromStr};
 
 use euclid::default::Transform2D;
 use log::{debug, warn};
-use lyon_geom::{Box2D, Point};
+use lyon_geom::{Box2D, Point, vector};
 use roxmltree::{Document, Node};
 use smallvec::{SmallVec, smallvec};
 use svgtypes::{
@@ -37,6 +37,7 @@ const PATTERN_TAG_NAME: &str = "pattern";
 const TEXT_TAG_NAME: &str = "text";
 const TEXT_PATH_TAG_NAME: &str = "textPath";
 const VIEW_TAG_NAME: &str = "view";
+const MASK_TAG_NAME: &str = "mask";
 
 pub trait XmlVisitor<'a, 'input> {
     fn visit_dfs(
@@ -214,13 +215,12 @@ pub(crate) fn parse_css<'a>(doc: &'a Document) -> CssRules<'a> {
 
 /// Used to skip over non-element nodes and unreferenced template elements.
 fn is_renderable(node: Node, expanding_template: Option<TemplatedExpansion>) -> bool {
+    let tag_name = node.tag_name().name();
     node.is_element()
+        && !matches!(tag_name, DEFS_TAG_NAME | CLIP_PATH_TAG_NAME | MASK_TAG_NAME)
         // Template elements are not directly rendered, unless referenced
         && (expanding_template.is_some()
-            || !matches!(
-                node.tag_name().name(),
-                DEFS_TAG_NAME | MARKER_TAG_NAME | PATTERN_TAG_NAME | SYMBOL_TAG_NAME | CLIP_PATH_TAG_NAME
-            ))
+            || !matches!(tag_name, MARKER_TAG_NAME | PATTERN_TAG_NAME | SYMBOL_TAG_NAME))
 }
 
 fn find_node_by_id<'a, 'input>(doc: &'a Document<'input>, id: &str) -> Option<Node<'a, 'input>> {
@@ -295,7 +295,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             || self
                 .selector_filter
                 .as_ref()
-                .is_none_or(|s| node.ancestors().any(|a| a.is_element() && s.matches(a)))
+                .is_none_or(|s| s.matches(node))
     }
 
     fn visit_enter(&mut self, node: Node<'a, 'input>) {
@@ -394,9 +394,14 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                     viewport_size,
                     viewport_pos,
                 );
-                flattened_transform = flattened_transform.then(&viewport_transform);
+                flattened_transform = viewport_transform.then(&flattened_transform);
+            } else {
+                let [px, py] = viewport_pos.map(Option::unwrap_or_default);
+                if px != 0. || py != 0. {
+                    flattened_transform = flattened_transform.pre_translate(vector(px, py));
+                }
             }
-            if self.coordinate_system == CoordinateSystem::YUp {
+            if self.coordinate_system == CoordinateSystem::YUp && node.parent_element().is_none() {
                 // Part 2 of converting from SVG (Y-down) to output (Y-up) coordinates:
                 // shift the origin from the top-left to the bottom-left of the viewport.
                 flattened_transform = flattened_transform.then(&Transform2D::translation(
@@ -433,6 +438,8 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                 &view_box,
             ) {
                 (Some(w), Some(h), _) => [w, h],
+                (Some(w), None, Some(vb)) => [w, w * vb.h / vb.w],
+                (None, Some(h), Some(vb)) => [h * vb.w / vb.h, h],
                 (_, _, Some(vb)) => [vb.w, vb.h],
                 _ => *self.viewport_dim_stack.last().unwrap_or(&[1., 1.]),
             };
@@ -444,7 +451,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                     viewport_size,
                     [None, None],
                 );
-                flattened_transform = flattened_transform.then(&viewport_transform);
+                flattened_transform = viewport_transform.then(&flattened_transform);
                 // Does not need Y-axis translation unlike <svg>, already in g-code coords space.
             }
             view_box_opt = view_box;
@@ -641,11 +648,12 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                 .collect()
             }
             CIRCLE_TAG_NAME | ELLIPSE_TAG_NAME => {
-                let cx = self.length_attr_to_user_units(&node, "cx").unwrap_or(0.);
-                let cy = self.length_attr_to_user_units(&node, "cy").unwrap_or(0.);
-                let r = self.length_attr_to_user_units(&node, "r").unwrap_or(0.);
-                let rx = self.length_attr_to_user_units(&node, "rx").unwrap_or(r);
-                let ry = self.length_attr_to_user_units(&node, "ry").unwrap_or(r);
+                let [cx, cy, r, rx_attr, ry_attr] = ["cx", "cy", "r", "rx", "ry"]
+                    .map(|attr| self.length_attr_to_user_units(&node, attr));
+                let [cx, cy, r] = [cx, cy, r].map(Option::unwrap_or_default);
+                let rx = rx_attr.or(ry_attr).unwrap_or(r);
+                let ry = ry_attr.or(rx_attr).unwrap_or(r);
+
                 if rx <= 0. || ry <= 0. {
                     warn!("Invalid {} node: {node:?}", node.tag_name().name());
                     return;
@@ -700,15 +708,9 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                 ]
             }
             LINE_TAG_NAME => {
-                let (Some(x1), Some(y1), Some(x2), Some(y2)) = (
-                    self.length_attr_to_user_units(&node, "x1"),
-                    self.length_attr_to_user_units(&node, "y1"),
-                    self.length_attr_to_user_units(&node, "x2"),
-                    self.length_attr_to_user_units(&node, "y2"),
-                ) else {
-                    warn!("Invalid line node: {node:?}");
-                    return;
-                };
+                let [x1, y1, x2, y2] = ["x1", "y1", "x2", "y2"]
+                    .map(|attr| self.length_attr_to_user_units(&node, attr))
+                    .map(Option::unwrap_or_default);
                 smallvec![
                     MoveTo {
                         abs: true,
@@ -810,7 +812,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             self.comment();
             self.terrarium.apply_path(segments.iter().copied());
         }
-        if has_fill_attr {
+        if has_fill_attr && !node.has_tag_name(LINE_TAG_NAME) {
             self.comment();
             // TODO: no idea what a vectorized gradient fill would mean practically speaking
             if let Some(pattern_id) = pattern_id {
@@ -880,6 +882,11 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
         container_segments: impl IntoIterator<Item = PathSegment>,
         fill_rule: FillRule,
     ) {
+        let pattern_id = pattern_node.id();
+        if self.pattern_stack.contains(&pattern_id) {
+            warn!("Cyclic <pattern> reference detected: {pattern_node:?}");
+            return;
+        }
         let doc = container.document();
         let container_shapes = self.terrarium.to_shapes(container_segments, fill_rule);
         let [first, rest @ ..] = container_shapes.as_slice() else {
@@ -1027,6 +1034,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
         self.viewport_dim_stack.push(pattern_viewport_dims);
 
         // Apply the pattern by repeated translation. Clipping crops the border patterns to the container.
+        self.pattern_stack.push(pattern_id);
         for col in min_col..=max_col {
             for row in min_row..=max_row {
                 // TODO: use a fast container checks to verify that some point in the pattern bbox is even
@@ -1047,6 +1055,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
             }
         }
 
+        self.pattern_stack.pop();
         self.viewport_dim_stack.pop();
         self.terrarium.pop_clip_layer();
     }
