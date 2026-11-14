@@ -43,7 +43,7 @@ impl<T: Turtle> ConversionVisitor<'_, '_, T> {
     /// Convenience function for converting [`Length`] to user units
     ///
     /// Absolute lengths are listed in [CSS 4 §6.2](https://www.w3.org/TR/css-values/#absolute-lengths).
-    /// Relative lengths in [CSS 4 §6.1](https://www.w3.org/TR/css-values/#relative-lengths) are not supported and will simply be interpreted as millimeters.
+    /// Relative lengths in [CSS 4 §6.1](https://www.w3.org/TR/css-values/#relative-lengths) assume `1em = 2ex = 16px`.
     ///
     /// A default DPI of 96 is used as per [CSS 4 §7.4](https://www.w3.org/TR/css-values/#resolution)
     pub fn length_to_user_units(&self, l: Length, hint: DimensionHint) -> f64 {
@@ -61,9 +61,13 @@ impl<T: Turtle> ConversionVisitor<'_, '_, T> {
             Pt => Length::new::<point_computer>(l.number).get::<inch>() * CSS_DEFAULT_DPI,
             // https://www.w3.org/TR/SVG/coords.html#ViewportSpace says None should be treated as Px
             Px | None => l.number,
-            Em | Ex => {
-                warn!("Converting from em/ex to millimeters assumes 1em/ex = 16px");
+            Em => {
+                warn!("Converting from em to millimeters assumes 1em = 16px");
                 16. * l.number
+            }
+            Ex => {
+                warn!("Converting from ex to millimeters assumes 1ex = 8px");
+                8. * l.number
             }
             // https://www.w3.org/TR/SVG/coords.html#Units
             Percent => {
