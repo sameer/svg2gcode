@@ -37,6 +37,7 @@ const PATTERN_TAG_NAME: &str = "pattern";
 const TEXT_TAG_NAME: &str = "text";
 const TEXT_PATH_TAG_NAME: &str = "textPath";
 const VIEW_TAG_NAME: &str = "view";
+const MASK_TAG_NAME: &str = "mask";
 
 pub trait XmlVisitor<'a, 'input> {
     fn visit_dfs(
@@ -216,7 +217,7 @@ pub(crate) fn parse_css<'a>(doc: &'a Document) -> CssRules<'a> {
 fn is_renderable(node: Node, expanding_template: Option<TemplatedExpansion>) -> bool {
     let tag_name = node.tag_name().name();
     node.is_element()
-        && !matches!(tag_name, DEFS_TAG_NAME | CLIP_PATH_TAG_NAME)
+        && !matches!(tag_name, DEFS_TAG_NAME | CLIP_PATH_TAG_NAME | MASK_TAG_NAME)
         // Template elements are not directly rendered, unless referenced
         && (expanding_template.is_some()
             || !matches!(tag_name, MARKER_TAG_NAME | PATTERN_TAG_NAME | SYMBOL_TAG_NAME))
