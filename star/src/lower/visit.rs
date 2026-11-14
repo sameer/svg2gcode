@@ -268,7 +268,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         expanding_template: Option<TemplatedExpansion>,
     ) -> bool {
         is_renderable(node, expanding_template)
-            && get_node_presentation_attr(node, "display", &self.css_rules)
+            && get_node_presentation_attr(node, "display", self.css_rules)
                 .is_none_or(|v| !v.eq_ignore_ascii_case("none"))
             && (!node.has_tag_name(SVG_TAG_NAME)
                 || self
@@ -477,10 +477,10 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             return;
         }
 
-        let fill_attr = calculate_presentation_attr(node, "fill", &self.css_rules);
+        let fill_attr = calculate_presentation_attr(node, "fill", self.css_rules);
         // SVGs fill by default
         let has_fill_attr = fill_attr != Some("none");
-        let fill_rule = calculate_presentation_attr(node, "fill-rule", &self.css_rules)
+        let fill_rule = calculate_presentation_attr(node, "fill-rule", self.css_rules)
             .map_or_default(|v| {
                 if v == "evenodd" {
                     FillRule::EvenOdd
@@ -490,7 +490,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             });
 
         // Default to false which is spec compliant.
-        let has_stroke_attr = calculate_presentation_attr(node, "stroke", &self.css_rules)
+        let has_stroke_attr = calculate_presentation_attr(node, "stroke", self.css_rules)
             .is_some_and(|attr| attr != "none");
 
         if !(has_stroke_attr || has_fill_attr || node.tag_name().name() == "image") {
@@ -842,7 +842,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
     }
 
     fn is_overflow_hidden(&self, node: Node<'a, 'input>) -> bool {
-        match calculate_presentation_attr(node, "overflow", &self.css_rules) {
+        match calculate_presentation_attr(node, "overflow", self.css_rules) {
             Some("hidden" | "scroll") => true,
             Some(_) => false,
             None => {
