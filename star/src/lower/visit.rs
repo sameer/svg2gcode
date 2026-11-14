@@ -879,6 +879,11 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
         container_segments: impl IntoIterator<Item = PathSegment>,
         fill_rule: FillRule,
     ) {
+        let pattern_id = pattern_node.id();
+        if self.pattern_stack.contains(&pattern_id) {
+            warn!("Cyclic <pattern> reference detected: {pattern_node:?}");
+            return;
+        }
         let doc = container.document();
         let container_shapes = self.terrarium.to_shapes(container_segments, fill_rule);
         let [first, rest @ ..] = container_shapes.as_slice() else {
@@ -1026,6 +1031,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
         self.viewport_dim_stack.push(pattern_viewport_dims);
 
         // Apply the pattern by repeated translation. Clipping crops the border patterns to the container.
+        self.pattern_stack.push(pattern_id);
         for col in min_col..=max_col {
             for row in min_row..=max_row {
                 // TODO: use a fast container checks to verify that some point in the pattern bbox is even
@@ -1046,6 +1052,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
             }
         }
 
+        self.pattern_stack.pop();
         self.viewport_dim_stack.pop();
         self.terrarium.pop_clip_layer();
     }

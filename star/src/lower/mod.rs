@@ -110,6 +110,8 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
     viewport_pushed_stack: Vec<bool>,
     /// Enclosing `<use>` node IDs and width/height overrides for `<symbol>` expansion & inheritance.
     use_stack: Vec<(roxmltree::NodeId, [Option<f64>; 2])>,
+    /// Active stack of expanding `<pattern>` node IDs to avoid recursion.
+    pattern_stack: Vec<roxmltree::NodeId>,
 }
 
 impl<T: Turtle> ConversionVisitor<'_, '_, T> {
@@ -171,6 +173,7 @@ pub fn svg_to_turtle<T: Turtle>(
             expansion_stack: vec![],
             viewport_pushed_stack: vec![],
             use_stack: vec![],
+            pattern_stack: vec![],
         };
 
         visitor.begin();
@@ -216,6 +219,7 @@ pub fn svg_to_turtle<T: Turtle>(
         expansion_stack: vec![],
         viewport_pushed_stack: vec![],
         use_stack: vec![],
+        pattern_stack: vec![],
     };
 
     conversion_visitor
@@ -268,6 +272,7 @@ fn svg_to_optimized_strokes<'a, 'input>(
         expansion_stack: vec![],
         viewport_pushed_stack: vec![],
         use_stack: vec![],
+        pattern_stack: vec![],
     };
     collect_visitor.terrarium.push_transform(origin_transform);
     collect_visitor.begin();
