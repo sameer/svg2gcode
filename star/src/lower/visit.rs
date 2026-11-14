@@ -270,6 +270,12 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         is_renderable(node, expanding_template)
             && get_node_presentation_attr(node, "display", &self.css_rules)
                 .is_none_or(|v| !v.eq_ignore_ascii_case("none"))
+            && (!node.has_tag_name(SVG_TAG_NAME)
+                || self
+                    .svg_explicit_dimensions(node)
+                    .into_iter()
+                    .flatten()
+                    .all(|d| d > 0.))
     }
 
     fn should_draw_node(&self, node: Node<'a, 'input>) -> bool {
@@ -329,23 +335,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map(|attr| {
                 AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
             });
-            let mut viewport_size =
-                ["width", "height"].map(|attr| self.length_attr_to_user_units(&node, attr));
-
-            // SVG root only
-            if node.parent_element().is_none() {
-                let dimensions_override = [
-                    self.options.dimensions[0]
-                        .map(|l| self.length_to_user_units(l, DimensionHint::Horizontal)),
-                    self.options.dimensions[1]
-                        .map(|l| self.length_to_user_units(l, DimensionHint::Vertical)),
-                ];
-                for (original_dim, override_dim) in
-                    viewport_size.iter_mut().zip(dimensions_override)
-                {
-                    *original_dim = override_dim.or(*original_dim);
-                }
-            }
+            let viewport_size = self.svg_explicit_dimensions(node);
 
             // https://www.w3.org/TR/SVG/coords.html#SizingSVGInCSS
             // aka _natural_ aspect ratio
@@ -791,6 +781,11 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             }
         };
 
+        let pattern_id = fill_attr
+            .and_then(get_pattern_id)
+            .filter(|_| has_fill_attr)
+            .and_then(|id| find_node_by_id(node.document(), id));
+
         if has_stroke_attr {
             self.comment();
             self.terrarium.apply_path(segments.iter().copied());
@@ -798,10 +793,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         if has_fill_attr {
             self.comment();
             // TODO: no idea what a vectorized gradient fill would mean practically speaking
-            if let Some(pattern_id) = fill_attr
-                .and_then(get_pattern_id)
-                .and_then(|id| find_node_by_id(node.document(), id))
-            {
+            if let Some(pattern_id) = pattern_id {
                 self.visit_pattern(node, pattern_id, segments, fill_rule);
             } else {
                 self.terrarium.apply_fill(segments, fill_rule);
@@ -832,6 +824,23 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
 }
 
 impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
+    fn svg_explicit_dimensions(&self, node: Node<'a, 'input>) -> [Option<f64>; 2] {
+        let mut size = ["width", "height"].map(|attr| self.length_attr_to_user_units(&node, attr));
+        // SVG root only
+        if node.parent_element().is_none() {
+            let overrides = [
+                self.options.dimensions[0]
+                    .map(|l| self.length_to_user_units(l, DimensionHint::Horizontal)),
+                self.options.dimensions[1]
+                    .map(|l| self.length_to_user_units(l, DimensionHint::Vertical)),
+            ];
+            for (orig, ovr) in size.iter_mut().zip(overrides) {
+                *orig = ovr.or(*orig);
+            }
+        }
+        size
+    }
+
     fn is_overflow_hidden(&self, node: Node<'a, 'input>) -> bool {
         match calculate_presentation_attr(node, "overflow", &self.css_rules) {
             Some("hidden" | "scroll") => true,
