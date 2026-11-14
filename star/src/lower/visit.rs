@@ -705,15 +705,9 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                 ]
             }
             LINE_TAG_NAME => {
-                let (Some(x1), Some(y1), Some(x2), Some(y2)) = (
-                    self.length_attr_to_user_units(&node, "x1"),
-                    self.length_attr_to_user_units(&node, "y1"),
-                    self.length_attr_to_user_units(&node, "x2"),
-                    self.length_attr_to_user_units(&node, "y2"),
-                ) else {
-                    warn!("Invalid line node: {node:?}");
-                    return;
-                };
+                let [x1, y1, x2, y2] = ["x1", "y1", "x2", "y2"]
+                    .map(|attr| self.length_attr_to_user_units(&node, attr))
+                    .map(Option::unwrap_or_default);
                 smallvec![
                     MoveTo {
                         abs: true,
