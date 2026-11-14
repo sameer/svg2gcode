@@ -99,17 +99,19 @@ impl TemplatedExpansion {
     }
 }
 
+pub(crate) type CssRules<'a> = HashMap<&'a str, HashMap<&'a str, (usize, &'a str)>>;
+
 /// Returns the effective value of the given presentation attribute (i.e. stroke),
 /// adhering to precedence rules and checking inheritance.
 ///
 /// 1. Inline style attribute
 /// 2. CSS class rules
 /// 3. Presentation attribute.
-fn calculate_presentation_attr<'input>(
-    node: Node<'input, 'input>,
-    name: &'input str,
-    css_rules: &HashMap<&'input str, HashMap<&'input str, &'input str>>,
-) -> Option<&'input str> {
+fn calculate_presentation_attr<'a, 'input: 'a>(
+    node: Node<'a, 'input>,
+    name: &str,
+    css_rules: &'a CssRules<'input>,
+) -> Option<&'a str> {
     for current in iter::successors(Some(node), Node::parent) {
         if !current.is_element() {
             continue;
@@ -131,7 +133,7 @@ fn calculate_presentation_attr<'input>(
 fn get_node_presentation_attr<'a, 'input: 'a>(
     node: Node<'a, 'input>,
     name: &str,
-    css_rules: &HashMap<&'input str, HashMap<&'input str, &'input str>>,
+    css_rules: &'a CssRules<'input>,
 ) -> Option<&'a str> {
     node.attribute("style")
         .and_then(|style| {
@@ -144,7 +146,9 @@ fn get_node_presentation_attr<'a, 'input: 'a>(
             node.attribute("class").and_then(|classes| {
                 classes
                     .split_whitespace()
-                    .find_map(|cls| css_rules.get(cls)?.get(name).copied())
+                    .filter_map(|cls| css_rules.get(cls)?.get(name))
+                    .max_by_key(|(order, _)| *order)
+                    .map(|(_, val)| *val)
             })
         })
         .or_else(|| node.attribute(name).map(str::trim))
@@ -152,10 +156,11 @@ fn get_node_presentation_attr<'a, 'input: 'a>(
 
 /// Barebones CSS class rules parser.
 ///
-/// Returns a map from class name to property + value pairs. Only simple, flat class selectors
-/// (`.classname { prop: val; }`) are handled.
-pub fn parse_css<'a>(doc: &'a Document) -> HashMap<&'a str, HashMap<&'a str, &'a str>> {
-    let mut rules: HashMap<&str, HashMap<&str, &str>> = HashMap::new();
+/// Returns a map from class name to property + `(rule_order, value)` pairs. Only simple, flat
+/// class selectors (`.classname { prop: val; }`) are handled.
+pub(crate) fn parse_css<'a>(doc: &'a Document) -> CssRules<'a> {
+    let mut rules: CssRules<'a> = HashMap::new();
+    let mut rule_order = 0usize;
     for node in doc.descendants() {
         if node.tag_name().name() != "style" {
             continue;
@@ -184,7 +189,8 @@ pub fn parse_css<'a>(doc: &'a Document) -> HashMap<&'a str, HashMap<&'a str, &'a
                         let k = k.trim();
                         let v = v.trim();
                         if !k.is_empty() && !v.is_empty() {
-                            class_rules.insert(k, v);
+                            class_rules.insert(k, (rule_order, v));
+                            rule_order += 1;
                         }
                     }
                 }

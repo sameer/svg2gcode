@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, fmt::Debug};
+use std::{borrow::Cow, fmt::Debug};
 
 use lyon_geom::euclid::default::Transform2D;
 use roxmltree::{Document, Node};
@@ -103,7 +103,7 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
     /// Parsed CSS include selector — only draw elements that match (or are inside a matching ancestor)
     selector_filter: Option<selector::SelectorList>,
     /// Resolved CSS class rules
-    css_rules: HashMap<&'input str, HashMap<&'input str, &'input str>>,
+    css_rules: visit::CssRules<'input>,
     /// Stack of active template expansion scopes.
     expansion_stack: Vec<TemplatedExpansion>,
     /// Tracks whether `<svg>` / `<symbol>` pushed a viewport scope onto `viewport_dim_stack` / `terrarium`.
