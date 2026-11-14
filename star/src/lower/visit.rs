@@ -43,6 +43,7 @@ pub trait XmlVisitor<'a, 'input> {
         &mut self,
         start: Node<'a, 'input>,
         expanding_template: Option<TemplatedExpansion>,
+        active_nodes: &mut Vec<roxmltree::NodeId>,
     ) {
         let doc = start.document();
         let mut stack = vec![(start, true)];
@@ -50,19 +51,26 @@ pub trait XmlVisitor<'a, 'input> {
         while let Some((node, entering)) = stack.pop() {
             if !entering {
                 self.visit_exit(node);
+                active_nodes.pop();
                 continue;
             }
             if !should_render_node(node, expanding_template) {
                 continue;
             }
 
+            active_nodes.push(node.id());
             self.visit_enter(node);
             if node.tag_name().name() == USE_TAG_NAME
                 && let Some(referenced) = resolve_href(doc, node)
             {
-                // Expand the target
-                self.visit_dfs(referenced, Some(TemplatedExpansion::Use));
+                if active_nodes.contains(&referenced.id()) {
+                    warn!("Cyclic <use> detected: {node:?}");
+                } else {
+                    // Expand the target
+                    self.visit_dfs(referenced, Some(TemplatedExpansion::Use), active_nodes);
+                }
                 self.visit_exit(node);
+                active_nodes.pop();
             } else {
                 stack.extend(
                     iter::once((node, false)).chain(node.children().rev().map(|n| (n, true))),
@@ -228,7 +236,8 @@ pub fn depth_first_visit<'a, 'input, V: XmlVisitor<'a, 'input>>(
     visitor: &mut V,
 ) {
     for c in doc.root().children() {
-        visitor.visit_dfs(c, None);
+        let mut active_nodes = vec![];
+        visitor.visit_dfs(c, None, &mut active_nodes);
     }
 }
 
@@ -899,7 +908,13 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
                     .then(&pattern_transform);
 
                 self.terrarium.push_transform(combined);
-                self.visit_dfs(target_pattern_node, Some(TemplatedExpansion::Pattern));
+
+                let mut active_nodes = vec![];
+                self.visit_dfs(
+                    target_pattern_node,
+                    Some(TemplatedExpansion::Pattern),
+                    &mut active_nodes,
+                );
                 self.terrarium.pop_transform();
             }
         }
