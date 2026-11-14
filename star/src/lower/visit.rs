@@ -854,36 +854,74 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
         // TODO: does this handle xlink:href on a pattern correctly?
         // seems like we need some kind of recursion here
         let href_pattern_node = resolve_href(doc, pattern_node);
+        let pattern_attr = |attr: &str| {
+            pattern_node
+                .attribute(attr)
+                .or_else(|| href_pattern_node.and_then(|n| n.attribute(attr)))
+        };
 
-        let [Some(width), Some(height), x, y] = ["width", "height", "x", "y"].map(|attr| {
-            self.length_attr_to_user_units(&pattern_node, attr)
+        let pattern_length_attr = |visitor: &Self, attr: &str| {
+            visitor
+                .length_attr_to_user_units(&pattern_node, attr)
                 .or_else(|| {
                     href_pattern_node
-                        .and_then(|href_node| self.length_attr_to_user_units(&href_node, attr))
+                        .and_then(|href_node| visitor.length_attr_to_user_units(&href_node, attr))
                 })
-        }) else {
-            // width or height of 0 means do not render
+        };
+
+        let [width, height, x, y] = match pattern_attr("patternUnits") {
+            Some("objectBoundingBox") | None => {
+                let Some(world_to_local) = self.terrarium.current_transform_inverse() else {
+                    warn!("Non-invertible transform for objectBoundingBox pattern");
+                    return;
+                };
+                let local_bbox = world_to_local.outer_transformed_box(&container_bbox);
+                self.viewport_dim_stack.push([1., 1.]);
+                let [w, h, x, y] =
+                    ["width", "height", "x", "y"].map(|a| pattern_length_attr(self, a));
+                self.viewport_dim_stack.pop();
+                [
+                    w.map(|f| f * local_bbox.width()),
+                    h.map(|f| f * local_bbox.height()),
+                    Some(local_bbox.min.x + x.unwrap_or(0.) * local_bbox.width()),
+                    Some(local_bbox.min.y + y.unwrap_or(0.) * local_bbox.height()),
+                ]
+            }
+            Some("userSpaceOnUse") => {
+                ["width", "height", "x", "y"].map(|a| pattern_length_attr(self, a))
+            }
+            Some(other) => {
+                warn!("Invalid patternUnits attribute value: {other}");
+                return;
+            }
+        };
+
+        // width or height missing means do not render
+        let (Some(width), Some(height)) = (width, height) else {
             return;
         };
-        if width == 0. || height == 0. {
+
+        if width <= 0. || height <= 0. {
             return;
         }
 
         let pattern_origin_transform = Transform2D::translation(x.unwrap_or(0.), y.unwrap_or(0.));
 
-        let pattern_transform = pattern_node
-            .attribute("patternTransform")
-            .or_else(|| {
-                href_pattern_node
-                    .as_ref()
-                    .and_then(|n| n.attribute("patternTransform"))
-            })
-            .map_or_else(Transform2D::identity, |transform| {
+        let pattern_transform =
+            pattern_attr("patternTransform").map_or_else(Transform2D::identity, |transform| {
                 TransformListParser::from(transform)
                     .map(|token| token.expect("could not parse patternTransform"))
                     .map(svg_transform_into_euclid_transform)
                     .fold(Transform2D::identity(), |acc, t| t.then(&acc))
             });
+
+        let view_box =
+            parse_view_box(pattern_node).or_else(|| href_pattern_node.and_then(parse_view_box));
+        let preserve_aspect_ratio = pattern_attr("preserveAspectRatio")
+            .map(|attr| AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio"));
+        let viewport_transform = view_box.map_or_else(Transform2D::identity, |vb| {
+            get_viewport_transform(vb, preserve_aspect_ratio, [width, height], [None, None])
+        });
 
         let target_pattern_node = if pattern_node.children().any(|c| c.is_element()) {
             // TODO: unclear what it would mean if there is an href element but the pattern also has its own children
@@ -922,18 +960,16 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
                 // in the container. This is probably wasteful for a shape with holes.
                 let offset_transform =
                     Transform2D::translation(f64::from(col) * width, f64::from(row) * height);
-                let combined = pattern_origin_transform
+                let combined = viewport_transform
+                    .then(&pattern_origin_transform)
                     .then(&offset_transform)
                     .then(&pattern_transform);
 
                 self.terrarium.push_transform(combined);
-
-                let mut active_nodes = vec![];
-                self.visit_dfs(
-                    target_pattern_node,
-                    Some(TemplatedExpansion::Pattern),
-                    &mut active_nodes,
-                );
+                for child in target_pattern_node.children() {
+                    let mut active_nodes = vec![];
+                    self.visit_dfs(child, Some(TemplatedExpansion::Pattern), &mut active_nodes);
+                }
                 self.terrarium.pop_transform();
             }
         }

@@ -466,7 +466,7 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         self.transform_stack.current()
     }
 
-    fn current_transform_inverse(&self) -> Option<Transform2D<f64>> {
+    pub fn current_transform_inverse(&self) -> Option<Transform2D<f64>> {
         self.transform_stack.current_inverse()
     }
 
