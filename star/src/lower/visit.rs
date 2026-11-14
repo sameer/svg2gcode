@@ -809,7 +809,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             self.comment();
             self.terrarium.apply_path(segments.iter().copied());
         }
-        if has_fill_attr {
+        if has_fill_attr && !node.has_tag_name(LINE_TAG_NAME) {
             self.comment();
             // TODO: no idea what a vectorized gradient fill would mean practically speaking
             if let Some(pattern_id) = pattern_id {
