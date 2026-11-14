@@ -214,13 +214,12 @@ pub(crate) fn parse_css<'a>(doc: &'a Document) -> CssRules<'a> {
 
 /// Used to skip over non-element nodes and unreferenced template elements.
 fn is_renderable(node: Node, expanding_template: Option<TemplatedExpansion>) -> bool {
+    let tag_name = node.tag_name().name();
     node.is_element()
+        && !matches!(tag_name, DEFS_TAG_NAME | CLIP_PATH_TAG_NAME)
         // Template elements are not directly rendered, unless referenced
         && (expanding_template.is_some()
-            || !matches!(
-                node.tag_name().name(),
-                DEFS_TAG_NAME | MARKER_TAG_NAME | PATTERN_TAG_NAME | SYMBOL_TAG_NAME | CLIP_PATH_TAG_NAME
-            ))
+            || !matches!(tag_name, MARKER_TAG_NAME | PATTERN_TAG_NAME | SYMBOL_TAG_NAME))
 }
 
 fn find_node_by_id<'a, 'input>(doc: &'a Document<'input>, id: &str) -> Option<Node<'a, 'input>> {
