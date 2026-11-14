@@ -438,6 +438,8 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                 &view_box,
             ) {
                 (Some(w), Some(h), _) => [w, h],
+                (Some(w), None, Some(vb)) => [w, w * vb.h / vb.w],
+                (None, Some(h), Some(vb)) => [h * vb.w / vb.h, h],
                 (_, _, Some(vb)) => [vb.w, vb.h],
                 _ => *self.viewport_dim_stack.last().unwrap_or(&[1., 1.]),
             };
