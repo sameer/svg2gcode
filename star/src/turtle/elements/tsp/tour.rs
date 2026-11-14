@@ -94,6 +94,8 @@ pub struct Tour<'a> {
     inner: IndexedVec<TourIndex, Node>,
     /// Necessarily 1 shorter than `inner`.
     lengths: IndexedVec<EdgeIndex, f64>,
+    /// Cached sum of `lengths` for [`Self::total_length`].
+    internal_length: f64,
 
     /// Forward mapping to avoid modifying any pre-computed data structures.
     stroke_positions: IndexedVec<StrokeIndex, TourIndex>,
@@ -155,7 +157,7 @@ impl<'a> Tour<'a> {
         vertices: IndexedVec<TourIndex, Node>,
         stroke_points: &'a IndexedVec<StrokeIndex, (Point<f64>, Point<f64>)>,
     ) -> Self {
-        let lengths = vertices
+        let lengths: IndexedVec<EdgeIndex, f64> = vertices
             .as_slice()
             .array_windows::<2>()
             .map(|[a, b]| {
@@ -163,6 +165,7 @@ impl<'a> Tour<'a> {
                     .length()
             })
             .collect();
+        let internal_length = lengths.iter().sum();
 
         let mut stroke_positions = stroke_points.filled_like(TourIndex::MIN);
         for (pos, node) in vertices.enumerate() {
@@ -171,6 +174,7 @@ impl<'a> Tour<'a> {
 
         Self {
             lengths,
+            internal_length,
             stroke_positions,
             inner: vertices,
             stroke_points,
@@ -243,21 +247,27 @@ impl<'a> Tour<'a> {
         } else {
             (start_point - self.start_point(TourIndex::MIN)).length()
         };
-        from_start_point + self.lengths.iter().sum::<f64>()
+        from_start_point + self.internal_length
     }
 
-    /// Recomputes the cached length at `edge_index`.
+    /// Recomputes the cached length at `edge_index` and updates `internal_length`.
     fn invalidate(&mut self, edge_index: EdgeIndex) {
         let from = self.end_point(edge_index.start());
         let to = self.start_point(edge_index.end());
-        self.lengths[edge_index] = (to - from).length();
+        let new_len = (to - from).length();
+        let len = &mut self.lengths[edge_index];
+        self.internal_length += new_len - *len;
+        *len = new_len;
     }
 
     pub fn apply_relocate(&mut self, relocate: Relocate) {
         let before_block = relocate.before_block();
         let after_block = relocate.after_block();
         let target_edge = relocate.target_edge();
-        let block_len = after_block.as_usize() - before_block.as_usize();
+        let before_block_pos = before_block.as_usize();
+        let after_block_pos = after_block.as_usize();
+        let target_pos = target_edge.as_usize();
+        let block_len = after_block_pos - before_block_pos;
 
         if relocate.reversed() {
             let block = &mut self.inner[before_block.end()..=after_block.start()];
@@ -265,18 +275,41 @@ impl<'a> Tour<'a> {
             for node in block {
                 node.reversed = !node.reversed;
             }
+            if let Some(lengths) = self
+                .lengths
+                .as_mut_slice()
+                .get_mut((before_block_pos + 1)..after_block_pos)
+            {
+                lengths.reverse();
+            }
         }
 
         let (modified_nodes, invalidated_edges) = if target_edge > after_block {
             // Rotating both the block and elements up to `target_edge.start()` left shifts the block directly into place.
             let range = before_block.end()..=target_edge.start();
             self.inner[range.clone()].rotate_left(block_len);
-            (range, before_block..=target_edge)
+            if let Some(lengths) = self
+                .lengths
+                .as_mut_slice()
+                .get_mut(before_block_pos..target_pos)
+            {
+                lengths.rotate_left(block_len);
+            }
+            let moved_before = self.lengths.index_at(target_pos - block_len);
+            (range, [Some(before_block), moved_before, Some(target_edge)])
         } else {
             // Rotating both the block and elements from `target_edge.end()` right shifts the block directly into place.
             let range = target_edge.end()..=after_block.start();
             self.inner[range.clone()].rotate_right(block_len);
-            (range, target_edge..=after_block)
+            if let Some(lengths) = self
+                .lengths
+                .as_mut_slice()
+                .get_mut(target_pos..after_block_pos)
+            {
+                lengths.rotate_right(block_len);
+            }
+            let moved_after = self.lengths.index_at(target_pos + block_len);
+            (range, [Some(target_edge), moved_after, Some(after_block)])
         };
 
         for tour_idx in TourIndex::range_inclusive(*modified_nodes.start(), *modified_nodes.end()) {
@@ -284,9 +317,7 @@ impl<'a> Tour<'a> {
             self.stroke_positions[stroke_idx] = tour_idx;
         }
 
-        // TODO: this should also be rotated and only the endpoints invalidated if not reversed.
-        for edge in EdgeIndex::range_inclusive(*invalidated_edges.start(), *invalidated_edges.end())
-        {
+        for edge in invalidated_edges.into_iter().flatten() {
             self.invalidate(edge);
         }
     }
@@ -401,6 +432,13 @@ mod tests {
         }
 
         let expected_internal: f64 = tour.lengths.iter().sum();
+        assert!(
+            (tour.internal_length - expected_internal).abs() < 1e-9,
+            "internal_length {} != sum {}",
+            tour.internal_length,
+            expected_internal
+        );
+
         let expected_total =
             (origin - tour.start_point(TourIndex::MIN)).length() + expected_internal;
         assert!(
