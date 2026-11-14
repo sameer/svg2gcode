@@ -226,52 +226,38 @@ impl RelativeSelectorList {
 
 impl CombinatorSelector {
     /// Match by working right-to-left: the rightmost compound must match the node,
-    /// then each combinator+compound is satisfied working up the DOM.
+    /// then each combinator+compound is satisfied working up the DOM with backtracking.
     fn matches(&self, node: Node) -> bool {
         // The rightmost compound is the last entry in `rest`
-        let Some((_rightmost_combinator, rightmost)) = self.rest.last() else {
+        let Some((_, rightmost)) = self.rest.last() else {
             return self.first.matches(node);
         };
-        if !rightmost.matches(node) {
-            return false;
-        }
+        rightmost.matches(node) && self.matches_left(self.rest.len() - 1, node)
+    }
 
-        // Walk backwards through the combinators
-        // rest = [(comb0, c1), (comb1, c2), ..., (combN-1, cN)]
-        // We matched cN. Now verify each (combinator, compound) going left.
-        let mut current = node;
-        for i in (0..self.rest.len()).rev() {
-            let (combinator, _) = &self.rest[i];
-            let target = if i == 0 {
-                &self.first
-            } else {
-                &self.rest[i - 1].1
-            };
+    fn matches_left(&self, i: usize, current: Node) -> bool {
+        let (combinator, _) = &self.rest[i];
+        let target = if i == 0 {
+            &self.first
+        } else {
+            &self.rest[i - 1].1
+        };
 
-            match combinator {
-                // Find first matching ancestor
-                Combinator::Descendant => {
-                    let found = std::iter::successors(current.parent(), roxmltree::Node::parent)
-                        .filter(roxmltree::Node::is_element)
-                        .find(|n| target.matches(*n));
-                    match found {
-                        Some(ancestor) => current = ancestor,
-                        None => return false,
-                    }
-                }
-                // Check parent
-                Combinator::Child => {
-                    match current
-                        .parent()
-                        .filter(|n| n.is_element() && target.matches(*n))
-                    {
-                        Some(parent) => current = parent,
-                        None => return false,
-                    }
-                }
+        let satisfied = |candidate: Node| {
+            target.matches(candidate) && (i == 0 || self.matches_left(i - 1, candidate))
+        };
+
+        match combinator {
+            Combinator::Descendant => {
+                std::iter::successors(current.parent(), roxmltree::Node::parent)
+                    .filter(roxmltree::Node::is_element)
+                    .any(satisfied)
             }
+            Combinator::Child => current
+                .parent()
+                .filter(roxmltree::Node::is_element)
+                .is_some_and(satisfied),
         }
-        true
     }
 }
 
@@ -494,5 +480,26 @@ mod tests {
                 "selector={selector:?} node={id:?}: expected {expected}, got {got}"
             );
         }
+    }
+
+    #[test]
+    fn test_descendant_backtracking() {
+        let svg = r#"<svg>
+            <g class="a">
+                <g class="b">
+                    <g class="b">
+                        <path id="p1"/>
+                    </g>
+                </g>
+            </g>
+        </svg>"#;
+        let doc = roxmltree::Document::parse(svg).unwrap();
+        let sel = SelectorList::parse(".a > .b path").unwrap();
+        let p1 = doc
+            .root()
+            .descendants()
+            .find(|n| n.attribute("id") == Some("p1"))
+            .unwrap();
+        assert!(sel.matches(p1));
     }
 }

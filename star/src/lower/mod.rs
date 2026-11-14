@@ -106,19 +106,15 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
     css_rules: HashMap<&'input str, HashMap<&'input str, &'input str>>,
     /// Stack of active template expansion scopes.
     expansion_stack: Vec<TemplatedExpansion>,
+    /// Tracks whether `<svg>` / `<symbol>` pushed a viewport scope onto `viewport_dim_stack` / `terrarium`.
+    viewport_pushed_stack: Vec<bool>,
+    /// Width/height overrides from enclosings `<use>` elements when expanding `<symbol>`s.
+    use_size_stack: Vec<[Option<f64>; 2]>,
 }
 
 impl<T: Turtle> ConversionVisitor<'_, '_, T> {
     fn comment(&mut self) {
         self.terrarium.comment(self.name_stack.join(" > "));
-    }
-
-    fn should_draw_node(&self, node: Node) -> bool {
-        !self.expansion_stack.is_empty()
-            || self
-                .selector_filter
-                .as_ref()
-                .is_none_or(|s| s.matches(node))
     }
 
     fn begin(&mut self) {
@@ -171,6 +167,8 @@ pub fn svg_to_turtle<T: Turtle>(
             selector_filter: selector_filter.clone(),
             css_rules: visit::parse_css(doc),
             expansion_stack: vec![],
+            viewport_pushed_stack: vec![],
+            use_size_stack: vec![],
         };
 
         visitor.begin();
@@ -214,6 +212,8 @@ pub fn svg_to_turtle<T: Turtle>(
         selector_filter: selector_filter.clone(),
         css_rules: visit::parse_css(doc),
         expansion_stack: vec![],
+        viewport_pushed_stack: vec![],
+        use_size_stack: vec![],
     };
 
     conversion_visitor
@@ -261,6 +261,8 @@ fn svg_to_optimized_strokes(
         selector_filter,
         css_rules: visit::parse_css(doc),
         expansion_stack: vec![],
+        viewport_pushed_stack: vec![],
+        use_size_stack: vec![],
     };
     collect_visitor.terrarium.push_transform(origin_transform);
     collect_visitor.begin();
