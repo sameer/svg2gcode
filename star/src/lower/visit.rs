@@ -646,11 +646,12 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                 .collect()
             }
             CIRCLE_TAG_NAME | ELLIPSE_TAG_NAME => {
-                let cx = self.length_attr_to_user_units(&node, "cx").unwrap_or(0.);
-                let cy = self.length_attr_to_user_units(&node, "cy").unwrap_or(0.);
-                let r = self.length_attr_to_user_units(&node, "r").unwrap_or(0.);
-                let rx = self.length_attr_to_user_units(&node, "rx").unwrap_or(r);
-                let ry = self.length_attr_to_user_units(&node, "ry").unwrap_or(r);
+                let [cx, cy, r, rx_attr, ry_attr] = ["cx", "cy", "r", "rx", "ry"]
+                    .map(|attr| self.length_attr_to_user_units(&node, attr));
+                let [cx, cy, r] = [cx, cy, r].map(Option::unwrap_or_default);
+                let rx = rx_attr.or(ry_attr).unwrap_or(r);
+                let ry = ry_attr.or(rx_attr).unwrap_or(r);
+
                 if rx <= 0. || ry <= 0. {
                     warn!("Invalid {} node: {node:?}", node.tag_name().name());
                     return;
