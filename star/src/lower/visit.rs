@@ -1,14 +1,10 @@
 use std::{collections::HashMap, iter, result::Result, str::FromStr};
 
 use euclid::default::Transform2D;
-use log::{debug, warn};
+use log::warn;
 use lyon_geom::{Box2D, Point, vector};
 use roxmltree::{Document, Node};
-use smallvec::{SmallVec, smallvec};
-use svgtypes::{
-    AspectRatio, LengthListParser, PathParser, PathSegment, PointsParser, TransformListParser,
-    ViewBox,
-};
+use svgtypes::{AspectRatio, LengthListParser, PathSegment, TransformListParser, ViewBox};
 
 use super::{
     ConversionVisitor, TemplatedExpansion,
@@ -16,18 +12,12 @@ use super::{
     units::DimensionHint,
 };
 use crate::{
-    lower::node_name,
+    lower::{elements::SimpleElement, node_name},
     turtle::{CoordinateSystem, Turtle, elements::FillRule},
 };
 
 const SVG_TAG_NAME: &str = "svg";
 const CLIP_PATH_TAG_NAME: &str = "clipPath";
-const PATH_TAG_NAME: &str = "path";
-const POLYLINE_TAG_NAME: &str = "polyline";
-const POLYGON_TAG_NAME: &str = "polygon";
-const RECT_TAG_NAME: &str = "rect";
-const CIRCLE_TAG_NAME: &str = "circle";
-const ELLIPSE_TAG_NAME: &str = "ellipse";
 const LINE_TAG_NAME: &str = "line";
 const DEFS_TAG_NAME: &str = "defs";
 const USE_TAG_NAME: &str = "use";
@@ -38,6 +28,8 @@ const TEXT_TAG_NAME: &str = "text";
 const TEXT_PATH_TAG_NAME: &str = "textPath";
 const VIEW_TAG_NAME: &str = "view";
 const MASK_TAG_NAME: &str = "mask";
+#[cfg_attr(not(feature = "image"), expect(unused))]
+const IMAGE_TAG_NAME: &str = "image";
 
 pub trait XmlVisitor<'a, 'input> {
     fn visit_dfs(
@@ -299,10 +291,6 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
     }
 
     fn visit_enter(&mut self, node: Node<'a, 'input>) {
-        use PathSegment::{
-            ClosePath, EllipticalArc, HorizontalLineTo, LineTo, MoveTo, VerticalLineTo,
-        };
-
         let mut view_box_opt = None;
         let mut viewport_pos_opt = [None, None];
         let mut viewport_size_opt = [1., 1.];
@@ -524,281 +512,89 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             return;
         }
 
-        let segments: SmallVec<[PathSegment; 6]> = match node.tag_name().name() {
-            PATH_TAG_NAME => {
-                let Some(d) = node.attribute("d") else {
-                    warn!("There is a path node containing no actual path: {node:?}");
-                    return;
-                };
-                PathParser::from(d)
-                    .map(|segment| segment.expect("could not parse path segment"))
-                    .collect()
-            }
-            name @ (POLYLINE_TAG_NAME | POLYGON_TAG_NAME) => {
-                let Some(points) = node.attribute("points") else {
-                    warn!("There is a {name} node containing no actual path: {node:?}");
-                    return;
-                };
-                let is_polygon = name == POLYGON_TAG_NAME;
-                let mut pp = PointsParser::from(points).peekable();
-                let start = pp
-                    .next()
-                    .map(|(x, y)| MoveTo { abs: true, x, y })
-                    .into_iter();
-                start
-                    .chain(pp.map(|(x, y)| LineTo { abs: true, x, y }))
-                    .chain(is_polygon.then_some(ClosePath { abs: true }))
-                    .collect()
-            }
-            RECT_TAG_NAME => {
-                let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
-                let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
-                let Some((width, height)) = self
-                    .length_attr_to_user_units(&node, "width")
-                    .zip(self.length_attr_to_user_units(&node, "height"))
-                    .filter(|&(w, h)| w > 0. && h > 0.)
-                else {
-                    warn!("Invalid rectangle node: {node:?}");
-                    return;
-                };
-                let (mut rx, mut ry) = match (
-                    self.length_attr_to_user_units(&node, "rx")
-                        .filter(|&v| v >= 0.),
-                    self.length_attr_to_user_units(&node, "ry")
-                        .filter(|&v| v >= 0.),
-                ) {
-                    (Some(rx), Some(ry)) => (rx, ry),
-                    (Some(rx), None) => (rx, rx),
-                    (None, Some(ry)) => (ry, ry),
-                    (None, None) => (0., 0.),
-                };
-                rx = rx.min(width / 2.);
-                ry = ry.min(height / 2.);
-                let has_radius = rx > 0. && ry > 0.;
-                if !has_radius {
-                    rx = 0.;
-                    ry = 0.;
-                }
-                [
-                    MoveTo {
-                        abs: true,
-                        x: x + rx,
-                        y,
-                    },
-                    HorizontalLineTo {
-                        abs: true,
-                        x: x + width - rx,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: x + width,
-                        y: y + ry,
-                    },
-                    VerticalLineTo {
-                        abs: true,
-                        y: y + height - ry,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: x + width - rx,
-                        y: y + height,
-                    },
-                    HorizontalLineTo {
-                        abs: true,
-                        x: x + rx,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x,
-                        y: y + height - ry,
-                    },
-                    VerticalLineTo {
-                        abs: true,
-                        y: y + ry,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: x + rx,
-                        y,
-                    },
-                    ClosePath { abs: true },
-                ]
-                .into_iter()
-                .filter(move |p| has_radius || !matches!(p, EllipticalArc { .. }))
-                .collect()
-            }
-            CIRCLE_TAG_NAME | ELLIPSE_TAG_NAME => {
-                let [cx, cy, r, rx_attr, ry_attr] = ["cx", "cy", "r", "rx", "ry"]
-                    .map(|attr| self.length_attr_to_user_units(&node, attr));
-                let [cx, cy, r] = [cx, cy, r].map(Option::unwrap_or_default);
-                let rx = rx_attr.or(ry_attr).unwrap_or(r);
-                let ry = ry_attr.or(rx_attr).unwrap_or(r);
+        #[cfg(feature = "image")]
+        if node.tag_name().name() == IMAGE_TAG_NAME {
+            use base64::{Engine, engine::general_purpose::STANDARD};
 
-                if rx <= 0. || ry <= 0. {
-                    warn!("Invalid {} node: {node:?}", node.tag_name().name());
+            let Some(href) = node
+                .attribute("href")
+                .or_else(|| node.attribute(("http://www.w3.org/1999/xlink", "href")))
+            else {
+                warn!("image element has no href: {node:?}");
+                return;
+            };
+            let Some(b64) = href
+                .strip_prefix("data:image/png;base64,")
+                .or_else(|| href.strip_prefix("data:image/jpeg;base64,"))
+            else {
+                warn!("Unsupported image href {href}");
+                return;
+            };
+
+            let b64_no_whitespace: String =
+                b64.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+            let bytes = match STANDARD.decode(&b64_no_whitespace) {
+                Ok(bytes) => bytes,
+                Err(err) => {
+                    warn!("image base64 decode failed: {err}");
                     return;
                 }
-                smallvec![
-                    MoveTo {
-                        abs: true,
-                        x: cx + rx,
-                        y: cy,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: cx,
-                        y: cy + ry,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: cx - rx,
-                        y: cy,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: cx,
-                        y: cy - ry,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: cx + rx,
-                        y: cy,
-                    },
-                    ClosePath { abs: true },
-                ]
-            }
-            LINE_TAG_NAME => {
-                let [x1, y1, x2, y2] = ["x1", "y1", "x2", "y2"]
-                    .map(|attr| self.length_attr_to_user_units(&node, attr))
-                    .map(Option::unwrap_or_default);
-                smallvec![
-                    MoveTo {
-                        abs: true,
-                        x: x1,
-                        y: y1,
-                    },
-                    LineTo {
-                        abs: true,
-                        x: x2,
-                        y: y2,
-                    },
-                ]
-            }
-            #[cfg(feature = "image")]
-            "image" => {
-                use base64::{Engine, engine::general_purpose::STANDARD};
-
-                let Some(href) = node
-                    .attribute("href")
-                    .or_else(|| node.attribute(("http://www.w3.org/1999/xlink", "href")))
-                else {
-                    warn!("image element has no href: {node:?}");
+            };
+            let image = match image::load_from_memory(&bytes) {
+                Ok(img) => img,
+                Err(e) => {
+                    warn!("image decode failed: {e}");
                     return;
-                };
-                let Some(b64) = href
-                    .strip_prefix("data:image/png;base64,")
-                    .or_else(|| href.strip_prefix("data:image/jpeg;base64,"))
-                else {
-                    warn!("Unsupported image href {href}");
-                    return;
-                };
+                }
+            };
 
-                let b64_no_whitespace: String =
-                    b64.chars().filter(|c| !c.is_ascii_whitespace()).collect();
-                let bytes = match STANDARD.decode(&b64_no_whitespace) {
-                    Ok(bytes) => bytes,
-                    Err(err) => {
-                        warn!("image base64 decode failed: {err}");
-                        return;
-                    }
-                };
-                let image = match image::load_from_memory(&bytes) {
-                    Ok(img) => img,
-                    Err(e) => {
-                        warn!("image decode failed: {e}");
-                        return;
-                    }
-                };
+            let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
+            let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
+            let width = self.length_attr_to_user_units(&node, "width").unwrap_or(0.);
+            let height = self
+                .length_attr_to_user_units(&node, "height")
+                .unwrap_or(0.);
 
-                let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
-                let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
-                let width = self.length_attr_to_user_units(&node, "width").unwrap_or(0.);
-                let height = self
-                    .length_attr_to_user_units(&node, "height")
-                    .unwrap_or(0.);
+            let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map_or(
+                svgtypes::AspectRatio {
+                    defer: false,
+                    align: svgtypes::Align::XMidYMid,
+                    slice: false,
+                },
+                |attr| AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio"),
+            );
 
-                let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map_or(
-                    svgtypes::AspectRatio {
-                        defer: false,
-                        align: svgtypes::Align::XMidYMid,
-                        slice: false,
-                    },
-                    |attr| {
-                        AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
-                    },
-                );
+            let view_box = svgtypes::ViewBox {
+                x: 0.,
+                y: 0.,
+                w: f64::from(image.width()),
+                h: f64::from(image.height()),
+            };
+            let image_to_user = get_viewport_transform(
+                view_box,
+                Some(preserve_aspect_ratio),
+                [width, height],
+                [Some(x), Some(y)],
+            );
 
-                let view_box = svgtypes::ViewBox {
-                    x: 0.,
-                    y: 0.,
-                    w: f64::from(image.width()),
-                    h: f64::from(image.height()),
-                };
-                let image_to_user = get_viewport_transform(
-                    view_box,
-                    Some(preserve_aspect_ratio),
-                    [width, height],
-                    [Some(x), Some(y)],
-                );
+            self.comment();
+            self.terrarium
+                .image(image, image_to_user, preserve_aspect_ratio);
 
-                self.comment();
-                self.terrarium
-                    .image(image, image_to_user, preserve_aspect_ratio);
+            return;
+        }
 
+        let elem = match SimpleElement::new(&node) {
+            Ok(elem) => elem,
+            Err(err) => {
+                warn!("Skipping unknown tag: {err}");
                 return;
             }
-            other => {
-                debug!("Unhandled node: {other}");
+        };
+        let segments = match elem.segments(self) {
+            Ok(segments) => segments,
+            Err(err) => {
+                warn!("Failed to parse {node:?}, skipping: {err}");
                 return;
             }
         };

@@ -19,6 +19,7 @@ use crate::{
     },
 };
 
+mod elements;
 #[cfg(feature = "serde")]
 mod length_serde;
 mod selector;

@@ -1,3 +1,5 @@
+//! Handles SVG unit conversion.
+
 use log::warn;
 use roxmltree::Node;
 use svgtypes::{Length, LengthListParser};
