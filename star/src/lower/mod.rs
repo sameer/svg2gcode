@@ -108,8 +108,8 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
     expansion_stack: Vec<TemplatedExpansion>,
     /// Tracks whether `<svg>` / `<symbol>` pushed a viewport scope onto `viewport_dim_stack` / `terrarium`.
     viewport_pushed_stack: Vec<bool>,
-    /// Width/height overrides from enclosings `<use>` elements when expanding `<symbol>`s.
-    use_size_stack: Vec<[Option<f64>; 2]>,
+    /// Enclosing `<use>` node IDs and width/height overrides for `<symbol>` expansion & inheritance.
+    use_stack: Vec<(roxmltree::NodeId, [Option<f64>; 2])>,
 }
 
 impl<T: Turtle> ConversionVisitor<'_, '_, T> {
@@ -170,7 +170,7 @@ pub fn svg_to_turtle<T: Turtle>(
             css_rules: &css_rules,
             expansion_stack: vec![],
             viewport_pushed_stack: vec![],
-            use_size_stack: vec![],
+            use_stack: vec![],
         };
 
         visitor.begin();
@@ -215,7 +215,7 @@ pub fn svg_to_turtle<T: Turtle>(
         css_rules: &css_rules,
         expansion_stack: vec![],
         viewport_pushed_stack: vec![],
-        use_size_stack: vec![],
+        use_stack: vec![],
     };
 
     conversion_visitor
@@ -267,7 +267,7 @@ fn svg_to_optimized_strokes<'a, 'input>(
         css_rules,
         expansion_stack: vec![],
         viewport_pushed_stack: vec![],
-        use_size_stack: vec![],
+        use_stack: vec![],
     };
     collect_visitor.terrarium.push_transform(origin_transform);
     collect_visitor.begin();

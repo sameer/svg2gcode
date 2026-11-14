@@ -111,22 +111,34 @@ fn calculate_presentation_attr<'a, 'input: 'a>(
     node: Node<'a, 'input>,
     name: &str,
     css_rules: &'a CssRules<'input>,
+    use_stack: &[(roxmltree::NodeId, [Option<f64>; 2])],
 ) -> Option<&'a str> {
-    for current in iter::successors(Some(node), Node::parent) {
-        if !current.is_element() {
-            continue;
+    let find_in_ancestors = |start: Node<'a, 'input>| {
+        for current in iter::successors(Some(start), Node::parent) {
+            if !current.is_element() {
+                continue;
+            }
+            if let Some(val) = get_node_presentation_attr(current, name, css_rules) {
+                return Some(val);
+            }
+            if matches!(
+                current.tag_name().name(),
+                SVG_TAG_NAME | DEFS_TAG_NAME | SYMBOL_TAG_NAME | PATTERN_TAG_NAME
+            ) {
+                break;
+            }
         }
-        if let Some(val) = get_node_presentation_attr(current, name, css_rules) {
-            return Some(val);
-        }
-        if matches!(
-            current.tag_name().name(),
-            SVG_TAG_NAME | DEFS_TAG_NAME | SYMBOL_TAG_NAME | PATTERN_TAG_NAME
-        ) {
-            break;
-        }
-    }
-    None
+        None
+    };
+
+    find_in_ancestors(node).or_else(|| {
+        let doc = node.document();
+        use_stack
+            .iter()
+            .rev()
+            .filter_map(|&(id, _)| doc.get_node(id))
+            .find_map(find_in_ancestors)
+    })
 }
 
 /// Helper for [calculate_presentation_attr] that only checks the current node.
@@ -398,17 +410,23 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
             let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
             flattened_transform = flattened_transform.then(&Transform2D::translation(x, y));
-            self.use_size_stack.push([
-                self.length_attr_to_user_units(&node, "width"),
-                self.length_attr_to_user_units(&node, "height"),
-            ]);
+            self.use_stack.push((
+                node.id(),
+                [
+                    self.length_attr_to_user_units(&node, "width"),
+                    self.length_attr_to_user_units(&node, "height"),
+                ],
+            ));
         } else if node.has_tag_name(SYMBOL_TAG_NAME) {
             let view_box = parse_view_box(node);
             let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map(|attr| {
                 AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
             });
-            let use_size = self.use_size_stack.last().copied().unwrap_or([None, None]);
-            // Viewport size: use override, symbol's own width/height, viewBox dims, or parent viewport
+            let use_size = self
+                .use_stack
+                .last()
+                .map_or([None, None], |&(_, size)| size);
+            // Viewport size: <use> override, symbol's own width/height, viewBox dims, or parent viewport
             let viewport_size = match (
                 use_size[0].or_else(|| self.length_attr_to_user_units(&node, "width")),
                 use_size[1].or_else(|| self.length_attr_to_user_units(&node, "height")),
@@ -477,21 +495,23 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             return;
         }
 
-        let fill_attr = calculate_presentation_attr(node, "fill", self.css_rules);
+        let fill_attr = calculate_presentation_attr(node, "fill", self.css_rules, &self.use_stack);
         // SVGs fill by default
         let has_fill_attr = fill_attr != Some("none");
-        let fill_rule = calculate_presentation_attr(node, "fill-rule", self.css_rules)
-            .map_or_default(|v| {
-                if v == "evenodd" {
-                    FillRule::EvenOdd
-                } else {
-                    FillRule::NonZero
-                }
-            });
+        let fill_rule =
+            calculate_presentation_attr(node, "fill-rule", self.css_rules, &self.use_stack)
+                .map_or_default(|v| {
+                    if v == "evenodd" {
+                        FillRule::EvenOdd
+                    } else {
+                        FillRule::NonZero
+                    }
+                });
 
         // Default to false which is spec compliant.
-        let has_stroke_attr = calculate_presentation_attr(node, "stroke", self.css_rules)
-            .is_some_and(|attr| attr != "none");
+        let has_stroke_attr =
+            calculate_presentation_attr(node, "stroke", self.css_rules, &self.use_stack)
+                .is_some_and(|attr| attr != "none");
 
         if !(has_stroke_attr || has_fill_attr || node.tag_name().name() == "image") {
             return;
@@ -809,7 +829,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             debug_assert_eq!(popped, Some(expected));
         }
         if node.has_tag_name(USE_TAG_NAME) {
-            self.use_size_stack.pop();
+            self.use_stack.pop();
         }
         if matches!(node.tag_name().name(), SVG_TAG_NAME | SYMBOL_TAG_NAME)
             && self.viewport_pushed_stack.pop() == Some(true)
@@ -842,7 +862,7 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
     }
 
     fn is_overflow_hidden(&self, node: Node<'a, 'input>) -> bool {
-        match calculate_presentation_attr(node, "overflow", self.css_rules) {
+        match calculate_presentation_attr(node, "overflow", self.css_rules, &self.use_stack) {
             Some("hidden" | "scroll") => true,
             Some(_) => false,
             None => {
