@@ -402,15 +402,20 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
             let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
             flattened_transform = flattened_transform.then(&Transform2D::translation(x, y));
+            self.use_size_stack.push([
+                self.length_attr_to_user_units(&node, "width"),
+                self.length_attr_to_user_units(&node, "height"),
+            ]);
         } else if node.has_tag_name(SYMBOL_TAG_NAME) {
             let view_box = parse_view_box(node);
             let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map(|attr| {
                 AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
             });
-            // Viewport size: symbol's own width/height, or fallback to viewBox dims, or parent viewport
+            let use_size = self.use_size_stack.last().copied().unwrap_or([None, None]);
+            // Viewport size: use override, symbol's own width/height, viewBox dims, or parent viewport
             let viewport_size = match (
-                self.length_attr_to_user_units(&node, "width"),
-                self.length_attr_to_user_units(&node, "height"),
+                use_size[0].or_else(|| self.length_attr_to_user_units(&node, "width")),
+                use_size[1].or_else(|| self.length_attr_to_user_units(&node, "height")),
                 &view_box,
             ) {
                 (Some(w), Some(h), _) => [w, h],
@@ -804,6 +809,9 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         if let Some(expected) = TemplatedExpansion::from_tag_name(node.tag_name().name()) {
             let popped = self.expansion_stack.pop();
             debug_assert_eq!(popped, Some(expected));
+        }
+        if node.has_tag_name(USE_TAG_NAME) {
+            self.use_size_stack.pop();
         }
         if matches!(node.tag_name().name(), SVG_TAG_NAME | SYMBOL_TAG_NAME)
             && self.viewport_pushed_stack.pop() == Some(true)
