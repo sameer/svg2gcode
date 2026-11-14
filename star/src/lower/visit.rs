@@ -295,7 +295,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             || self
                 .selector_filter
                 .as_ref()
-                .is_none_or(|s| node.ancestors().any(|a| a.is_element() && s.matches(a)))
+                .is_none_or(|s| s.matches(node))
     }
 
     fn visit_enter(&mut self, node: Node<'a, 'input>) {
