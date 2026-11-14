@@ -850,9 +850,14 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
             return;
         };
 
-        let inv_transform = (pattern_origin_transform.then(&pattern_transform))
+        let Some(inv_transform) = pattern_origin_transform
+            .then(&pattern_transform)
+            .then(&self.terrarium.current_transform())
             .inverse()
-            .expect("pattern transform is invertible");
+        else {
+            warn!("Non-invertible pattern transform");
+            return;
+        };
 
         let (min_col, max_col, min_row, max_row) = {
             let inverse_container_bbox = inv_transform.outer_transformed_box(&container_bbox);
