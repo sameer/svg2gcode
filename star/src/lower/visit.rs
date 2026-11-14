@@ -2,7 +2,7 @@ use std::{collections::HashMap, iter, result::Result, str::FromStr};
 
 use euclid::default::Transform2D;
 use log::{debug, warn};
-use lyon_geom::{Box2D, Point};
+use lyon_geom::{Box2D, Point, vector};
 use roxmltree::{Document, Node};
 use smallvec::{SmallVec, smallvec};
 use svgtypes::{
@@ -395,6 +395,11 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                     viewport_pos,
                 );
                 flattened_transform = viewport_transform.then(&flattened_transform);
+            } else {
+                let [px, py] = viewport_pos.map(Option::unwrap_or_default);
+                if px != 0. || py != 0. {
+                    flattened_transform = flattened_transform.pre_translate(vector(px, py));
+                }
             }
             if self.coordinate_system == CoordinateSystem::YUp && node.parent_element().is_none() {
                 // Part 2 of converting from SVG (Y-down) to output (Y-up) coordinates:
