@@ -54,7 +54,7 @@ pub trait XmlVisitor<'a, 'input> {
                 active_nodes.pop();
                 continue;
             }
-            if !should_render_node(node, expanding_template) {
+            if !self.should_visit(node, expanding_template) {
                 continue;
             }
 
@@ -78,6 +78,11 @@ pub trait XmlVisitor<'a, 'input> {
         }
     }
 
+    fn should_visit(
+        &self,
+        node: Node<'a, 'input>,
+        expanding_template: Option<TemplatedExpansion>,
+    ) -> bool;
     fn should_draw_node(&self, node: Node<'a, 'input>) -> bool;
     fn visit_enter(&mut self, node: Node<'a, 'input>);
     fn visit_exit(&mut self, node: Node<'a, 'input>);
@@ -123,11 +128,11 @@ fn calculate_presentation_attr<'input>(
 }
 
 /// Helper for [calculate_presentation_attr] that only checks the current node.
-fn get_node_presentation_attr<'input>(
-    node: Node<'input, 'input>,
-    name: &'input str,
+fn get_node_presentation_attr<'a, 'input: 'a>(
+    node: Node<'a, 'input>,
+    name: &str,
     css_rules: &HashMap<&'input str, HashMap<&'input str, &'input str>>,
-) -> Option<&'input str> {
+) -> Option<&'a str> {
     node.attribute("style")
         .and_then(|style| {
             style.split(';').find_map(|decl| {
@@ -189,15 +194,9 @@ pub fn parse_css<'a>(doc: &'a Document) -> HashMap<&'a str, HashMap<&'a str, &'a
     rules
 }
 
-/// Used to skip over SVG elements that are explicitly marked as do not render
-fn should_render_node(node: Node, expanding_template: Option<TemplatedExpansion>) -> bool {
+/// Used to skip over non-element nodes and unreferenced template elements.
+fn is_renderable(node: Node, expanding_template: Option<TemplatedExpansion>) -> bool {
     node.is_element()
-        && !node
-            .attribute("style")
-            .is_some_and(|style| style.split(';').any(|declaration| {
-                let mut parts = declaration.splitn(2, ':').map(str::trim);
-                (parts.next(), parts.next()) == (Some("display"), Some("none"))
-        }))
         // Template elements are not directly rendered, unless referenced
         && (expanding_template.is_some()
             || !matches!(
@@ -257,6 +256,16 @@ pub fn depth_first_visit<'a, 'input, V: XmlVisitor<'a, 'input>>(
 }
 
 impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'input, T> {
+    fn should_visit(
+        &self,
+        node: Node<'a, 'input>,
+        expanding_template: Option<TemplatedExpansion>,
+    ) -> bool {
+        is_renderable(node, expanding_template)
+            && get_node_presentation_attr(node, "display", &self.css_rules)
+                .is_none_or(|v| !v.eq_ignore_ascii_case("none"))
+    }
+
     fn should_draw_node(&self, node: Node<'a, 'input>) -> bool {
         !self.expansion_stack.is_empty()
             || self
