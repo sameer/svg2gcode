@@ -231,6 +231,21 @@ fn get_pattern_id(attr: &str) -> Option<&str> {
     inner.trim_matches(['\'', '"']).strip_prefix('#')
 }
 
+fn parse_view_box(node: Node) -> Option<ViewBox> {
+    let attr = node.attribute("viewBox")?;
+    match ViewBox::from_str(attr) {
+        Ok(vb) if vb.w > 0. && vb.h > 0. => Some(vb),
+        Ok(vb) => {
+            warn!("Invalid viewBox: {vb:?}");
+            None
+        }
+        Err(err) => {
+            warn!("Invalid viewBox {attr:?}: {err}");
+            None
+        }
+    }
+}
+
 pub fn depth_first_visit<'a, 'input, V: XmlVisitor<'a, 'input>>(
     doc: &'a Document<'input>,
     visitor: &mut V,
@@ -295,31 +310,26 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
 
         // https://www.w3.org/TR/SVG/coords.html#EstablishingANewSVGViewport
         if node.has_tag_name(SVG_TAG_NAME) {
-            let view_box = node
-                .attribute("viewBox")
-                .map(ViewBox::from_str)
-                .transpose()
-                .expect("could not parse viewBox")
-                .filter(|view_box| {
-                    if view_box.w <= 0. || view_box.h <= 0. {
-                        warn!("Invalid viewBox: {view_box:?}");
-                        false
-                    } else {
-                        true
-                    }
-                });
+            let view_box = parse_view_box(node);
             let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map(|attr| {
                 AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
             });
             let mut viewport_size =
                 ["width", "height"].map(|attr| self.length_attr_to_user_units(&node, attr));
 
-            let dimensions_override: [_; 2] = self
-                .options
-                .dimensions
-                .map(|l| l.map(|l| self.length_to_user_units(l, DimensionHint::Horizontal)));
-            for (original_dim, override_dim) in viewport_size.iter_mut().zip(dimensions_override) {
-                *original_dim = override_dim.or(*original_dim);
+            // SVG root only
+            if node.parent_element().is_none() {
+                let dimensions_override = [
+                    self.options.dimensions[0]
+                        .map(|l| self.length_to_user_units(l, DimensionHint::Horizontal)),
+                    self.options.dimensions[1]
+                        .map(|l| self.length_to_user_units(l, DimensionHint::Vertical)),
+                ];
+                for (original_dim, override_dim) in
+                    viewport_size.iter_mut().zip(dimensions_override)
+                {
+                    *original_dim = override_dim.or(*original_dim);
+                }
             }
 
             // https://www.w3.org/TR/SVG/coords.html#SizingSVGInCSS
@@ -384,19 +394,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
             flattened_transform = flattened_transform.then(&Transform2D::translation(x, y));
         } else if node.has_tag_name(SYMBOL_TAG_NAME) {
-            let view_box = node
-                .attribute("viewBox")
-                .map(ViewBox::from_str)
-                .transpose()
-                .expect("could not parse viewBox on symbol")
-                .filter(|view_box| {
-                    if view_box.w <= 0. || view_box.h <= 0. {
-                        warn!("Invalid viewBox: {view_box:?}");
-                        false
-                    } else {
-                        true
-                    }
-                });
+            let view_box = parse_view_box(node);
             let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map(|attr| {
                 AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
             });
@@ -411,7 +409,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                 _ => *self.viewport_dim_stack.last().unwrap_or(&[1., 1.]),
             };
             if let Some(view_box) = view_box {
-                self.viewport_dim_stack.push(viewport_size);
+                self.viewport_dim_stack.push([view_box.w, view_box.h]);
                 let viewport_transform = get_viewport_transform(
                     view_box,
                     preserve_aspect_ratio,
@@ -434,10 +432,15 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             self.config.extra_attribute_name.as_deref(),
         ));
 
-        if matches!(
-            (node.tag_name().name(), node.has_attribute("viewBox")),
-            (SVG_TAG_NAME, _) | (SYMBOL_TAG_NAME, true)
-        ) {
+        let pushes_viewport = match node.tag_name().name() {
+            SVG_TAG_NAME => true,
+            SYMBOL_TAG_NAME => view_box_opt.is_some(),
+            _ => false,
+        };
+        if matches!(node.tag_name().name(), SVG_TAG_NAME | SYMBOL_TAG_NAME) {
+            self.viewport_pushed_stack.push(pushes_viewport);
+        }
+        if pushes_viewport {
             let viewport_box = if let Some(vb) = view_box_opt {
                 Box2D::new(Point::new(vb.x, vb.y), Point::new(vb.x + vb.w, vb.y + vb.h))
             } else {
@@ -793,10 +796,9 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             let popped = self.expansion_stack.pop();
             debug_assert_eq!(popped, Some(expected));
         }
-        if matches!(
-            (node.tag_name().name(), node.has_attribute("viewBox")),
-            (SVG_TAG_NAME, _) | (SYMBOL_TAG_NAME, true)
-        ) {
+        if matches!(node.tag_name().name(), SVG_TAG_NAME | SYMBOL_TAG_NAME)
+            && self.viewport_pushed_stack.pop() == Some(true)
+        {
             if self.is_overflow_hidden(node) {
                 self.terrarium.pop_clip_layer();
             }
