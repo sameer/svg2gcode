@@ -284,7 +284,7 @@ fn svg_to_optimized_strokes<'a, 'input>(
     minimize_travel_time(strokes, starting_point)
 }
 
-fn node_name<'input>(node: &Node<'_, 'input>, attr_to_print: Option<&str>) -> Cow<'input, str> {
+fn node_name<'input>(node: Node<'_, 'input>, attr_to_print: Option<&str>) -> Cow<'input, str> {
     let tag = node.tag_name().name();
 
     node.attribute("id")

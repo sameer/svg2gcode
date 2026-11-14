@@ -24,7 +24,7 @@ pub enum DimensionHint {
 
 impl<T: Turtle> ConversionVisitor<'_, '_, T> {
     /// Convenience function for converting a length attribute to user units
-    pub fn length_attr_to_user_units(&self, node: &Node, attr: &str) -> Option<f64> {
+    pub fn length_attr_to_user_units(&self, node: Node, attr: &str) -> Option<f64> {
         let l = node
             .attribute(attr)
             .map(LengthListParser::from)

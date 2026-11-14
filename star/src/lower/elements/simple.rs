@@ -16,7 +16,7 @@ const LINE_TAG_NAME: &str = "line";
 
 pub struct SimpleElement<'a, 'input> {
     kind: Kind,
-    node: &'input Node<'a, 'input>,
+    node: Node<'a, 'input>,
 }
 
 enum Kind {
@@ -28,7 +28,7 @@ enum Kind {
 }
 
 impl Kind {
-    fn parse<'input>(node: &'input Node) -> Result<Self, &'input str> {
+    fn parse<'input>(node: Node<'_, 'input>) -> Result<Self, &'input str> {
         Ok(match node.tag_name().name() {
             PATH_TAG_NAME => Self::Path,
             tag @ (POLYLINE_TAG_NAME | POLYGON_TAG_NAME) => Self::Polygon {
@@ -42,8 +42,8 @@ impl Kind {
     }
 }
 
-impl<'input> SimpleElement<'_, 'input> {
-    pub fn new(node: &'input Node) -> Result<Self, &'input str> {
+impl<'a, 'input> SimpleElement<'a, 'input> {
+    pub fn new(node: Node<'a, 'input>) -> Result<Self, &'input str> {
         Ok(Self {
             kind: Kind::parse(node)?,
             node,
