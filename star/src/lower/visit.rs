@@ -496,16 +496,32 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             RECT_TAG_NAME => {
                 let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
                 let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
-                let width = self.length_attr_to_user_units(&node, "width");
-                let height = self.length_attr_to_user_units(&node, "height");
-                let rx = self.length_attr_to_user_units(&node, "rx").unwrap_or(0.);
-                let ry = self.length_attr_to_user_units(&node, "ry").unwrap_or(0.);
-                let has_radius = rx > 0. && ry > 0.;
-
-                let (Some(width), Some(height)) = (width, height) else {
+                let Some((width, height)) = self
+                    .length_attr_to_user_units(&node, "width")
+                    .zip(self.length_attr_to_user_units(&node, "height"))
+                    .filter(|&(w, h)| w > 0. && h > 0.)
+                else {
                     warn!("Invalid rectangle node: {node:?}");
                     return;
                 };
+                let (mut rx, mut ry) = match (
+                    self.length_attr_to_user_units(&node, "rx")
+                        .filter(|&v| v >= 0.),
+                    self.length_attr_to_user_units(&node, "ry")
+                        .filter(|&v| v >= 0.),
+                ) {
+                    (Some(rx), Some(ry)) => (rx, ry),
+                    (Some(rx), None) => (rx, rx),
+                    (None, Some(ry)) => (ry, ry),
+                    (None, None) => (0., 0.),
+                };
+                rx = rx.min(width / 2.);
+                ry = ry.min(height / 2.);
+                let has_radius = rx > 0. && ry > 0.;
+                if !has_radius {
+                    rx = 0.;
+                    ry = 0.;
+                }
                 [
                     MoveTo {
                         abs: true,
