@@ -58,11 +58,10 @@ pub trait XmlVisitor<'a, 'input> {
                 continue;
             }
 
+            let expand_use = node.tag_name().name() == USE_TAG_NAME && self.should_draw_node(node);
             active_nodes.push(node.id());
             self.visit_enter(node);
-            if node.tag_name().name() == USE_TAG_NAME
-                && let Some(referenced) = resolve_href(doc, node)
-            {
+            if expand_use && let Some(referenced) = resolve_href(doc, node) {
                 if active_nodes.contains(&referenced.id()) {
                     warn!("Cyclic <use> detected: {node:?}");
                 } else {
@@ -79,6 +78,7 @@ pub trait XmlVisitor<'a, 'input> {
         }
     }
 
+    fn should_draw_node(&self, node: Node<'a, 'input>) -> bool;
     fn visit_enter(&mut self, node: Node<'a, 'input>);
     fn visit_exit(&mut self, node: Node<'a, 'input>);
 }
@@ -242,6 +242,14 @@ pub fn depth_first_visit<'a, 'input, V: XmlVisitor<'a, 'input>>(
 }
 
 impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'input, T> {
+    fn should_draw_node(&self, node: Node<'a, 'input>) -> bool {
+        !self.expansion_stack.is_empty()
+            || self
+                .selector_filter
+                .as_ref()
+                .is_none_or(|s| node.ancestors().any(|a| a.is_element() && s.matches(a)))
+    }
+
     fn visit_enter(&mut self, node: Node<'a, 'input>) {
         use PathSegment::{
             ClosePath, EllipticalArc, HorizontalLineTo, LineTo, MoveTo, VerticalLineTo,

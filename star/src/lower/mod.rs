@@ -113,14 +113,6 @@ impl<T: Turtle> ConversionVisitor<'_, '_, T> {
         self.terrarium.comment(self.name_stack.join(" > "));
     }
 
-    fn should_draw_node(&self, node: Node) -> bool {
-        !self.expansion_stack.is_empty()
-            || self
-                .selector_filter
-                .as_ref()
-                .is_none_or(|s| s.matches(node))
-    }
-
     fn begin(&mut self) {
         if self.coordinate_system == CoordinateSystem::YUp {
             // Part 1 of converting from SVG (Y-down) to output (Y-up) coordinates
