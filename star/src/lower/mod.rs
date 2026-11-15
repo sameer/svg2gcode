@@ -11,7 +11,11 @@ use uom::si::{
 };
 
 use crate::{
-    lower::selector::SelectorList,
+    lower::{
+        elements::{PatternState, UseState, ViewportState},
+        selector::SelectorList,
+        visit::ExpansionState,
+    },
     turtle::{
         CoordinateSystem, DpiConvertingTurtle, PreprocessTurtle, StrokeCollectingTurtle, Terrarium,
         Turtle,
@@ -97,22 +101,16 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
     /// Whether to flip the Y axis to convert from SVG (Y-down) to the output coordinate system (Y-up?).
     coordinate_system: CoordinateSystem,
     name_stack: Vec<Cow<'input, str>>,
-    /// Used to convert percentage values
-    viewport_dim_stack: Vec<[f64; 2]>,
     config: &'a ConversionConfig,
     options: ConversionOptions,
     /// Parsed CSS include selector — only draw elements that match (or are inside a matching ancestor)
     selector_filter: Option<selector::SelectorList>,
     /// Resolved CSS class rules
     css_rules: &'a visit::CssRules<'input>,
-    /// Stack of active template expansion scopes.
-    expansion_stack: Vec<TemplatedExpansion>,
-    /// Tracks whether `<svg>` / `<symbol>` pushed a viewport scope onto `viewport_dim_stack` / `terrarium`.
-    viewport_pushed_stack: Vec<bool>,
-    /// Enclosing `<use>` node IDs and width/height overrides for `<symbol>` expansion & inheritance.
-    use_stack: Vec<(roxmltree::NodeId, [Option<f64>; 2])>,
-    /// Active stack of expanding `<pattern>` node IDs to avoid recursion.
-    pattern_stack: Vec<roxmltree::NodeId>,
+    viewport: ViewportState,
+    expansions: ExpansionState,
+    use_state: UseState,
+    patterns: PatternState,
 }
 
 impl<T: Turtle> ConversionVisitor<'_, '_, T> {
@@ -168,13 +166,12 @@ pub fn svg_to_turtle<T: Turtle>(
             config,
             options: options.clone(),
             name_stack: vec![],
-            viewport_dim_stack: vec![],
             selector_filter: selector_filter.clone(),
             css_rules: &css_rules,
-            expansion_stack: vec![],
-            viewport_pushed_stack: vec![],
-            use_stack: vec![],
-            pattern_stack: vec![],
+            viewport: ViewportState::default(),
+            expansions: ExpansionState::default(),
+            use_state: UseState::default(),
+            patterns: PatternState::default(),
         };
 
         visitor.begin();
@@ -214,13 +211,12 @@ pub fn svg_to_turtle<T: Turtle>(
         config,
         options: options.clone(),
         name_stack: vec![],
-        viewport_dim_stack: vec![],
         selector_filter: selector_filter.clone(),
         css_rules: &css_rules,
-        expansion_stack: vec![],
-        viewport_pushed_stack: vec![],
-        use_stack: vec![],
-        pattern_stack: vec![],
+        viewport: ViewportState::default(),
+        expansions: ExpansionState::default(),
+        use_state: UseState::default(),
+        patterns: PatternState::default(),
     };
 
     conversion_visitor
@@ -267,13 +263,12 @@ fn svg_to_optimized_strokes<'a, 'input>(
         config,
         options,
         name_stack: vec![],
-        viewport_dim_stack: vec![],
         selector_filter,
         css_rules,
-        expansion_stack: vec![],
-        viewport_pushed_stack: vec![],
-        use_stack: vec![],
-        pattern_stack: vec![],
+        viewport: ViewportState::default(),
+        expansions: ExpansionState::default(),
+        use_state: UseState::default(),
+        patterns: PatternState::default(),
     };
     collect_visitor.terrarium.push_transform(origin_transform);
     collect_visitor.begin();

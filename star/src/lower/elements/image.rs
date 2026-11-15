@@ -1,3 +1,5 @@
+//! SVG image processing.
+
 use std::str::FromStr;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -48,12 +50,20 @@ impl<'a, 'input> ImageElement<'a, 'input> {
             }
         };
 
-        let x = visitor.length_attr_to_user_units(node, "x").unwrap_or(0.);
-        let y = visitor.length_attr_to_user_units(node, "y").unwrap_or(0.);
+        let x = visitor
+            .viewport
+            .length_attr_to_user_units(node, "x")
+            .unwrap_or(0.);
+        let y = visitor
+            .viewport
+            .length_attr_to_user_units(node, "y")
+            .unwrap_or(0.);
         let width = visitor
+            .viewport
             .length_attr_to_user_units(node, "width")
             .unwrap_or(0.);
         let height = visitor
+            .viewport
             .length_attr_to_user_units(node, "height")
             .unwrap_or(0.);
 

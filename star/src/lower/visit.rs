@@ -31,6 +31,27 @@ const MASK_TAG_NAME: &str = "mask";
 #[cfg(feature = "image")]
 use crate::lower::elements::{IMAGE_TAG_NAME, ImageElement};
 
+#[derive(Debug, Default)]
+pub struct ExpansionState {
+    /// Stack of active template expansion scopes.
+    stack: Vec<TemplatedExpansion>,
+}
+
+impl ExpansionState {
+    fn is_expanding(&self) -> bool {
+        !self.stack.is_empty()
+    }
+
+    fn push(&mut self, expansion: TemplatedExpansion) {
+        self.stack.push(expansion);
+    }
+
+    fn pop_expected(&mut self, expected: TemplatedExpansion) {
+        let popped = self.stack.pop();
+        debug_assert_eq!(popped, Some(expected));
+    }
+}
+
 pub trait XmlVisitor<'a, 'input> {
     fn visit_dfs(
         &mut self,
@@ -278,11 +299,13 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
     }
 
     fn should_draw_node(&self, node: Node<'a, 'input>) -> bool {
-        !self.expansion_stack.is_empty()
-            || self
-                .selector_filter
+        if self.expansions.is_expanding() {
+            true
+        } else {
+            self.selector_filter
                 .as_ref()
                 .is_none_or(|s| s.matches(node))
+        }
     }
 
     fn visit_enter(&mut self, node: Node<'a, 'input>) {
@@ -306,10 +329,12 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         if let Some(to_str) = node.attribute("transform-origin") {
             let mut parser = LengthListParser::from(to_str);
             let ox = parser.next().and_then(Result::ok).map_or(0., |l| {
-                self.length_to_user_units(l, DimensionHint::Horizontal)
+                self.viewport
+                    .length_to_user_units(l, DimensionHint::Horizontal)
             });
             let oy = parser.next().and_then(Result::ok).map_or(0., |l| {
-                self.length_to_user_units(l, DimensionHint::Vertical)
+                self.viewport
+                    .length_to_user_units(l, DimensionHint::Vertical)
             });
             if ox != 0. || oy != 0. {
                 // https://www.w3.org/TR/css-transforms-1/#transformation-matrix-computation
@@ -334,29 +359,34 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         let should_draw = self.should_draw_node(node);
 
         if let Some(expansion) = TemplatedExpansion::from_tag_name(node.tag_name().name()) {
-            self.expansion_stack.push(expansion);
+            self.expansions.push(expansion);
         }
 
         if !should_draw {
             return;
         }
 
-        let fill_attr = calculate_presentation_attr(node, "fill", self.css_rules, &self.use_stack);
+        let fill_attr =
+            calculate_presentation_attr(node, "fill", self.css_rules, self.use_state.as_slice());
         // SVGs fill by default
         let has_fill_attr = fill_attr != Some("none");
-        let fill_rule =
-            calculate_presentation_attr(node, "fill-rule", self.css_rules, &self.use_stack)
-                .map_or_default(|v| {
-                    if v == "evenodd" {
-                        FillRule::EvenOdd
-                    } else {
-                        FillRule::NonZero
-                    }
-                });
+        let fill_rule = calculate_presentation_attr(
+            node,
+            "fill-rule",
+            self.css_rules,
+            self.use_state.as_slice(),
+        )
+        .map_or_default(|v| {
+            if v == "evenodd" {
+                FillRule::EvenOdd
+            } else {
+                FillRule::NonZero
+            }
+        });
 
         // Default to false which is spec compliant.
         let has_stroke_attr =
-            calculate_presentation_attr(node, "stroke", self.css_rules, &self.use_stack)
+            calculate_presentation_attr(node, "stroke", self.css_rules, self.use_state.as_slice())
                 .is_some_and(|attr| attr != "none");
 
         if !(has_stroke_attr || has_fill_attr || node.tag_name().name() == "image") {
@@ -376,7 +406,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
                 return;
             }
         };
-        let segments = match elem.segments(self) {
+        let segments = match elem.segments(&self.viewport) {
             Ok(segments) => segments,
             Err(err) => {
                 warn!("Failed to parse {node:?}, skipping: {err}");
@@ -408,8 +438,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         self.terrarium.pop_transform();
         self.name_stack.pop();
         if let Some(expected) = TemplatedExpansion::from_tag_name(node.tag_name().name()) {
-            let popped = self.expansion_stack.pop();
-            debug_assert_eq!(popped, Some(expected));
+            self.expansions.pop_expected(expected);
         }
         if let Some(container) = ContainerElement::new(node) {
             container.exit(self);
@@ -419,14 +448,19 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
 
 impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
     pub fn svg_explicit_dimensions(&self, node: Node<'a, 'input>) -> [Option<f64>; 2] {
-        let mut size = ["width", "height"].map(|attr| self.length_attr_to_user_units(node, attr));
+        let mut size =
+            ["width", "height"].map(|attr| self.viewport.length_attr_to_user_units(node, attr));
         // SVG root only
         if node.parent_element().is_none() {
             let overrides = [
-                self.options.dimensions[0]
-                    .map(|l| self.length_to_user_units(l, DimensionHint::Horizontal)),
-                self.options.dimensions[1]
-                    .map(|l| self.length_to_user_units(l, DimensionHint::Vertical)),
+                self.options.dimensions[0].map(|l| {
+                    self.viewport
+                        .length_to_user_units(l, DimensionHint::Horizontal)
+                }),
+                self.options.dimensions[1].map(|l| {
+                    self.viewport
+                        .length_to_user_units(l, DimensionHint::Vertical)
+                }),
             ];
             for (orig, ovr) in size.iter_mut().zip(overrides) {
                 *orig = ovr.or(*orig);
@@ -436,7 +470,12 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
     }
 
     pub fn is_overflow_hidden(&self, node: Node<'a, 'input>) -> bool {
-        match calculate_presentation_attr(node, "overflow", self.css_rules, &self.use_stack) {
+        match calculate_presentation_attr(
+            node,
+            "overflow",
+            self.css_rules,
+            self.use_state.as_slice(),
+        ) {
             Some("hidden" | "scroll") => true,
             Some(_) => false,
             None => {

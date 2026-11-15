@@ -1,10 +1,12 @@
+//! SVG elements that are directly drawn.
+
 use std::result::Result;
 
 use roxmltree::Node;
 use smallvec::{SmallVec, smallvec};
 use svgtypes::{Error, PathParser, PathSegment, PointsParser};
 
-use crate::{lower::ConversionVisitor, turtle::Turtle};
+use super::ViewportState;
 
 const PATH_TAG_NAME: &str = "path";
 const POLYLINE_TAG_NAME: &str = "polyline";
@@ -49,10 +51,7 @@ impl<'a, 'input> SimpleElement<'a, 'input> {
             node,
         })
     }
-    pub fn segments<T: Turtle>(
-        &self,
-        converter: &ConversionVisitor<'_, '_, T>,
-    ) -> Result<SmallVec<[PathSegment; 6]>, Error> {
+    pub fn segments(&self, viewport: &ViewportState) -> Result<SmallVec<[PathSegment; 6]>, Error> {
         use PathSegment::{
             ClosePath, EllipticalArc, HorizontalLineTo, LineTo, MoveTo, VerticalLineTo,
         };
@@ -64,7 +63,7 @@ impl<'a, 'input> SimpleElement<'a, 'input> {
             }
             Kind::Polygon { is_closed } => {
                 let points = self.node.attribute("points").ok_or(Error::InvalidValue)?;
-                let mut pp = PointsParser::from(points).peekable();
+                let mut pp = PointsParser::from(points);
                 let start = pp
                     .next()
                     .map(|(x, y)| MoveTo { abs: true, x, y })
@@ -75,27 +74,21 @@ impl<'a, 'input> SimpleElement<'a, 'input> {
                     .collect())
             }
             Kind::Rect => {
-                let x = converter
-                    .length_attr_to_user_units(self.node, "x")
-                    .unwrap_or(0.);
-                let y = converter
-                    .length_attr_to_user_units(self.node, "y")
-                    .unwrap_or(0.);
-                let Some((width, height)) = converter
-                    .length_attr_to_user_units(self.node, "width")
-                    .zip(converter.length_attr_to_user_units(self.node, "height"))
-                    .filter(|&(w, h)| w > 0. && h > 0.)
+                let [x, y] = ["x", "y"]
+                    .map(|attr| viewport.length_attr_to_user_units(self.node, attr))
+                    .map(Option::unwrap_or_default);
+
+                let [Some(width), Some(height)] = ["width", "height"]
+                    .map(|attr| viewport.length_attr_to_user_units(self.node, attr))
+                    .map(|v| v.filter(|&v| v > 0.))
                 else {
                     return Err(Error::InvalidValue);
                 };
-                let (mut rx, mut ry) = match (
-                    converter
-                        .length_attr_to_user_units(self.node, "rx")
-                        .filter(|&v| v >= 0.),
-                    converter
-                        .length_attr_to_user_units(self.node, "ry")
-                        .filter(|&v| v >= 0.),
-                ) {
+                let [rx, ry] = ["rx", "ry"]
+                    .map(|attr| viewport.length_attr_to_user_units(self.node, attr))
+                    .map(|v| v.filter(|&v| v > 0.));
+
+                let (mut rx, mut ry) = match (rx, ry) {
                     (Some(rx), Some(ry)) => (rx, ry),
                     (Some(rx), None) => (rx, rx),
                     (None, Some(ry)) => (ry, ry),
@@ -178,7 +171,7 @@ impl<'a, 'input> SimpleElement<'a, 'input> {
             }
             Kind::Ellipse => {
                 let [cx, cy, r, rx_attr, ry_attr] = ["cx", "cy", "r", "rx", "ry"]
-                    .map(|attr| converter.length_attr_to_user_units(self.node, attr));
+                    .map(|attr| viewport.length_attr_to_user_units(self.node, attr));
                 let [cx, cy, r] = [cx, cy, r].map(Option::unwrap_or_default);
                 let rx = rx_attr.or(ry_attr).unwrap_or(r);
                 let ry = ry_attr.or(rx_attr).unwrap_or(r);
@@ -238,7 +231,7 @@ impl<'a, 'input> SimpleElement<'a, 'input> {
             }
             Kind::Line => {
                 let [x1, y1, x2, y2] = ["x1", "y1", "x2", "y2"]
-                    .map(|attr| converter.length_attr_to_user_units(self.node, attr))
+                    .map(|attr| viewport.length_attr_to_user_units(self.node, attr))
                     .map(Option::unwrap_or_default);
                 Ok(smallvec![
                     MoveTo {

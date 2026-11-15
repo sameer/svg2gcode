@@ -4,6 +4,7 @@ use euclid::default::Transform2D;
 use log::warn;
 use lyon_geom::Box2D;
 use roxmltree::Node;
+use smallvec::SmallVec;
 use svgtypes::{AspectRatio, PathSegment, TransformListParser};
 
 use crate::{
@@ -17,11 +18,35 @@ use crate::{
 
 pub const PATTERN_TAG_NAME: &str = "pattern";
 
+/// Tracks visit state specific to [`PatternElement`].
+#[derive(Debug, Default)]
+pub struct PatternState {
+    /// List of already-expanding pattern nodes to detect recursion.
+    stack: SmallVec<[roxmltree::NodeId; Self::EXPECTED_MAX_DEPTH]>,
+}
+
+impl PatternState {
+    const EXPECTED_MAX_DEPTH: usize = 2;
+
+    fn contains(&self, id: roxmltree::NodeId) -> bool {
+        self.stack.contains(&id)
+    }
+
+    fn push(&mut self, id: roxmltree::NodeId) {
+        self.stack.push(id);
+    }
+
+    fn pop(&mut self) {
+        self.stack.pop();
+    }
+}
+
 pub fn get_pattern_id(attr: &str) -> Option<&str> {
     let inner = attr.trim().strip_prefix("url(")?.strip_suffix(")")?.trim();
     inner.trim_matches(['\'', '"']).strip_prefix('#')
 }
 
+/// <https://developer.mozilla.org/en-US/docs/Web/SVG/Reference/Element/pattern>
 pub struct PatternElement<'a, 'input>(pub Node<'a, 'input>);
 
 impl<'a, 'input> PatternElement<'a, 'input> {
@@ -34,7 +59,7 @@ impl<'a, 'input> PatternElement<'a, 'input> {
     ) {
         let pattern_node = self.0;
         let pattern_id = pattern_node.id();
-        if visitor.pattern_stack.contains(&pattern_id) {
+        if visitor.patterns.contains(pattern_id) {
             warn!("Cyclic <pattern> reference detected: {pattern_node:?}");
             return;
         }
@@ -63,10 +88,12 @@ impl<'a, 'input> PatternElement<'a, 'input> {
 
         let pattern_length_attr = |visitor: &ConversionVisitor<'a, 'input, T>, attr: &str| {
             visitor
+                .viewport
                 .length_attr_to_user_units(pattern_node, attr)
                 .or_else(|| {
-                    href_pattern_node
-                        .and_then(|href_node| visitor.length_attr_to_user_units(href_node, attr))
+                    href_pattern_node.and_then(|href_node| {
+                        visitor.viewport.length_attr_to_user_units(href_node, attr)
+                    })
                 })
         };
 
@@ -83,10 +110,10 @@ impl<'a, 'input> PatternElement<'a, 'input> {
                 let Some(local_bbox) = local_bbox() else {
                     return;
                 };
-                visitor.viewport_dim_stack.push([1., 1.]);
+                visitor.viewport.push_dims([1., 1.]);
                 let [w, h, x, y] =
                     ["width", "height", "x", "y"].map(|a| pattern_length_attr(visitor, a));
-                visitor.viewport_dim_stack.pop();
+                visitor.viewport.pop_dims();
                 [
                     w.map(|f| f * local_bbox.width()),
                     h.map(|f| f * local_bbox.height()),
@@ -182,10 +209,10 @@ impl<'a, 'input> PatternElement<'a, 'input> {
         };
 
         visitor.terrarium.push_clip_layer(container_shapes);
-        visitor.viewport_dim_stack.push(pattern_viewport_dims);
+        visitor.viewport.push_dims(pattern_viewport_dims);
 
         // Apply the pattern by repeated translation. Clipping crops the border patterns to the container.
-        visitor.pattern_stack.push(pattern_id);
+        visitor.patterns.push(pattern_id);
         for col in min_col..=max_col {
             for row in min_row..=max_row {
                 // TODO: use a fast container checks to verify that some point in the pattern bbox is even
@@ -206,8 +233,8 @@ impl<'a, 'input> PatternElement<'a, 'input> {
             }
         }
 
-        visitor.pattern_stack.pop();
-        visitor.viewport_dim_stack.pop();
+        visitor.patterns.pop();
+        visitor.viewport.pop_dims();
         visitor.terrarium.pop_clip_layer();
     }
 }

@@ -1,9 +1,12 @@
+//! SVG elements with complex container behavior.
+
 use std::str::FromStr;
 
 use euclid::default::Transform2D;
 use log::warn;
 use lyon_geom::{Box2D, Point, vector};
 use roxmltree::Node;
+use smallvec::SmallVec;
 use svgtypes::{AspectRatio, ViewBox};
 
 use crate::{
@@ -14,6 +17,59 @@ use crate::{
 pub const SVG_TAG_NAME: &str = "svg";
 pub const USE_TAG_NAME: &str = "use";
 pub const SYMBOL_TAG_NAME: &str = "symbol";
+
+pub use pattern::*;
+
+mod pattern;
+
+/// State of the viewport when rendering
+///
+/// <https://www.w3.org/TR/SVG/coords.html>
+#[derive(Debug, Default)]
+pub struct ViewportState {
+    /// Tracks width/height for percentage conversions.
+    dim_stack: Vec<[f64; 2]>,
+}
+
+impl ViewportState {
+    pub fn current_dims(&self) -> Option<[f64; 2]> {
+        self.dim_stack.last().copied()
+    }
+
+    fn push_dims(&mut self, dims: [f64; 2]) {
+        self.dim_stack.push(dims);
+    }
+
+    fn pop_dims(&mut self) {
+        self.dim_stack.pop();
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct UseState {
+    /// Tracks use node IDs and any width/height override.
+    stack: SmallVec<[(roxmltree::NodeId, [Option<f64>; 2]); Self::EXPECTED_MAX_DEPTH]>,
+}
+
+impl UseState {
+    const EXPECTED_MAX_DEPTH: usize = 3;
+
+    fn push(&mut self, id: roxmltree::NodeId, size: [Option<f64>; 2]) {
+        self.stack.push((id, size));
+    }
+
+    fn pop(&mut self) {
+        self.stack.pop();
+    }
+
+    fn current_size(&self) -> [Option<f64>; 2] {
+        self.stack.last().map_or([None, None], |&(_, size)| size)
+    }
+
+    pub fn as_slice(&self) -> &[(roxmltree::NodeId, [Option<f64>; 2])] {
+        &self.stack
+    }
+}
 
 pub struct ContainerElement<'a, 'input> {
     kind: Kind,
@@ -52,7 +108,12 @@ impl<'a, 'input> ContainerElement<'a, 'input> {
     ) {
         match self.kind {
             Kind::Svg => enter_svg(self.node, visitor, flattened_transform),
-            Kind::Use => enter_use(self.node, visitor, flattened_transform),
+            Kind::Use => enter_use(
+                self.node,
+                &visitor.viewport,
+                &mut visitor.use_state,
+                flattened_transform,
+            ),
             Kind::Symbol => enter_symbol(self.node, visitor, flattened_transform),
         }
     }
@@ -61,7 +122,7 @@ impl<'a, 'input> ContainerElement<'a, 'input> {
         match self.kind {
             Kind::Svg | Kind::Symbol => exit_viewport(self.node, visitor),
             Kind::Use => {
-                visitor.use_stack.pop();
+                visitor.use_state.pop();
             }
         }
     }
@@ -105,11 +166,12 @@ fn enter_svg<'a, 'input, T: Turtle>(
         }
     };
 
-    let viewport_pos = ["x", "y"].map(|attr| visitor.length_attr_to_user_units(node, attr));
+    let viewport_pos =
+        ["x", "y"].map(|attr| visitor.viewport.length_attr_to_user_units(node, attr));
 
     visitor
-        .viewport_dim_stack
-        .push(match (view_box.as_ref(), &viewport_size) {
+        .viewport
+        .push_dims(match (view_box.as_ref(), &viewport_size) {
             (Some(ViewBox { w, h, .. }), _) | (None, [w, h]) => [*w, *h],
         });
 
@@ -132,7 +194,6 @@ fn enter_svg<'a, 'input, T: Turtle>(
         ));
     }
 
-    visitor.viewport_pushed_stack.push(true);
     push_viewport_bounds_and_clip(visitor, node, view_box, viewport_pos, viewport_size);
 }
 
@@ -140,18 +201,19 @@ fn exit_viewport<'a, 'input, T: Turtle>(
     node: Node<'a, 'input>,
     visitor: &mut ConversionVisitor<'a, 'input, T>,
 ) {
-    if visitor.viewport_pushed_stack.pop() == Some(true) {
+    if node.has_tag_name(SVG_TAG_NAME) || parse_view_box(node).is_some() {
         if visitor.is_overflow_hidden(node) {
             visitor.terrarium.pop_clip_layer();
         }
-        visitor.viewport_dim_stack.pop();
+        visitor.viewport.pop_dims();
         visitor.terrarium.pop_bounds();
     }
 }
 
-fn enter_use<'a, 'input, T: Turtle>(
-    node: Node<'a, 'input>,
-    visitor: &mut ConversionVisitor<'a, 'input, T>,
+fn enter_use(
+    node: Node,
+    viewport: &ViewportState,
+    use_state: &mut UseState,
     flattened_transform: &mut Transform2D<f64>,
 ) {
     if node.has_attribute("viewBox") {
@@ -159,16 +221,16 @@ fn enter_use<'a, 'input, T: Turtle>(
     }
     // Per SVG spec, <use> x/y translate is appended to the element's transform
     // https://www.w3.org/TR/SVG2/struct.html#UseLayout
-    let x = visitor.length_attr_to_user_units(node, "x").unwrap_or(0.);
-    let y = visitor.length_attr_to_user_units(node, "y").unwrap_or(0.);
+    let x = viewport.length_attr_to_user_units(node, "x").unwrap_or(0.);
+    let y = viewport.length_attr_to_user_units(node, "y").unwrap_or(0.);
     *flattened_transform = flattened_transform.then(&Transform2D::translation(x, y));
-    visitor.use_stack.push((
+    use_state.push(
         node.id(),
         [
-            visitor.length_attr_to_user_units(node, "width"),
-            visitor.length_attr_to_user_units(node, "height"),
+            viewport.length_attr_to_user_units(node, "width"),
+            viewport.length_attr_to_user_units(node, "height"),
         ],
-    ));
+    );
 }
 
 fn enter_symbol<'a, 'input, T: Turtle>(
@@ -180,32 +242,27 @@ fn enter_symbol<'a, 'input, T: Turtle>(
     let preserve_aspect_ratio = node
         .attribute("preserveAspectRatio")
         .map(|attr| AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio"));
-    let use_size = visitor
-        .use_stack
-        .last()
-        .map_or([None, None], |&(_, size)| size);
+    let use_size = visitor.use_state.current_size();
     // Viewport size: <use> override, symbol's own width/height, viewBox dims, or parent viewport
     let viewport_size = match (
-        use_size[0].or_else(|| visitor.length_attr_to_user_units(node, "width")),
-        use_size[1].or_else(|| visitor.length_attr_to_user_units(node, "height")),
+        use_size[0].or_else(|| visitor.viewport.length_attr_to_user_units(node, "width")),
+        use_size[1].or_else(|| visitor.viewport.length_attr_to_user_units(node, "height")),
         &view_box,
     ) {
         (Some(w), Some(h), _) => [w, h],
         (Some(w), None, Some(vb)) => [w, w * vb.h / vb.w],
         (None, Some(h), Some(vb)) => [h * vb.w / vb.h, h],
         (_, _, Some(vb)) => [vb.w, vb.h],
-        _ => *visitor.viewport_dim_stack.last().unwrap_or(&[1., 1.]),
+        _ => visitor.viewport.current_dims().unwrap_or([1., 1.]),
     };
     if let Some(view_box) = view_box {
-        visitor.viewport_dim_stack.push([view_box.w, view_box.h]);
+        visitor.viewport.push_dims([view_box.w, view_box.h]);
         let viewport_transform =
             get_viewport_transform(view_box, preserve_aspect_ratio, viewport_size, [None, None]);
         *flattened_transform = viewport_transform.then(flattened_transform);
         // Does not need Y-axis translation unlike <svg>, already in g-code coords space.
     }
-    let pushes_viewport = view_box.is_some();
-    visitor.viewport_pushed_stack.push(pushes_viewport);
-    if pushes_viewport {
+    if view_box.is_some() {
         push_viewport_bounds_and_clip(visitor, node, view_box, [None, None], viewport_size);
     }
 }
