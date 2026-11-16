@@ -1,14 +1,17 @@
+//! Handles SVG unit conversion.
+
+use std::f64;
+
 use log::warn;
 use roxmltree::Node;
 use svgtypes::{Length, LengthListParser};
 
-use super::ConversionVisitor;
-use crate::turtle::Turtle;
+use super::elements::ViewportState;
 
 /// The DPI assumed by CSS is 96.
 ///
 /// <https://www.w3.org/TR/css3-values/#absolute-lengths>
-pub const CSS_DEFAULT_DPI: f64 = 96.;
+const CSS_DEFAULT_DPI: f64 = 96.;
 
 /// Used to compute percentages correctly
 ///
@@ -20,9 +23,9 @@ pub enum DimensionHint {
     Other,
 }
 
-impl<T: Turtle> ConversionVisitor<'_, '_, T> {
+impl ViewportState {
     /// Convenience function for converting a length attribute to user units
-    pub fn length_attr_to_user_units(&self, node: &Node, attr: &str) -> Option<f64> {
+    pub fn length_attr_to_user_units(&self, node: Node, attr: &str) -> Option<f64> {
         let l = node
             .attribute(attr)
             .map(LengthListParser::from)
@@ -71,12 +74,12 @@ impl<T: Turtle> ConversionVisitor<'_, '_, T> {
             }
             // https://www.w3.org/TR/SVG/coords.html#Units
             Percent => {
-                if let Some([width, height]) = self.viewport_dim_stack.last() {
+                if let Some([width, height]) = self.current_dims() {
                     let scale = match hint {
-                        DimensionHint::Horizontal => *width,
-                        DimensionHint::Vertical => *height,
+                        DimensionHint::Horizontal => width,
+                        DimensionHint::Vertical => height,
                         DimensionHint::Other => {
-                            (width.powi(2) + height.powi(2)).sqrt() / 2.0_f64.sqrt()
+                            (width.powi(2) + height.powi(2)).sqrt() / f64::consts::SQRT_2
                         }
                     };
                     l.number / 100. * scale

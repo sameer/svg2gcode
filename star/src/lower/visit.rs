@@ -1,43 +1,56 @@
 use std::{collections::HashMap, iter, result::Result, str::FromStr};
 
 use euclid::default::Transform2D;
-use log::{debug, warn};
-use lyon_geom::{Box2D, Point, vector};
+use log::warn;
 use roxmltree::{Document, Node};
-use smallvec::{SmallVec, smallvec};
-use svgtypes::{
-    AspectRatio, LengthListParser, PathParser, PathSegment, PointsParser, TransformListParser,
-    ViewBox,
-};
+use svgtypes::{LengthListParser, TransformListParser, ViewBox};
 
 use super::{
-    ConversionVisitor, TemplatedExpansion,
-    transform::{get_viewport_transform, svg_transform_into_euclid_transform},
+    ConversionVisitor, TemplatedExpansion, transform::svg_transform_into_euclid_transform,
     units::DimensionHint,
 };
 use crate::{
-    lower::node_name,
-    turtle::{CoordinateSystem, Turtle, elements::FillRule},
+    lower::{
+        elements::{
+            ContainerElement, PATTERN_TAG_NAME, PatternElement, SVG_TAG_NAME, SYMBOL_TAG_NAME,
+            SimpleElement, USE_TAG_NAME, get_pattern_id,
+        },
+        node_name,
+    },
+    turtle::{Turtle, elements::FillRule},
 };
 
-const SVG_TAG_NAME: &str = "svg";
 const CLIP_PATH_TAG_NAME: &str = "clipPath";
-const PATH_TAG_NAME: &str = "path";
-const POLYLINE_TAG_NAME: &str = "polyline";
-const POLYGON_TAG_NAME: &str = "polygon";
-const RECT_TAG_NAME: &str = "rect";
-const CIRCLE_TAG_NAME: &str = "circle";
-const ELLIPSE_TAG_NAME: &str = "ellipse";
 const LINE_TAG_NAME: &str = "line";
 const DEFS_TAG_NAME: &str = "defs";
-const USE_TAG_NAME: &str = "use";
 const MARKER_TAG_NAME: &str = "marker";
-const SYMBOL_TAG_NAME: &str = "symbol";
-const PATTERN_TAG_NAME: &str = "pattern";
 const TEXT_TAG_NAME: &str = "text";
 const TEXT_PATH_TAG_NAME: &str = "textPath";
 const VIEW_TAG_NAME: &str = "view";
 const MASK_TAG_NAME: &str = "mask";
+#[cfg(feature = "image")]
+use crate::lower::elements::{IMAGE_TAG_NAME, ImageElement};
+
+#[derive(Debug, Default)]
+pub struct ExpansionState {
+    /// Stack of active template expansion scopes.
+    stack: Vec<TemplatedExpansion>,
+}
+
+impl ExpansionState {
+    fn is_expanding(&self) -> bool {
+        !self.stack.is_empty()
+    }
+
+    fn push(&mut self, expansion: TemplatedExpansion) {
+        self.stack.push(expansion);
+    }
+
+    fn pop_expected(&mut self, expected: TemplatedExpansion) {
+        let popped = self.stack.pop();
+        debug_assert_eq!(popped, Some(expected));
+    }
+}
 
 pub trait XmlVisitor<'a, 'input> {
     fn visit_dfs(
@@ -231,7 +244,7 @@ fn find_node_by_id<'a, 'input>(doc: &'a Document<'input>, id: &str) -> Option<No
 
 /// Resolve `href` or `xlink:href` on a `<use>` element to a document node.
 /// Only fragment references (`#id`) within the same document are supported.
-fn resolve_href<'a, 'input: 'a>(
+pub fn resolve_href<'a, 'input: 'a>(
     doc: &'a Document<'input>,
     node: Node<'a, 'input>,
 ) -> Option<Node<'a, 'input>> {
@@ -243,12 +256,7 @@ fn resolve_href<'a, 'input: 'a>(
 }
 
 /// When referenced, a pattern is typically `fill="url(#id)"`.
-fn get_pattern_id(attr: &str) -> Option<&str> {
-    let inner = attr.trim().strip_prefix("url(")?.strip_suffix(")")?.trim();
-    inner.trim_matches(['\'', '"']).strip_prefix('#')
-}
-
-fn parse_view_box(node: Node) -> Option<ViewBox> {
+pub fn parse_view_box(node: Node) -> Option<ViewBox> {
     let attr = node.attribute("viewBox")?;
     match ViewBox::from_str(attr) {
         Ok(vb) if vb.w > 0. && vb.h > 0. => Some(vb),
@@ -291,22 +299,16 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
     }
 
     fn should_draw_node(&self, node: Node<'a, 'input>) -> bool {
-        !self.expansion_stack.is_empty()
-            || self
-                .selector_filter
+        if self.expansions.is_expanding() {
+            true
+        } else {
+            self.selector_filter
                 .as_ref()
                 .is_none_or(|s| s.matches(node))
+        }
     }
 
     fn visit_enter(&mut self, node: Node<'a, 'input>) {
-        use PathSegment::{
-            ClosePath, EllipticalArc, HorizontalLineTo, LineTo, MoveTo, VerticalLineTo,
-        };
-
-        let mut view_box_opt = None;
-        let mut viewport_pos_opt = [None, None];
-        let mut viewport_size_opt = [1., 1.];
-
         if let tag @ (CLIP_PATH_TAG_NAME | TEXT_TAG_NAME | TEXT_PATH_TAG_NAME | VIEW_TAG_NAME) =
             node.tag_name().name()
         {
@@ -327,10 +329,12 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         if let Some(to_str) = node.attribute("transform-origin") {
             let mut parser = LengthListParser::from(to_str);
             let ox = parser.next().and_then(Result::ok).map_or(0., |l| {
-                self.length_to_user_units(l, DimensionHint::Horizontal)
+                self.viewport
+                    .length_to_user_units(l, DimensionHint::Horizontal)
             });
             let oy = parser.next().and_then(Result::ok).map_or(0., |l| {
-                self.length_to_user_units(l, DimensionHint::Vertical)
+                self.viewport
+                    .length_to_user_units(l, DimensionHint::Vertical)
             });
             if ox != 0. || oy != 0. {
                 // https://www.w3.org/TR/css-transforms-1/#transformation-matrix-computation
@@ -342,463 +346,70 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         }
 
         // https://www.w3.org/TR/SVG/coords.html#EstablishingANewSVGViewport
-        if node.has_tag_name(SVG_TAG_NAME) {
-            let view_box = parse_view_box(node);
-            let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map(|attr| {
-                AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
-            });
-            let viewport_size = self.svg_explicit_dimensions(node);
-
-            // https://www.w3.org/TR/SVG/coords.html#SizingSVGInCSS
-            // aka _natural_ aspect ratio
-            let intrinsic_aspect_ratio = match (view_box, viewport_size) {
-                (None, [Some(ref width), Some(ref height)]) => Some(*width / *height),
-                (Some(ref view_box), _) => Some(view_box.w / view_box.h),
-                (None, [None | Some(_), None] | [None, Some(_)]) => None,
-            };
-
-            // https://www.w3.org/TR/css-images-3/#default-sizing
-            let viewport_size = match (viewport_size, intrinsic_aspect_ratio, view_box) {
-                ([Some(w), Some(h)], _, _) => [w, h],
-                ([Some(w), None], Some(ratio), _) => [w, w / ratio],
-                ([None, Some(h)], Some(ratio), _) => [h * ratio, h],
-                ([None, None], _, Some(view_box)) => {
-                    // Fallback: if there is no width or height, assume the coordinate system is just pixels on the viewport
-                    [view_box.w, view_box.h]
-                }
-                ([Some(d), None] | [None, Some(d)], None, None) => [d, d],
-                ([None, None], _, None) => {
-                    // We have no info at all, nothing can be done
-                    [1., 1.]
-                }
-                ([None, Some(_)] | [Some(_), None], None, Some(_)) => {
-                    unreachable!("intrinsic ratio necessarily exists")
-                }
-            };
-
-            let viewport_pos = ["x", "y"].map(|attr| self.length_attr_to_user_units(&node, attr));
-
-            view_box_opt = view_box;
-            viewport_pos_opt = viewport_pos;
-            viewport_size_opt = viewport_size;
-
-            self.viewport_dim_stack
-                .push(match (view_box.as_ref(), &viewport_size) {
-                    (Some(ViewBox { w, h, .. }), _) | (None, [w, h]) => [*w, *h],
-                });
-
-            if let Some(view_box) = view_box {
-                let viewport_transform = get_viewport_transform(
-                    view_box,
-                    preserve_aspect_ratio,
-                    viewport_size,
-                    viewport_pos,
-                );
-                flattened_transform = viewport_transform.then(&flattened_transform);
-            } else {
-                let [px, py] = viewport_pos.map(Option::unwrap_or_default);
-                if px != 0. || py != 0. {
-                    flattened_transform = flattened_transform.pre_translate(vector(px, py));
-                }
-            }
-            if self.coordinate_system == CoordinateSystem::YUp && node.parent_element().is_none() {
-                // Part 2 of converting from SVG (Y-down) to output (Y-up) coordinates:
-                // shift the origin from the top-left to the bottom-left of the viewport.
-                flattened_transform = flattened_transform.then(&Transform2D::translation(
-                    0.,
-                    -(viewport_size[1] + viewport_pos[1].unwrap_or(0.)),
-                ));
-            }
-        } else if node.has_tag_name(USE_TAG_NAME) {
-            // Per SVG spec, <use> x/y translate is appended to the element's transform
-            // https://www.w3.org/TR/SVG2/struct.html#UseLayout
-            let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
-            let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
-            flattened_transform = flattened_transform.then(&Transform2D::translation(x, y));
-            self.use_stack.push((
-                node.id(),
-                [
-                    self.length_attr_to_user_units(&node, "width"),
-                    self.length_attr_to_user_units(&node, "height"),
-                ],
-            ));
-        } else if node.has_tag_name(SYMBOL_TAG_NAME) {
-            let view_box = parse_view_box(node);
-            let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map(|attr| {
-                AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
-            });
-            let use_size = self
-                .use_stack
-                .last()
-                .map_or([None, None], |&(_, size)| size);
-            // Viewport size: <use> override, symbol's own width/height, viewBox dims, or parent viewport
-            let viewport_size = match (
-                use_size[0].or_else(|| self.length_attr_to_user_units(&node, "width")),
-                use_size[1].or_else(|| self.length_attr_to_user_units(&node, "height")),
-                &view_box,
-            ) {
-                (Some(w), Some(h), _) => [w, h],
-                (Some(w), None, Some(vb)) => [w, w * vb.h / vb.w],
-                (None, Some(h), Some(vb)) => [h * vb.w / vb.h, h],
-                (_, _, Some(vb)) => [vb.w, vb.h],
-                _ => *self.viewport_dim_stack.last().unwrap_or(&[1., 1.]),
-            };
-            if let Some(view_box) = view_box {
-                self.viewport_dim_stack.push([view_box.w, view_box.h]);
-                let viewport_transform = get_viewport_transform(
-                    view_box,
-                    preserve_aspect_ratio,
-                    viewport_size,
-                    [None, None],
-                );
-                flattened_transform = viewport_transform.then(&flattened_transform);
-                // Does not need Y-axis translation unlike <svg>, already in g-code coords space.
-            }
-            view_box_opt = view_box;
-            viewport_pos_opt = [None, None];
-            viewport_size_opt = viewport_size;
+        if let Some(container) = ContainerElement::new(node) {
+            container.enter(self, &mut flattened_transform);
         } else if node.has_attribute("viewBox") {
             warn!("View box is not supported on a {}", node.tag_name().name());
         }
 
         self.terrarium.push_transform(flattened_transform);
-        self.name_stack.push(node_name(
-            &node,
-            self.config.extra_attribute_name.as_deref(),
-        ));
-
-        let pushes_viewport = match node.tag_name().name() {
-            SVG_TAG_NAME => true,
-            SYMBOL_TAG_NAME => view_box_opt.is_some(),
-            _ => false,
-        };
-        if matches!(node.tag_name().name(), SVG_TAG_NAME | SYMBOL_TAG_NAME) {
-            self.viewport_pushed_stack.push(pushes_viewport);
-        }
-        if pushes_viewport {
-            let viewport_box = if let Some(vb) = view_box_opt {
-                Box2D::new(Point::new(vb.x, vb.y), Point::new(vb.x + vb.w, vb.y + vb.h))
-            } else {
-                let px = viewport_pos_opt[0].unwrap_or(0.);
-                let py = viewport_pos_opt[1].unwrap_or(0.);
-                Box2D::new(
-                    Point::new(px, py),
-                    Point::new(px + viewport_size_opt[0], py + viewport_size_opt[1]),
-                )
-            };
-            self.terrarium.push_viewport_bounds(viewport_box);
-            if self.is_overflow_hidden(node) {
-                self.terrarium.push_viewport_clip(viewport_box);
-            }
-        }
+        self.name_stack
+            .push(node_name(node, self.config.extra_attribute_name.as_deref()));
 
         let should_draw = self.should_draw_node(node);
 
         if let Some(expansion) = TemplatedExpansion::from_tag_name(node.tag_name().name()) {
-            self.expansion_stack.push(expansion);
+            self.expansions.push(expansion);
         }
 
         if !should_draw {
             return;
         }
 
-        let fill_attr = calculate_presentation_attr(node, "fill", self.css_rules, &self.use_stack);
+        let fill_attr =
+            calculate_presentation_attr(node, "fill", self.css_rules, self.use_state.as_slice());
         // SVGs fill by default
         let has_fill_attr = fill_attr != Some("none");
-        let fill_rule =
-            calculate_presentation_attr(node, "fill-rule", self.css_rules, &self.use_stack)
-                .map_or_default(|v| {
-                    if v == "evenodd" {
-                        FillRule::EvenOdd
-                    } else {
-                        FillRule::NonZero
-                    }
-                });
+        let fill_rule = calculate_presentation_attr(
+            node,
+            "fill-rule",
+            self.css_rules,
+            self.use_state.as_slice(),
+        )
+        .map_or_default(|v| {
+            if v == "evenodd" {
+                FillRule::EvenOdd
+            } else {
+                FillRule::NonZero
+            }
+        });
 
         // Default to false which is spec compliant.
         let has_stroke_attr =
-            calculate_presentation_attr(node, "stroke", self.css_rules, &self.use_stack)
+            calculate_presentation_attr(node, "stroke", self.css_rules, self.use_state.as_slice())
                 .is_some_and(|attr| attr != "none");
 
         if !(has_stroke_attr || has_fill_attr || node.tag_name().name() == "image") {
             return;
         }
 
-        let segments: SmallVec<[PathSegment; 6]> = match node.tag_name().name() {
-            PATH_TAG_NAME => {
-                let Some(d) = node.attribute("d") else {
-                    warn!("There is a path node containing no actual path: {node:?}");
-                    return;
-                };
-                PathParser::from(d)
-                    .map(|segment| segment.expect("could not parse path segment"))
-                    .collect()
-            }
-            name @ (POLYLINE_TAG_NAME | POLYGON_TAG_NAME) => {
-                let Some(points) = node.attribute("points") else {
-                    warn!("There is a {name} node containing no actual path: {node:?}");
-                    return;
-                };
-                let is_polygon = name == POLYGON_TAG_NAME;
-                let mut pp = PointsParser::from(points).peekable();
-                let start = pp
-                    .next()
-                    .map(|(x, y)| MoveTo { abs: true, x, y })
-                    .into_iter();
-                start
-                    .chain(pp.map(|(x, y)| LineTo { abs: true, x, y }))
-                    .chain(is_polygon.then_some(ClosePath { abs: true }))
-                    .collect()
-            }
-            RECT_TAG_NAME => {
-                let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
-                let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
-                let Some((width, height)) = self
-                    .length_attr_to_user_units(&node, "width")
-                    .zip(self.length_attr_to_user_units(&node, "height"))
-                    .filter(|&(w, h)| w > 0. && h > 0.)
-                else {
-                    warn!("Invalid rectangle node: {node:?}");
-                    return;
-                };
-                let (mut rx, mut ry) = match (
-                    self.length_attr_to_user_units(&node, "rx")
-                        .filter(|&v| v >= 0.),
-                    self.length_attr_to_user_units(&node, "ry")
-                        .filter(|&v| v >= 0.),
-                ) {
-                    (Some(rx), Some(ry)) => (rx, ry),
-                    (Some(rx), None) => (rx, rx),
-                    (None, Some(ry)) => (ry, ry),
-                    (None, None) => (0., 0.),
-                };
-                rx = rx.min(width / 2.);
-                ry = ry.min(height / 2.);
-                let has_radius = rx > 0. && ry > 0.;
-                if !has_radius {
-                    rx = 0.;
-                    ry = 0.;
-                }
-                [
-                    MoveTo {
-                        abs: true,
-                        x: x + rx,
-                        y,
-                    },
-                    HorizontalLineTo {
-                        abs: true,
-                        x: x + width - rx,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: x + width,
-                        y: y + ry,
-                    },
-                    VerticalLineTo {
-                        abs: true,
-                        y: y + height - ry,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: x + width - rx,
-                        y: y + height,
-                    },
-                    HorizontalLineTo {
-                        abs: true,
-                        x: x + rx,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x,
-                        y: y + height - ry,
-                    },
-                    VerticalLineTo {
-                        abs: true,
-                        y: y + ry,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: x + rx,
-                        y,
-                    },
-                    ClosePath { abs: true },
-                ]
-                .into_iter()
-                .filter(move |p| has_radius || !matches!(p, EllipticalArc { .. }))
-                .collect()
-            }
-            CIRCLE_TAG_NAME | ELLIPSE_TAG_NAME => {
-                let [cx, cy, r, rx_attr, ry_attr] = ["cx", "cy", "r", "rx", "ry"]
-                    .map(|attr| self.length_attr_to_user_units(&node, attr));
-                let [cx, cy, r] = [cx, cy, r].map(Option::unwrap_or_default);
-                let rx = rx_attr.or(ry_attr).unwrap_or(r);
-                let ry = ry_attr.or(rx_attr).unwrap_or(r);
+        #[cfg(feature = "image")]
+        if node.tag_name().name() == IMAGE_TAG_NAME {
+            ImageElement(node).render(self);
+            return;
+        }
 
-                if rx <= 0. || ry <= 0. {
-                    warn!("Invalid {} node: {node:?}", node.tag_name().name());
-                    return;
-                }
-                smallvec![
-                    MoveTo {
-                        abs: true,
-                        x: cx + rx,
-                        y: cy,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: cx,
-                        y: cy + ry,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: cx - rx,
-                        y: cy,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: cx,
-                        y: cy - ry,
-                    },
-                    EllipticalArc {
-                        abs: true,
-                        rx,
-                        ry,
-                        x_axis_rotation: 0.,
-                        large_arc: false,
-                        sweep: true,
-                        x: cx + rx,
-                        y: cy,
-                    },
-                    ClosePath { abs: true },
-                ]
-            }
-            LINE_TAG_NAME => {
-                let [x1, y1, x2, y2] = ["x1", "y1", "x2", "y2"]
-                    .map(|attr| self.length_attr_to_user_units(&node, attr))
-                    .map(Option::unwrap_or_default);
-                smallvec![
-                    MoveTo {
-                        abs: true,
-                        x: x1,
-                        y: y1,
-                    },
-                    LineTo {
-                        abs: true,
-                        x: x2,
-                        y: y2,
-                    },
-                ]
-            }
-            #[cfg(feature = "image")]
-            "image" => {
-                use base64::{Engine, engine::general_purpose::STANDARD};
-
-                let Some(href) = node
-                    .attribute("href")
-                    .or_else(|| node.attribute(("http://www.w3.org/1999/xlink", "href")))
-                else {
-                    warn!("image element has no href: {node:?}");
-                    return;
-                };
-                let Some(b64) = href
-                    .strip_prefix("data:image/png;base64,")
-                    .or_else(|| href.strip_prefix("data:image/jpeg;base64,"))
-                else {
-                    warn!("Unsupported image href {href}");
-                    return;
-                };
-
-                let b64_no_whitespace: String =
-                    b64.chars().filter(|c| !c.is_ascii_whitespace()).collect();
-                let bytes = match STANDARD.decode(&b64_no_whitespace) {
-                    Ok(bytes) => bytes,
-                    Err(err) => {
-                        warn!("image base64 decode failed: {err}");
-                        return;
-                    }
-                };
-                let image = match image::load_from_memory(&bytes) {
-                    Ok(img) => img,
-                    Err(e) => {
-                        warn!("image decode failed: {e}");
-                        return;
-                    }
-                };
-
-                let x = self.length_attr_to_user_units(&node, "x").unwrap_or(0.);
-                let y = self.length_attr_to_user_units(&node, "y").unwrap_or(0.);
-                let width = self.length_attr_to_user_units(&node, "width").unwrap_or(0.);
-                let height = self
-                    .length_attr_to_user_units(&node, "height")
-                    .unwrap_or(0.);
-
-                let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map_or(
-                    svgtypes::AspectRatio {
-                        defer: false,
-                        align: svgtypes::Align::XMidYMid,
-                        slice: false,
-                    },
-                    |attr| {
-                        AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio")
-                    },
-                );
-
-                let view_box = svgtypes::ViewBox {
-                    x: 0.,
-                    y: 0.,
-                    w: f64::from(image.width()),
-                    h: f64::from(image.height()),
-                };
-                let image_to_user = get_viewport_transform(
-                    view_box,
-                    Some(preserve_aspect_ratio),
-                    [width, height],
-                    [Some(x), Some(y)],
-                );
-
-                self.comment();
-                self.terrarium
-                    .image(image, image_to_user, preserve_aspect_ratio);
-
+        let elem = match SimpleElement::new(node) {
+            Ok(elem) => elem,
+            Err(err) => {
+                warn!("Skipping unknown tag: {err}");
                 return;
             }
-            other => {
-                debug!("Unhandled node: {other}");
+        };
+        let segments = match elem.segments(&self.viewport) {
+            Ok(segments) => segments,
+            Err(err) => {
+                warn!("Failed to parse {node:?}, skipping: {err}");
                 return;
             }
         };
@@ -816,7 +427,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             self.comment();
             // TODO: no idea what a vectorized gradient fill would mean practically speaking
             if let Some(pattern_id) = pattern_id {
-                self.visit_pattern(node, pattern_id, segments, fill_rule);
+                PatternElement(pattern_id).render(self, node, segments, fill_rule);
             } else {
                 self.terrarium.apply_fill(segments, fill_rule);
             }
@@ -827,34 +438,29 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         self.terrarium.pop_transform();
         self.name_stack.pop();
         if let Some(expected) = TemplatedExpansion::from_tag_name(node.tag_name().name()) {
-            let popped = self.expansion_stack.pop();
-            debug_assert_eq!(popped, Some(expected));
+            self.expansions.pop_expected(expected);
         }
-        if node.has_tag_name(USE_TAG_NAME) {
-            self.use_stack.pop();
-        }
-        if matches!(node.tag_name().name(), SVG_TAG_NAME | SYMBOL_TAG_NAME)
-            && self.viewport_pushed_stack.pop() == Some(true)
-        {
-            if self.is_overflow_hidden(node) {
-                self.terrarium.pop_clip_layer();
-            }
-            self.viewport_dim_stack.pop();
-            self.terrarium.pop_bounds();
+        if let Some(container) = ContainerElement::new(node) {
+            container.exit(self);
         }
     }
 }
 
 impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
-    fn svg_explicit_dimensions(&self, node: Node<'a, 'input>) -> [Option<f64>; 2] {
-        let mut size = ["width", "height"].map(|attr| self.length_attr_to_user_units(&node, attr));
+    pub fn svg_explicit_dimensions(&self, node: Node<'a, 'input>) -> [Option<f64>; 2] {
+        let mut size =
+            ["width", "height"].map(|attr| self.viewport.length_attr_to_user_units(node, attr));
         // SVG root only
         if node.parent_element().is_none() {
             let overrides = [
-                self.options.dimensions[0]
-                    .map(|l| self.length_to_user_units(l, DimensionHint::Horizontal)),
-                self.options.dimensions[1]
-                    .map(|l| self.length_to_user_units(l, DimensionHint::Vertical)),
+                self.options.dimensions[0].map(|l| {
+                    self.viewport
+                        .length_to_user_units(l, DimensionHint::Horizontal)
+                }),
+                self.options.dimensions[1].map(|l| {
+                    self.viewport
+                        .length_to_user_units(l, DimensionHint::Vertical)
+                }),
             ];
             for (orig, ovr) in size.iter_mut().zip(overrides) {
                 *orig = ovr.or(*orig);
@@ -863,8 +469,13 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
         size
     }
 
-    fn is_overflow_hidden(&self, node: Node<'a, 'input>) -> bool {
-        match calculate_presentation_attr(node, "overflow", self.css_rules, &self.use_stack) {
+    pub fn is_overflow_hidden(&self, node: Node<'a, 'input>) -> bool {
+        match calculate_presentation_attr(
+            node,
+            "overflow",
+            self.css_rules,
+            self.use_state.as_slice(),
+        ) {
             Some("hidden" | "scroll") => true,
             Some(_) => false,
             None => {
@@ -873,190 +484,5 @@ impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
                 !is_root
             }
         }
-    }
-    /// Helper function because the logic for patterns is quite complex
-    fn visit_pattern(
-        &mut self,
-        container: Node<'a, 'input>,
-        pattern_node: Node<'a, 'input>,
-        container_segments: impl IntoIterator<Item = PathSegment>,
-        fill_rule: FillRule,
-    ) {
-        let pattern_id = pattern_node.id();
-        if self.pattern_stack.contains(&pattern_id) {
-            warn!("Cyclic <pattern> reference detected: {pattern_node:?}");
-            return;
-        }
-        let doc = container.document();
-        let container_shapes = self.terrarium.to_shapes(container_segments, fill_rule);
-        let [first, rest @ ..] = container_shapes.as_slice() else {
-            return;
-        };
-        let container_bbox = rest.iter().fold(first.outer.bounding_box(), |bbox, fp| {
-            Box2D::from_points([
-                bbox.min,
-                bbox.max,
-                fp.outer.bounding_box().min,
-                fp.outer.bounding_box().max,
-            ])
-        });
-
-        // TODO: does this handle xlink:href on a pattern correctly?
-        // seems like we need some kind of recursion here
-        let href_pattern_node = resolve_href(doc, pattern_node);
-        let pattern_attr = |attr: &str| {
-            pattern_node
-                .attribute(attr)
-                .or_else(|| href_pattern_node.and_then(|n| n.attribute(attr)))
-        };
-
-        let pattern_length_attr = |visitor: &Self, attr: &str| {
-            visitor
-                .length_attr_to_user_units(&pattern_node, attr)
-                .or_else(|| {
-                    href_pattern_node
-                        .and_then(|href_node| visitor.length_attr_to_user_units(&href_node, attr))
-                })
-        };
-
-        let local_bbox = || {
-            let Some(world_to_local) = self.terrarium.current_transform_inverse() else {
-                warn!("Non-invertible transform for objectBoundingBox pattern");
-                return None;
-            };
-            Some(world_to_local.outer_transformed_box(&container_bbox))
-        };
-
-        let [width, height, x, y] = match pattern_attr("patternUnits") {
-            Some("objectBoundingBox") | None => {
-                let Some(local_bbox) = local_bbox() else {
-                    return;
-                };
-                self.viewport_dim_stack.push([1., 1.]);
-                let [w, h, x, y] =
-                    ["width", "height", "x", "y"].map(|a| pattern_length_attr(self, a));
-                self.viewport_dim_stack.pop();
-                [
-                    w.map(|f| f * local_bbox.width()),
-                    h.map(|f| f * local_bbox.height()),
-                    Some(local_bbox.min.x + x.unwrap_or(0.) * local_bbox.width()),
-                    Some(local_bbox.min.y + y.unwrap_or(0.) * local_bbox.height()),
-                ]
-            }
-            Some("userSpaceOnUse") => {
-                ["width", "height", "x", "y"].map(|a| pattern_length_attr(self, a))
-            }
-            Some(other) => {
-                warn!("Invalid patternUnits attribute value: {other}");
-                return;
-            }
-        };
-
-        // width or height missing means do not render
-        let (Some(width), Some(height)) = (width, height) else {
-            return;
-        };
-
-        if width <= 0. || height <= 0. {
-            return;
-        }
-
-        let pattern_origin_transform = Transform2D::translation(x.unwrap_or(0.), y.unwrap_or(0.));
-
-        let pattern_transform =
-            pattern_attr("patternTransform").map_or_else(Transform2D::identity, |transform| {
-                TransformListParser::from(transform)
-                    .map(|token| token.expect("could not parse patternTransform"))
-                    .map(svg_transform_into_euclid_transform)
-                    .fold(Transform2D::identity(), |acc, t| t.then(&acc))
-            });
-
-        let view_box =
-            parse_view_box(pattern_node).or_else(|| href_pattern_node.and_then(parse_view_box));
-        let preserve_aspect_ratio = pattern_attr("preserveAspectRatio")
-            .map(|attr| AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio"));
-        let (content_transform, pattern_viewport_dims) =
-            match (view_box, pattern_attr("patternContentUnits")) {
-                (Some(vb), _) => (
-                    get_viewport_transform(
-                        vb,
-                        preserve_aspect_ratio,
-                        [width, height],
-                        [None, None],
-                    ),
-                    [vb.w, vb.h],
-                ),
-                (None, Some("objectBoundingBox")) => {
-                    let Some(local_bbox) = local_bbox() else {
-                        return;
-                    };
-                    (
-                        Transform2D::scale(local_bbox.width(), local_bbox.height()),
-                        [1., 1.],
-                    )
-                }
-                (None, Some("userSpaceOnUse") | None) => (Transform2D::identity(), [width, height]),
-                (None, Some(other)) => {
-                    warn!("Invalid patternContentUnits attribute value: {other}");
-                    return;
-                }
-            };
-
-        let target_pattern_node = if pattern_node.children().any(|c| c.is_element()) {
-            // TODO: unclear what it would mean if there is an href element but the pattern also has its own children
-            pattern_node
-        } else if let Some(ref href) = href_pattern_node {
-            *href
-        } else {
-            return;
-        };
-
-        let Some(inv_transform) = pattern_origin_transform
-            .then(&pattern_transform)
-            .then(&self.terrarium.current_transform())
-            .inverse()
-        else {
-            warn!("Non-invertible pattern transform");
-            return;
-        };
-
-        let (min_col, max_col, min_row, max_row) = {
-            let inverse_container_bbox = inv_transform.outer_transformed_box(&container_bbox);
-            (
-                (inverse_container_bbox.min.x / width).floor() as i32 - 1,
-                (inverse_container_bbox.max.x / width).ceil() as i32 + 1,
-                (inverse_container_bbox.min.y / height).floor() as i32 - 1,
-                (inverse_container_bbox.max.y / height).ceil() as i32 + 1,
-            )
-        };
-
-        self.terrarium.push_clip_layer(container_shapes);
-        self.viewport_dim_stack.push(pattern_viewport_dims);
-
-        // Apply the pattern by repeated translation. Clipping crops the border patterns to the container.
-        self.pattern_stack.push(pattern_id);
-        for col in min_col..=max_col {
-            for row in min_row..=max_row {
-                // TODO: use a fast container checks to verify that some point in the pattern bbox is even
-                // in the container. This is probably wasteful for a shape with holes.
-                let offset_transform =
-                    Transform2D::translation(f64::from(col) * width, f64::from(row) * height);
-                let combined = content_transform
-                    .then(&pattern_origin_transform)
-                    .then(&offset_transform)
-                    .then(&pattern_transform);
-
-                self.terrarium.push_transform(combined);
-                for child in target_pattern_node.children() {
-                    let mut active_nodes = vec![];
-                    self.visit_dfs(child, Some(TemplatedExpansion::Pattern), &mut active_nodes);
-                }
-                self.terrarium.pop_transform();
-            }
-        }
-
-        self.pattern_stack.pop();
-        self.viewport_dim_stack.pop();
-        self.terrarium.pop_clip_layer();
     }
 }
