@@ -228,15 +228,11 @@ fn enter_use(
     }
     // Per SVG spec, <use> x/y translate is appended to the element's transform
     // https://www.w3.org/TR/SVG2/struct.html#UseLayout
-    let x = viewport.length_attr_to_user_units(node, "x").unwrap_or(0.);
-    let y = viewport.length_attr_to_user_units(node, "y").unwrap_or(0.);
+    let [x, y] = ["x", "y"].map(|a| viewport.length_attr_to_user_units(node, a).unwrap_or(0.));
     *flattened_transform = flattened_transform.then(&Transform2D::translation(x, y));
     use_state.push(
         node.id(),
-        [
-            viewport.length_attr_to_user_units(node, "width"),
-            viewport.length_attr_to_user_units(node, "height"),
-        ],
+        ["width", "height"].map(|a| viewport.length_attr_to_user_units(node, a)),
     );
 }
 
