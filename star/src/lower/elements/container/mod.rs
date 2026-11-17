@@ -10,7 +10,12 @@ use smallvec::SmallVec;
 use svgtypes::{AspectRatio, ViewBox};
 
 use crate::{
-    lower::{ConversionVisitor, transform::get_viewport_transform, visit::parse_view_box},
+    lower::{
+        ConversionVisitor,
+        transform::get_viewport_transform,
+        units::DimensionHint,
+        visit::{CssRules, calculate_presentation_attr, parse_view_box},
+    },
     turtle::{CoordinateSystem, Turtle},
 };
 
@@ -137,7 +142,8 @@ fn enter_svg<'a, 'input, T: Turtle>(
     let preserve_aspect_ratio = node
         .attribute("preserveAspectRatio")
         .map(|attr| AspectRatio::from_str(attr).expect("could not parse preserveAspectRatio"));
-    let viewport_size = visitor.svg_explicit_dimensions(node);
+    let viewport_size =
+        svg_explicit_dimensions(node, &visitor.viewport, visitor.options.dimensions);
 
     // https://www.w3.org/TR/SVG/coords.html#SizingSVGInCSS
     // aka _natural_ aspect ratio
@@ -202,7 +208,7 @@ fn exit_viewport<'a, 'input, T: Turtle>(
     visitor: &mut ConversionVisitor<'a, 'input, T>,
 ) {
     if node.has_tag_name(SVG_TAG_NAME) || parse_view_box(node).is_some() {
-        if visitor.is_overflow_hidden(node) {
+        if is_overflow_hidden(node, visitor.css_rules, &visitor.use_state) {
             visitor.terrarium.pop_clip_layer();
         }
         visitor.viewport.pop_dims();
@@ -285,7 +291,41 @@ fn push_viewport_bounds_and_clip<'a, 'input, T: Turtle>(
         )
     };
     visitor.terrarium.push_viewport_bounds(viewport_box);
-    if visitor.is_overflow_hidden(node) {
+    if is_overflow_hidden(node, visitor.css_rules, &visitor.use_state) {
         visitor.terrarium.push_viewport_clip(viewport_box);
+    }
+}
+
+pub fn svg_explicit_dimensions(
+    node: Node,
+    viewport: &ViewportState,
+    dimensions: [Option<svgtypes::Length>; 2],
+) -> [Option<f64>; 2] {
+    let mut size = ["width", "height"].map(|attr| viewport.length_attr_to_user_units(node, attr));
+    // SVG root only
+    if node.parent_element().is_none() {
+        let overrides = [
+            dimensions[0].map(|l| viewport.length_to_user_units(l, DimensionHint::Horizontal)),
+            dimensions[1].map(|l| viewport.length_to_user_units(l, DimensionHint::Vertical)),
+        ];
+        for (orig, ovr) in size.iter_mut().zip(overrides) {
+            *orig = ovr.or(*orig);
+        }
+    }
+    size
+}
+
+fn is_overflow_hidden<'input>(
+    node: Node<'_, 'input>,
+    css_rules: &CssRules<'input>,
+    use_state: &UseState,
+) -> bool {
+    match calculate_presentation_attr(node, "overflow", css_rules, use_state.as_slice()) {
+        Some("hidden" | "scroll") => true,
+        Some(_) => false,
+        None => {
+            let is_root = node.parent_element().is_none() && node.tag_name().name() == SVG_TAG_NAME;
+            !is_root
+        }
     }
 }

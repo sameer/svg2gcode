@@ -13,7 +13,7 @@ use crate::{
     lower::{
         elements::{
             ContainerElement, PATTERN_TAG_NAME, PatternElement, SVG_TAG_NAME, SYMBOL_TAG_NAME,
-            SimpleElement, USE_TAG_NAME, get_pattern_id,
+            SimpleElement, USE_TAG_NAME, get_pattern_id, svg_explicit_dimensions,
         },
         node_name,
     },
@@ -121,7 +121,7 @@ pub(crate) type CssRules<'a> = HashMap<&'a str, HashMap<&'a str, (usize, &'a str
 /// 1. Inline style attribute
 /// 2. CSS class rules
 /// 3. Presentation attribute.
-fn calculate_presentation_attr<'a, 'input: 'a>(
+pub fn calculate_presentation_attr<'a, 'input: 'a>(
     node: Node<'a, 'input>,
     name: &str,
     css_rules: &'a CssRules<'input>,
@@ -291,8 +291,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             && get_node_presentation_attr(node, "display", self.css_rules)
                 .is_none_or(|v| !v.eq_ignore_ascii_case("none"))
             && (!node.has_tag_name(SVG_TAG_NAME)
-                || self
-                    .svg_explicit_dimensions(node)
+                || svg_explicit_dimensions(node, &self.viewport, self.options.dimensions)
                     .into_iter()
                     .flatten()
                     .all(|d| d > 0.))
@@ -442,47 +441,6 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         }
         if let Some(container) = ContainerElement::new(node) {
             container.exit(self);
-        }
-    }
-}
-
-impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
-    pub fn svg_explicit_dimensions(&self, node: Node<'a, 'input>) -> [Option<f64>; 2] {
-        let mut size =
-            ["width", "height"].map(|attr| self.viewport.length_attr_to_user_units(node, attr));
-        // SVG root only
-        if node.parent_element().is_none() {
-            let overrides = [
-                self.options.dimensions[0].map(|l| {
-                    self.viewport
-                        .length_to_user_units(l, DimensionHint::Horizontal)
-                }),
-                self.options.dimensions[1].map(|l| {
-                    self.viewport
-                        .length_to_user_units(l, DimensionHint::Vertical)
-                }),
-            ];
-            for (orig, ovr) in size.iter_mut().zip(overrides) {
-                *orig = ovr.or(*orig);
-            }
-        }
-        size
-    }
-
-    pub fn is_overflow_hidden(&self, node: Node<'a, 'input>) -> bool {
-        match calculate_presentation_attr(
-            node,
-            "overflow",
-            self.css_rules,
-            self.use_state.as_slice(),
-        ) {
-            Some("hidden" | "scroll") => true,
-            Some(_) => false,
-            None => {
-                let is_root =
-                    node.parent_element().is_none() && node.tag_name().name() == SVG_TAG_NAME;
-                !is_root
-            }
         }
     }
 }
