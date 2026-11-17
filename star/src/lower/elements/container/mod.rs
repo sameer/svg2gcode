@@ -12,9 +12,10 @@ use svgtypes::{AspectRatio, ViewBox};
 use crate::{
     lower::{
         ConversionVisitor,
+        style::{CssRules, calculate_presentation_attr},
         transform::get_viewport_transform,
         units::DimensionHint,
-        visit::{CssRules, calculate_presentation_attr, parse_view_box},
+        visit::parse_view_box,
     },
     turtle::{CoordinateSystem, Turtle},
 };
