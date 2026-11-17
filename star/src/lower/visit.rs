@@ -1,19 +1,19 @@
-use std::{collections::HashMap, iter, result::Result, str::FromStr};
+use std::{iter, str::FromStr};
 
-use euclid::default::Transform2D;
 use log::warn;
 use roxmltree::{Document, Node};
-use svgtypes::{LengthListParser, TransformListParser, ViewBox};
+use svgtypes::ViewBox;
 
 use super::{
-    ConversionVisitor, TemplatedExpansion, transform::svg_transform_into_euclid_transform,
-    units::DimensionHint,
+    ConversionVisitor, TemplatedExpansion,
+    style::{calculate_presentation_attr, get_node_presentation_attr},
+    transform::node_transform,
 };
 use crate::{
     lower::{
         elements::{
             ContainerElement, PATTERN_TAG_NAME, PatternElement, SVG_TAG_NAME, SYMBOL_TAG_NAME,
-            SimpleElement, USE_TAG_NAME, get_pattern_id,
+            SimpleElement, USE_TAG_NAME, get_pattern_id, svg_explicit_dimensions,
         },
         node_name,
     },
@@ -22,7 +22,7 @@ use crate::{
 
 const CLIP_PATH_TAG_NAME: &str = "clipPath";
 const LINE_TAG_NAME: &str = "line";
-const DEFS_TAG_NAME: &str = "defs";
+pub const DEFS_TAG_NAME: &str = "defs";
 const MARKER_TAG_NAME: &str = "marker";
 const TEXT_TAG_NAME: &str = "text";
 const TEXT_PATH_TAG_NAME: &str = "textPath";
@@ -113,119 +113,6 @@ impl TemplatedExpansion {
     }
 }
 
-pub(crate) type CssRules<'a> = HashMap<&'a str, HashMap<&'a str, (usize, &'a str)>>;
-
-/// Returns the effective value of the given presentation attribute (i.e. stroke),
-/// adhering to precedence rules and checking inheritance.
-///
-/// 1. Inline style attribute
-/// 2. CSS class rules
-/// 3. Presentation attribute.
-fn calculate_presentation_attr<'a, 'input: 'a>(
-    node: Node<'a, 'input>,
-    name: &str,
-    css_rules: &'a CssRules<'input>,
-    use_stack: &[(roxmltree::NodeId, [Option<f64>; 2])],
-) -> Option<&'a str> {
-    let find_in_ancestors = |start: Node<'a, 'input>| {
-        for current in iter::successors(Some(start), Node::parent) {
-            if !current.is_element() {
-                continue;
-            }
-            if let Some(val) = get_node_presentation_attr(current, name, css_rules) {
-                return Some(val);
-            }
-            if matches!(
-                current.tag_name().name(),
-                SVG_TAG_NAME | DEFS_TAG_NAME | SYMBOL_TAG_NAME | PATTERN_TAG_NAME
-            ) {
-                break;
-            }
-        }
-        None
-    };
-
-    find_in_ancestors(node).or_else(|| {
-        let doc = node.document();
-        use_stack
-            .iter()
-            .rev()
-            .filter_map(|&(id, _)| doc.get_node(id))
-            .find_map(find_in_ancestors)
-    })
-}
-
-/// Helper for [calculate_presentation_attr] that only checks the current node.
-fn get_node_presentation_attr<'a, 'input: 'a>(
-    node: Node<'a, 'input>,
-    name: &str,
-    css_rules: &'a CssRules<'input>,
-) -> Option<&'a str> {
-    node.attribute("style")
-        .and_then(|style| {
-            style.split(';').find_map(|decl| {
-                let (k, v) = decl.split_once(':')?;
-                (k.trim() == name).then(|| v.trim())
-            })
-        })
-        .or_else(|| {
-            node.attribute("class").and_then(|classes| {
-                classes
-                    .split_whitespace()
-                    .filter_map(|cls| css_rules.get(cls)?.get(name))
-                    .max_by_key(|(order, _)| *order)
-                    .map(|(_, val)| *val)
-            })
-        })
-        .or_else(|| node.attribute(name).map(str::trim))
-}
-
-/// Barebones CSS class rules parser.
-///
-/// Returns a map from class name to property + `(rule_order, value)` pairs. Only simple, flat
-/// class selectors (`.classname { prop: val; }`) are handled.
-pub(crate) fn parse_css<'a>(doc: &'a Document) -> CssRules<'a> {
-    let mut rules: CssRules<'a> = HashMap::new();
-    let mut rule_order = 0usize;
-    for node in doc.descendants() {
-        if node.tag_name().name() != "style" {
-            continue;
-        }
-        let Some(css) = node.text() else { continue };
-        for block in css.split('}') {
-            let Some((selector, declarations)) = block.split_once('{') else {
-                continue;
-            };
-            for subselector in selector.split(',') {
-                let Some(class) = subselector.trim().strip_prefix('.') else {
-                    continue;
-                };
-                // Strip pseudo-classes and other complexity.
-                let class = class
-                    .split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
-                    .next()
-                    .unwrap_or("")
-                    .trim();
-                if class.is_empty() {
-                    continue;
-                }
-                let class_rules = rules.entry(class).or_default();
-                for decl in declarations.split(';') {
-                    if let Some((k, v)) = decl.split_once(':') {
-                        let k = k.trim();
-                        let v = v.trim();
-                        if !k.is_empty() && !v.is_empty() {
-                            class_rules.insert(k, (rule_order, v));
-                            rule_order += 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    rules
-}
-
 /// Used to skip over non-element nodes and unreferenced template elements.
 fn is_renderable(node: Node, expanding_template: Option<TemplatedExpansion>) -> bool {
     let tag_name = node.tag_name().name();
@@ -291,8 +178,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             && get_node_presentation_attr(node, "display", self.css_rules)
                 .is_none_or(|v| !v.eq_ignore_ascii_case("none"))
             && (!node.has_tag_name(SVG_TAG_NAME)
-                || self
-                    .svg_explicit_dimensions(node)
+                || svg_explicit_dimensions(node, &self.viewport, self.options.dimensions)
                     .into_iter()
                     .flatten()
                     .all(|d| d > 0.))
@@ -315,35 +201,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             warn!("Tag {tag} is not supported: {node:?}");
         }
 
-        let mut flattened_transform = if let Some(transform) = node.attribute("transform") {
-            // https://stackoverflow.com/questions/18582935/the-applying-order-of-svg-transforms
-            TransformListParser::from(transform)
-                .map(|token| token.expect("could not parse a transform in a list of transforms"))
-                .map(svg_transform_into_euclid_transform)
-                .fold(Transform2D::identity(), |acc, t| t.then(&acc))
-        } else {
-            Transform2D::identity()
-        };
-
-        // https://www.w3.org/TR/css-transforms-1/#transform-origin-property
-        if let Some(to_str) = node.attribute("transform-origin") {
-            let mut parser = LengthListParser::from(to_str);
-            let ox = parser.next().and_then(Result::ok).map_or(0., |l| {
-                self.viewport
-                    .length_to_user_units(l, DimensionHint::Horizontal)
-            });
-            let oy = parser.next().and_then(Result::ok).map_or(0., |l| {
-                self.viewport
-                    .length_to_user_units(l, DimensionHint::Vertical)
-            });
-            if ox != 0. || oy != 0. {
-                // https://www.w3.org/TR/css-transforms-1/#transformation-matrix-computation
-                // Steps 2 & 4
-                flattened_transform = Transform2D::translation(-ox, -oy)
-                    .then(&flattened_transform)
-                    .then(&Transform2D::translation(ox, oy));
-            }
-        }
+        let mut flattened_transform = node_transform(node, &self.viewport);
 
         // https://www.w3.org/TR/SVG/coords.html#EstablishingANewSVGViewport
         if let Some(container) = ContainerElement::new(node) {
@@ -442,47 +300,6 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         }
         if let Some(container) = ContainerElement::new(node) {
             container.exit(self);
-        }
-    }
-}
-
-impl<'a, 'input, T: Turtle> ConversionVisitor<'a, 'input, T> {
-    pub fn svg_explicit_dimensions(&self, node: Node<'a, 'input>) -> [Option<f64>; 2] {
-        let mut size =
-            ["width", "height"].map(|attr| self.viewport.length_attr_to_user_units(node, attr));
-        // SVG root only
-        if node.parent_element().is_none() {
-            let overrides = [
-                self.options.dimensions[0].map(|l| {
-                    self.viewport
-                        .length_to_user_units(l, DimensionHint::Horizontal)
-                }),
-                self.options.dimensions[1].map(|l| {
-                    self.viewport
-                        .length_to_user_units(l, DimensionHint::Vertical)
-                }),
-            ];
-            for (orig, ovr) in size.iter_mut().zip(overrides) {
-                *orig = ovr.or(*orig);
-            }
-        }
-        size
-    }
-
-    pub fn is_overflow_hidden(&self, node: Node<'a, 'input>) -> bool {
-        match calculate_presentation_attr(
-            node,
-            "overflow",
-            self.css_rules,
-            self.use_state.as_slice(),
-        ) {
-            Some("hidden" | "scroll") => true,
-            Some(_) => false,
-            None => {
-                let is_root =
-                    node.parent_element().is_none() && node.tag_name().name() == SVG_TAG_NAME;
-                !is_root
-            }
         }
     }
 }

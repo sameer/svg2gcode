@@ -5,12 +5,12 @@ use log::warn;
 use lyon_geom::Box2D;
 use roxmltree::Node;
 use smallvec::SmallVec;
-use svgtypes::{AspectRatio, PathSegment, TransformListParser};
+use svgtypes::{AspectRatio, PathSegment};
 
 use crate::{
     lower::{
         ConversionVisitor, TemplatedExpansion,
-        transform::{get_viewport_transform, svg_transform_into_euclid_transform},
+        transform::{get_viewport_transform, parse_transform_list},
         visit::{XmlVisitor, parse_view_box, resolve_href},
     },
     turtle::{Turtle, elements::FillRule},
@@ -141,13 +141,8 @@ impl<'a, 'input> PatternElement<'a, 'input> {
 
         let pattern_origin_transform = Transform2D::translation(x.unwrap_or(0.), y.unwrap_or(0.));
 
-        let pattern_transform =
-            pattern_attr("patternTransform").map_or_else(Transform2D::identity, |transform| {
-                TransformListParser::from(transform)
-                    .map(|token| token.expect("could not parse patternTransform"))
-                    .map(svg_transform_into_euclid_transform)
-                    .fold(Transform2D::identity(), |acc, t| t.then(&acc))
-            });
+        let pattern_transform = pattern_attr("patternTransform")
+            .map_or_else(Transform2D::identity, parse_transform_list);
 
         let view_box =
             parse_view_box(pattern_node).or_else(|| href_pattern_node.and_then(parse_view_box));

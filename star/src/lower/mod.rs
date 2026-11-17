@@ -27,6 +27,7 @@ mod elements;
 #[cfg(feature = "serde")]
 mod length_serde;
 mod selector;
+mod style;
 mod transform;
 mod units;
 mod visit;
@@ -106,7 +107,7 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
     /// Parsed CSS include selector — only draw elements that match (or are inside a matching ancestor)
     selector_filter: Option<selector::SelectorList>,
     /// Resolved CSS class rules
-    css_rules: &'a visit::CssRules<'input>,
+    css_rules: &'a style::CssRules<'input>,
     viewport: ViewportState,
     expansions: ExpansionState,
     use_state: UseState,
@@ -154,7 +155,7 @@ pub fn svg_to_turtle<T: Turtle>(
         .as_deref()
         .map(|s| selector::SelectorList::parse(s).expect("invalid selector_filter"));
 
-    let css_rules = visit::parse_css(doc);
+    let css_rules = style::parse_css(doc);
 
     let bounding_box_generator = || {
         let mut visitor = ConversionVisitor {
@@ -253,7 +254,7 @@ fn svg_to_optimized_strokes<'a, 'input>(
     options: ConversionOptions,
     origin_transform: Transform2D<f64>,
     selector_filter: Option<SelectorList>,
-    css_rules: &'a visit::CssRules<'input>,
+    css_rules: &'a style::CssRules<'input>,
     coordinate_system: CoordinateSystem,
     starting_point: [Option<f64>; 2],
 ) -> Vec<Stroke> {

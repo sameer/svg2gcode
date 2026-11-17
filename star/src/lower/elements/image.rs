@@ -50,22 +50,12 @@ impl<'a, 'input> ImageElement<'a, 'input> {
             }
         };
 
-        let x = visitor
-            .viewport
-            .length_attr_to_user_units(node, "x")
-            .unwrap_or(0.);
-        let y = visitor
-            .viewport
-            .length_attr_to_user_units(node, "y")
-            .unwrap_or(0.);
-        let width = visitor
-            .viewport
-            .length_attr_to_user_units(node, "width")
-            .unwrap_or(0.);
-        let height = visitor
-            .viewport
-            .length_attr_to_user_units(node, "height")
-            .unwrap_or(0.);
+        let [x, y, width, height] = ["x", "y", "width", "height"].map(|a| {
+            visitor
+                .viewport
+                .length_attr_to_user_units(node, a)
+                .unwrap_or(0.)
+        });
 
         let preserve_aspect_ratio = node.attribute("preserveAspectRatio").map_or(
             AspectRatio {
