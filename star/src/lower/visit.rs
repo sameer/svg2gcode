@@ -1,15 +1,13 @@
-use std::{iter, result::Result, str::FromStr};
+use std::{iter, str::FromStr};
 
-use euclid::default::Transform2D;
 use log::warn;
 use roxmltree::{Document, Node};
-use svgtypes::{LengthListParser, TransformListParser, ViewBox};
+use svgtypes::ViewBox;
 
 use super::{
     ConversionVisitor, TemplatedExpansion,
     style::{calculate_presentation_attr, get_node_presentation_attr},
-    transform::svg_transform_into_euclid_transform,
-    units::DimensionHint,
+    transform::node_transform,
 };
 use crate::{
     lower::{
@@ -203,35 +201,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
             warn!("Tag {tag} is not supported: {node:?}");
         }
 
-        let mut flattened_transform = if let Some(transform) = node.attribute("transform") {
-            // https://stackoverflow.com/questions/18582935/the-applying-order-of-svg-transforms
-            TransformListParser::from(transform)
-                .map(|token| token.expect("could not parse a transform in a list of transforms"))
-                .map(svg_transform_into_euclid_transform)
-                .fold(Transform2D::identity(), |acc, t| t.then(&acc))
-        } else {
-            Transform2D::identity()
-        };
-
-        // https://www.w3.org/TR/css-transforms-1/#transform-origin-property
-        if let Some(to_str) = node.attribute("transform-origin") {
-            let mut parser = LengthListParser::from(to_str);
-            let ox = parser.next().and_then(Result::ok).map_or(0., |l| {
-                self.viewport
-                    .length_to_user_units(l, DimensionHint::Horizontal)
-            });
-            let oy = parser.next().and_then(Result::ok).map_or(0., |l| {
-                self.viewport
-                    .length_to_user_units(l, DimensionHint::Vertical)
-            });
-            if ox != 0. || oy != 0. {
-                // https://www.w3.org/TR/css-transforms-1/#transformation-matrix-computation
-                // Steps 2 & 4
-                flattened_transform = Transform2D::translation(-ox, -oy)
-                    .then(&flattened_transform)
-                    .then(&Transform2D::translation(ox, oy));
-            }
-        }
+        let mut flattened_transform = node_transform(node, &self.viewport);
 
         // https://www.w3.org/TR/SVG/coords.html#EstablishingANewSVGViewport
         if let Some(container) = ContainerElement::new(node) {
