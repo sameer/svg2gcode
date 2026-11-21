@@ -12,7 +12,7 @@ use uom::si::{
 
 use crate::{
     lower::{
-        elements::{PatternState, UseState, ViewportState},
+        elements::{UseState, ViewportState},
         selector::SelectorList,
         visit::ExpansionState,
     },
@@ -111,7 +111,8 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
     viewport: ViewportState,
     expansions: ExpansionState,
     use_state: UseState,
-    patterns: PatternState,
+    /// Nodes active in the current DFS visit call.
+    visiting: Vec<roxmltree::NodeId>,
 }
 
 impl<T: Turtle> ConversionVisitor<'_, '_, T> {
@@ -172,7 +173,7 @@ pub fn svg_to_turtle<T: Turtle>(
             viewport: ViewportState::default(),
             expansions: ExpansionState::default(),
             use_state: UseState::default(),
-            patterns: PatternState::default(),
+            visiting: vec![],
         };
 
         visitor.begin();
@@ -217,7 +218,7 @@ pub fn svg_to_turtle<T: Turtle>(
         viewport: ViewportState::default(),
         expansions: ExpansionState::default(),
         use_state: UseState::default(),
-        patterns: PatternState::default(),
+        visiting: vec![],
     };
 
     conversion_visitor
@@ -269,7 +270,7 @@ fn svg_to_optimized_strokes<'a, 'input>(
         viewport: ViewportState::default(),
         expansions: ExpansionState::default(),
         use_state: UseState::default(),
-        patterns: PatternState::default(),
+        visiting: vec![],
     };
     collect_visitor.terrarium.push_transform(origin_transform);
     collect_visitor.begin();

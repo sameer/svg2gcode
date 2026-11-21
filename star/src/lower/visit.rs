@@ -53,11 +53,12 @@ impl ExpansionState {
 }
 
 pub trait XmlVisitor<'a, 'input> {
+    fn visiting_mut(&mut self) -> &mut Vec<roxmltree::NodeId>;
+
     fn visit_dfs(
         &mut self,
         start: Node<'a, 'input>,
         expanding_template: Option<TemplatedExpansion>,
-        active_nodes: &mut Vec<roxmltree::NodeId>,
     ) {
         let doc = start.document();
         let mut stack = vec![(start, true)];
@@ -65,7 +66,7 @@ pub trait XmlVisitor<'a, 'input> {
         while let Some((node, entering)) = stack.pop() {
             if !entering {
                 self.visit_exit(node);
-                active_nodes.pop();
+                self.visiting_mut().pop();
                 continue;
             }
             if !self.should_visit(node, expanding_template) {
@@ -73,17 +74,17 @@ pub trait XmlVisitor<'a, 'input> {
             }
 
             let expand_use = node.tag_name().name() == USE_TAG_NAME && self.should_draw_node(node);
-            active_nodes.push(node.id());
+            self.visiting_mut().push(node.id());
             self.visit_enter(node);
             if expand_use && let Some(referenced) = resolve_href(doc, node) {
-                if active_nodes.contains(&referenced.id()) {
+                if self.visiting_mut().contains(&referenced.id()) {
                     warn!("Cyclic <use> detected: {node:?}");
                 } else {
                     // Expand the target
-                    self.visit_dfs(referenced, Some(TemplatedExpansion::Use), active_nodes);
+                    self.visit_dfs(referenced, Some(TemplatedExpansion::Use));
                 }
                 self.visit_exit(node);
-                active_nodes.pop();
+                self.visiting_mut().pop();
             } else {
                 stack.extend(
                     iter::once((node, false)).chain(node.children().rev().map(|n| (n, true))),
@@ -163,12 +164,14 @@ pub fn depth_first_visit<'a, 'input, V: XmlVisitor<'a, 'input>>(
     visitor: &mut V,
 ) {
     for c in doc.root().children() {
-        let mut active_nodes = vec![];
-        visitor.visit_dfs(c, None, &mut active_nodes);
+        visitor.visit_dfs(c, None);
     }
 }
 
 impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'input, T> {
+    fn visiting_mut(&mut self) -> &mut Vec<roxmltree::NodeId> {
+        &mut self.visiting
+    }
     fn should_visit(
         &self,
         node: Node<'a, 'input>,
