@@ -83,40 +83,39 @@ impl Stroke {
         self.commands().iter().map(DrawCommand::area).sum::<f64>()
     }
 
-    /// Calculates the relationship with `point`, i.e. if point lies within stroke.
+    /// Casts a ray from `point` along `ray_dir` and returns crossings/winding.
     ///
-    /// If `max_x` is provided, the ray extends at least to `max_x + 10.0`.
-    /// If `None`, `self.bounding_box().max.x` is used.
-    ///
-    /// <https://en.wikipedia.org/wiki/Point_in_polygon#Ray_casting_algorithm>
-    fn point_relationship(&self, point: Point<f64>) -> PointRelation {
-        let bbox = self.bounding_box().inflate(PARAM_EPSILON, PARAM_EPSILON);
-        if bbox.max.x + PARAM_EPSILON < point.x || bbox.max.y + PARAM_EPSILON < point.y {
-            return PointRelation::default();
-        }
+    /// The ray starts [`VERTEX_SNAP_EPSILON`] behind `point` so points lying on any command
+    /// intersect strictly inside the ray.
+    fn ray_relationship(&self, point: Point<f64>, ray_dir: Vector<f64>) -> PointRelation {
+        let bbox = self.bounding_box();
+        let max_corner_dist = [
+            Point::new(bbox.min.x, bbox.min.y),
+            Point::new(bbox.max.x, bbox.min.y),
+            Point::new(bbox.min.x, bbox.max.y),
+            Point::new(bbox.max.x, bbox.max.y),
+        ]
+        .map(|c| (c - point).length())
+        .into_iter()
+        .fold(0.0_f64, f64::max);
 
-        let dx = (bbox.max.x - point.x + RAY_PADDING).max(RAY_PADDING);
-        let dy = dx * RAY_SLOPE;
-        if bbox.min.y - PARAM_EPSILON > point.y + dy {
-            return PointRelation::default();
-        }
-
-        let ray_vec = Vector::new(dx, dy);
+        let ray_len = max_corner_dist + RAY_PADDING;
+        let total_len = ray_len + VERTEX_SNAP_EPSILON;
         let ray = LineSegment {
-            from: point,
-            to: point + ray_vec,
+            from: point - ray_dir * VERTEX_SNAP_EPSILON,
+            to: point + ray_dir * ray_len,
         };
 
         self.commands()
             .iter()
             .fold(PointRelation::default(), |mut acc, cmd| {
                 for (t_cmd, u_ray) in cmd.intersections(&ray) {
-                    if u_ray <= PARAM_EPSILON {
+                    if u_ray * total_len <= 2.0 * VERTEX_SNAP_EPSILON {
                         acc.on_boundary = true;
                     } else {
                         let curve_tangent = cmd.tangent(t_cmd);
                         acc.crossings += 1;
-                        acc.winding += if ray_vec.cross(curve_tangent).is_sign_positive() {
+                        acc.winding += if ray_dir.cross(curve_tangent).is_sign_positive() {
                             1
                         } else {
                             -1
@@ -125,6 +124,20 @@ impl Stroke {
                 }
                 acc
             })
+    }
+
+    /// Calculates the relationship with `point`, i.e. if point lies within stroke.
+    ///
+    /// <https://en.wikipedia.org/wiki/Point_in_polygon#Ray_casting_algorithm>
+    fn point_relationship(&self, point: Point<f64>) -> PointRelation {
+        let bbox = self
+            .bounding_box()
+            .inflate(VERTEX_SNAP_EPSILON, VERTEX_SNAP_EPSILON);
+        if bbox.max.x < point.x || bbox.max.y < point.y {
+            return PointRelation::default();
+        }
+        let ray_dir = Vector::new(1.0, RAY_SLOPE).normalize();
+        self.ray_relationship(point, ray_dir)
     }
 
     /// Checks if this stroke contains `point` under the given [`FillRule`].
