@@ -143,7 +143,7 @@ pub fn settings_form() -> Html {
                     <div class="column col-12">
                         <FormGroup>
                             <Checkbox
-                                label="Optimize path order (experimental)"
+                                label="Optimize path order"
                                 desc="Reorder paths to minimize travel time. May be slow for SVGs with many elements."
                                 checked={form_state.optimize_path_order}
                                 onchange={on_optimize_path_order_change}
