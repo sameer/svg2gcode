@@ -37,7 +37,7 @@ impl Tour<'_> {
     /// Minimum improvement necessary to accept a tour modification.
     ///
     /// At extremely small float values, the result of a move may not actually improve the tour.
-    const MIN_IMPROVEMENT: f64 = 1E-12;
+    pub(super) const MIN_IMPROVEMENT: f64 = 1E-12;
 
     /// Finds some improving relocate operation given a fixed block length and entering edge, if any.
     fn next_relocate_with_len_at(
