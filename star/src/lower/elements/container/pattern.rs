@@ -17,11 +17,6 @@ use crate::{
 
 pub const PATTERN_TAG_NAME: &str = "pattern";
 
-pub fn get_pattern_id(attr: &str) -> Option<&str> {
-    let inner = attr.trim().strip_prefix("url(")?.strip_suffix(")")?.trim();
-    inner.trim_matches(['\'', '"']).strip_prefix('#')
-}
-
 /// <https://developer.mozilla.org/en-US/docs/Web/SVG/Reference/Element/pattern>
 pub struct PatternElement<'a, 'input>(pub Node<'a, 'input>);
 

@@ -12,7 +12,7 @@ use uom::si::{
 
 use crate::{
     lower::{
-        elements::{UseState, ViewportState},
+        elements::{ClipPathState, UseState, ViewportState},
         selector::SelectorList,
         visit::ExpansionState,
     },
@@ -93,6 +93,7 @@ pub enum TemplatedExpansion {
     Use,
     Pattern,
     Marker,
+    ClipPath,
 }
 
 /// Maps SVG [`Node`]s and their attributes into operations on a [`Terrarium`]
@@ -113,6 +114,7 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
     use_state: UseState,
     /// Nodes active in the current DFS visit call.
     visiting: Vec<roxmltree::NodeId>,
+    clip_paths: ClipPathState,
 }
 
 impl<T: Turtle> ConversionVisitor<'_, '_, T> {
@@ -174,6 +176,7 @@ pub fn svg_to_turtle<T: Turtle>(
             expansions: ExpansionState::default(),
             use_state: UseState::default(),
             visiting: vec![],
+            clip_paths: ClipPathState::default(),
         };
 
         visitor.begin();
@@ -219,6 +222,7 @@ pub fn svg_to_turtle<T: Turtle>(
         expansions: ExpansionState::default(),
         use_state: UseState::default(),
         visiting: vec![],
+        clip_paths: ClipPathState::default(),
     };
 
     conversion_visitor
@@ -271,6 +275,7 @@ fn svg_to_optimized_strokes<'a, 'input>(
         expansions: ExpansionState::default(),
         use_state: UseState::default(),
         visiting: vec![],
+        clip_paths: ClipPathState::default(),
     };
     collect_visitor.terrarium.push_transform(origin_transform);
     collect_visitor.begin();

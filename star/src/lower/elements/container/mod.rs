@@ -24,8 +24,10 @@ pub const SVG_TAG_NAME: &str = "svg";
 pub const USE_TAG_NAME: &str = "use";
 pub const SYMBOL_TAG_NAME: &str = "symbol";
 
+pub use clip_path::*;
 pub use pattern::*;
 
+mod clip_path;
 mod pattern;
 
 /// State of the viewport when rendering

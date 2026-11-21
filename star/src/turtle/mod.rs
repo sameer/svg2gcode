@@ -592,6 +592,24 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
         closed_paths: impl IntoIterator<Item = PathSegment>,
         fill_rule: FillRule,
     ) -> Vec<Shape> {
+        self.to_shapes_inner(closed_paths, fill_rule, true)
+    }
+
+    /// Same as [`Self::to_shapes`], without applying or warning about active clip layers.
+    pub fn to_shapes_unclipped(
+        &self,
+        closed_paths: impl IntoIterator<Item = PathSegment>,
+        fill_rule: FillRule,
+    ) -> Vec<Shape> {
+        self.to_shapes_inner(closed_paths, fill_rule, false)
+    }
+
+    fn to_shapes_inner(
+        &self,
+        closed_paths: impl IntoIterator<Item = PathSegment>,
+        fill_rule: FillRule,
+        apply_clip: bool,
+    ) -> Vec<Shape> {
         let mut sub = Terrarium {
             has_begun: false,
             turtle: StrokeCollectingTurtle::default(),
@@ -603,7 +621,11 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             comment: self.comment.clone(),
             current_bounds: self.current_bounds,
             bounds_stack: vec![],
-            clip_stack: self.clip_stack.clone(),
+            clip_stack: if apply_clip {
+                self.clip_stack.clone()
+            } else {
+                ClipStack::default()
+            },
         };
         sub.apply_path(closed_paths);
         let mut strokes = sub.finish().into_strokes();
@@ -611,14 +633,12 @@ impl<T: Turtle + std::fmt::Debug> Terrarium<T> {
             s.closed();
         }
         let shapes = self::elements::fill::strokes_to_shapes(&strokes, fill_rule);
-        if self.clip_stack.is_active() {
+        if apply_clip && self.clip_stack.is_active() {
             // TODO: shape clipping is non-trivial, does this technically work because the inner is
             // does clipping on strokes?
             warn!("Clipping is not yet unimplemented, skipping clip");
-            shapes
-        } else {
-            shapes
         }
+        shapes
     }
 
     /// Calculates the underlying shapes represented by the closed path and passes them to the turtle.
