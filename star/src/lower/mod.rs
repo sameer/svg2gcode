@@ -1,6 +1,6 @@
 use std::{borrow::Cow, fmt::Debug};
 
-use lyon_geom::euclid::default::Transform2D;
+use lyon_geom::{Box2D, Point, euclid::default::Transform2D};
 use roxmltree::{Document, Node};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ use uom::si::{
 
 use crate::{
     lower::{
-        elements::{PatternState, UseState, ViewportState},
+        elements::{ClipPathState, UseState, ViewportState},
         selector::SelectorList,
         visit::ExpansionState,
     },
@@ -93,6 +93,7 @@ pub enum TemplatedExpansion {
     Use,
     Pattern,
     Marker,
+    ClipPath,
 }
 
 /// Maps SVG [`Node`]s and their attributes into operations on a [`Terrarium`]
@@ -111,7 +112,9 @@ struct ConversionVisitor<'a, 'input, T: Turtle> {
     viewport: ViewportState,
     expansions: ExpansionState,
     use_state: UseState,
-    patterns: PatternState,
+    /// Nodes active in the current DFS visit call.
+    visiting: Vec<roxmltree::NodeId>,
+    clip_paths: ClipPathState,
 }
 
 impl<T: Turtle> ConversionVisitor<'_, '_, T> {
@@ -172,14 +175,23 @@ pub fn svg_to_turtle<T: Turtle>(
             viewport: ViewportState::default(),
             expansions: ExpansionState::default(),
             use_state: UseState::default(),
-            patterns: PatternState::default(),
+            visiting: vec![],
+            clip_paths: ClipPathState::default(),
         };
 
         visitor.begin();
         visit::depth_first_visit(doc, &mut visitor);
         visitor.end();
 
-        visitor.terrarium.finish().into_inner().into_inner()
+        visitor
+            .terrarium
+            .finish()
+            .into_inner()
+            .into_inner()
+            // Include the origin so drawings within the page keep their layout.
+            .map_or_else(Box2D::default, |bb| {
+                Box2D::from_points([Point::zero(), bb.min, bb.max])
+            })
     };
 
     // Convert from millimeters to user units
@@ -217,7 +229,8 @@ pub fn svg_to_turtle<T: Turtle>(
         viewport: ViewportState::default(),
         expansions: ExpansionState::default(),
         use_state: UseState::default(),
-        patterns: PatternState::default(),
+        visiting: vec![],
+        clip_paths: ClipPathState::default(),
     };
 
     conversion_visitor
@@ -269,7 +282,8 @@ fn svg_to_optimized_strokes<'a, 'input>(
         viewport: ViewportState::default(),
         expansions: ExpansionState::default(),
         use_state: UseState::default(),
-        patterns: PatternState::default(),
+        visiting: vec![],
+        clip_paths: ClipPathState::default(),
     };
     collect_visitor.terrarium.push_transform(origin_transform);
     collect_visitor.begin();

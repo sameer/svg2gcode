@@ -12,15 +12,15 @@ use super::{
 use crate::{
     lower::{
         elements::{
-            ContainerElement, PATTERN_TAG_NAME, PatternElement, SVG_TAG_NAME, SYMBOL_TAG_NAME,
-            SimpleElement, USE_TAG_NAME, get_pattern_id, svg_explicit_dimensions,
+            CLIP_PATH_TAG_NAME, ClipPathElement, ContainerElement, PATTERN_TAG_NAME,
+            PatternElement, SVG_TAG_NAME, SYMBOL_TAG_NAME, SimpleElement, USE_TAG_NAME,
+            svg_explicit_dimensions,
         },
         node_name,
     },
     turtle::{Turtle, elements::FillRule},
 };
 
-const CLIP_PATH_TAG_NAME: &str = "clipPath";
 const LINE_TAG_NAME: &str = "line";
 pub const DEFS_TAG_NAME: &str = "defs";
 const MARKER_TAG_NAME: &str = "marker";
@@ -31,7 +31,7 @@ const MASK_TAG_NAME: &str = "mask";
 #[cfg(feature = "image")]
 use crate::lower::elements::{IMAGE_TAG_NAME, ImageElement};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ExpansionState {
     /// Stack of active template expansion scopes.
     stack: Vec<TemplatedExpansion>,
@@ -42,22 +42,23 @@ impl ExpansionState {
         !self.stack.is_empty()
     }
 
-    fn push(&mut self, expansion: TemplatedExpansion) {
+    pub(crate) fn push(&mut self, expansion: TemplatedExpansion) {
         self.stack.push(expansion);
     }
 
-    fn pop_expected(&mut self, expected: TemplatedExpansion) {
+    pub(crate) fn pop_expected(&mut self, expected: TemplatedExpansion) {
         let popped = self.stack.pop();
         debug_assert_eq!(popped, Some(expected));
     }
 }
 
 pub trait XmlVisitor<'a, 'input> {
+    fn visiting_mut(&mut self) -> &mut Vec<roxmltree::NodeId>;
+
     fn visit_dfs(
         &mut self,
         start: Node<'a, 'input>,
         expanding_template: Option<TemplatedExpansion>,
-        active_nodes: &mut Vec<roxmltree::NodeId>,
     ) {
         let doc = start.document();
         let mut stack = vec![(start, true)];
@@ -65,7 +66,7 @@ pub trait XmlVisitor<'a, 'input> {
         while let Some((node, entering)) = stack.pop() {
             if !entering {
                 self.visit_exit(node);
-                active_nodes.pop();
+                self.visiting_mut().pop();
                 continue;
             }
             if !self.should_visit(node, expanding_template) {
@@ -73,17 +74,17 @@ pub trait XmlVisitor<'a, 'input> {
             }
 
             let expand_use = node.tag_name().name() == USE_TAG_NAME && self.should_draw_node(node);
-            active_nodes.push(node.id());
+            self.visiting_mut().push(node.id());
             self.visit_enter(node);
             if expand_use && let Some(referenced) = resolve_href(doc, node) {
-                if active_nodes.contains(&referenced.id()) {
+                if self.visiting_mut().contains(&referenced.id()) {
                     warn!("Cyclic <use> detected: {node:?}");
                 } else {
                     // Expand the target
-                    self.visit_dfs(referenced, Some(TemplatedExpansion::Use), active_nodes);
+                    self.visit_dfs(referenced, Some(TemplatedExpansion::Use));
                 }
                 self.visit_exit(node);
-                active_nodes.pop();
+                self.visiting_mut().pop();
             } else {
                 stack.extend(
                     iter::once((node, false)).chain(node.children().rev().map(|n| (n, true))),
@@ -129,6 +130,20 @@ fn find_node_by_id<'a, 'input>(doc: &'a Document<'input>, id: &str) -> Option<No
         .find(|n| n.attribute("id").map(str::trim) == Some(id))
 }
 
+/// Parse a `url(#id)` reference, returning the fragment `id`.
+pub fn parse_url_id(attr: &str) -> Option<&str> {
+    let inner = attr.trim().strip_prefix("url(")?.strip_suffix(')')?.trim();
+    inner.trim_matches(['\'', '"']).strip_prefix('#')
+}
+
+/// Resolve a `url(#id)` attribute value to a node in `doc`.
+pub fn resolve_url_ref<'a, 'input: 'a>(
+    doc: &'a Document<'input>,
+    attr: &str,
+) -> Option<Node<'a, 'input>> {
+    parse_url_id(attr).and_then(|id| find_node_by_id(doc, id))
+}
+
 /// Resolve `href` or `xlink:href` on a `<use>` element to a document node.
 /// Only fragment references (`#id`) within the same document are supported.
 pub fn resolve_href<'a, 'input: 'a>(
@@ -163,12 +178,14 @@ pub fn depth_first_visit<'a, 'input, V: XmlVisitor<'a, 'input>>(
     visitor: &mut V,
 ) {
     for c in doc.root().children() {
-        let mut active_nodes = vec![];
-        visitor.visit_dfs(c, None, &mut active_nodes);
+        visitor.visit_dfs(c, None);
     }
 }
 
 impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'input, T> {
+    fn visiting_mut(&mut self) -> &mut Vec<roxmltree::NodeId> {
+        &mut self.visiting
+    }
     fn should_visit(
         &self,
         node: Node<'a, 'input>,
@@ -195,9 +212,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
     }
 
     fn visit_enter(&mut self, node: Node<'a, 'input>) {
-        if let tag @ (CLIP_PATH_TAG_NAME | TEXT_TAG_NAME | TEXT_PATH_TAG_NAME | VIEW_TAG_NAME) =
-            node.tag_name().name()
-        {
+        if let tag @ (TEXT_TAG_NAME | TEXT_PATH_TAG_NAME | VIEW_TAG_NAME) = node.tag_name().name() {
             warn!("Tag {tag} is not supported: {node:?}");
         }
 
@@ -213,6 +228,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         self.terrarium.push_transform(flattened_transform);
         self.name_stack
             .push(node_name(node, self.config.extra_attribute_name.as_deref()));
+        ClipPathElement::enter(self, node);
 
         let should_draw = self.should_draw_node(node);
 
@@ -221,6 +237,11 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         }
 
         if !should_draw {
+            return;
+        }
+
+        if self.clip_paths.is_collecting() {
+            ClipPathElement::collect_node(self, node);
             return;
         }
 
@@ -273,9 +294,8 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
         };
 
         let pattern_id = fill_attr
-            .and_then(get_pattern_id)
             .filter(|_| has_fill_attr)
-            .and_then(|id| find_node_by_id(node.document(), id));
+            .and_then(|attr| resolve_url_ref(node.document(), attr));
 
         if has_stroke_attr {
             self.comment();
@@ -293,6 +313,7 @@ impl<'a, 'input, T: Turtle> XmlVisitor<'a, 'input> for ConversionVisitor<'a, 'in
     }
 
     fn visit_exit(&mut self, node: Node<'a, 'input>) {
+        ClipPathElement::exit(self);
         self.terrarium.pop_transform();
         self.name_stack.pop();
         if let Some(expected) = TemplatedExpansion::from_tag_name(node.tag_name().name()) {

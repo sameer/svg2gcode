@@ -4,7 +4,6 @@ use euclid::default::Transform2D;
 use log::warn;
 use lyon_geom::Box2D;
 use roxmltree::Node;
-use smallvec::SmallVec;
 use svgtypes::{AspectRatio, PathSegment};
 
 use crate::{
@@ -17,34 +16,6 @@ use crate::{
 };
 
 pub const PATTERN_TAG_NAME: &str = "pattern";
-
-/// Tracks visit state specific to [`PatternElement`].
-#[derive(Debug, Default)]
-pub struct PatternState {
-    /// List of already-expanding pattern nodes to detect recursion.
-    stack: SmallVec<[roxmltree::NodeId; Self::EXPECTED_MAX_DEPTH]>,
-}
-
-impl PatternState {
-    const EXPECTED_MAX_DEPTH: usize = 2;
-
-    fn contains(&self, id: roxmltree::NodeId) -> bool {
-        self.stack.contains(&id)
-    }
-
-    fn push(&mut self, id: roxmltree::NodeId) {
-        self.stack.push(id);
-    }
-
-    fn pop(&mut self) {
-        self.stack.pop();
-    }
-}
-
-pub fn get_pattern_id(attr: &str) -> Option<&str> {
-    let inner = attr.trim().strip_prefix("url(")?.strip_suffix(")")?.trim();
-    inner.trim_matches(['\'', '"']).strip_prefix('#')
-}
 
 /// <https://developer.mozilla.org/en-US/docs/Web/SVG/Reference/Element/pattern>
 pub struct PatternElement<'a, 'input>(pub Node<'a, 'input>);
@@ -59,7 +30,7 @@ impl<'a, 'input> PatternElement<'a, 'input> {
     ) {
         let pattern_node = self.0;
         let pattern_id = pattern_node.id();
-        if visitor.patterns.contains(pattern_id) {
+        if visitor.visiting.contains(&pattern_id) {
             warn!("Cyclic <pattern> reference detected: {pattern_node:?}");
             return;
         }
@@ -207,7 +178,7 @@ impl<'a, 'input> PatternElement<'a, 'input> {
         visitor.viewport.push_dims(pattern_viewport_dims);
 
         // Apply the pattern by repeated translation. Clipping crops the border patterns to the container.
-        visitor.patterns.push(pattern_id);
+        visitor.visiting.push(pattern_id);
         for col in min_col..=max_col {
             for row in min_row..=max_row {
                 // TODO: use a fast container checks to verify that some point in the pattern bbox is even
@@ -221,14 +192,13 @@ impl<'a, 'input> PatternElement<'a, 'input> {
 
                 visitor.terrarium.push_transform(combined);
                 for child in target_pattern_node.children() {
-                    let mut active_nodes = vec![];
-                    visitor.visit_dfs(child, Some(TemplatedExpansion::Pattern), &mut active_nodes);
+                    visitor.visit_dfs(child, Some(TemplatedExpansion::Pattern));
                 }
                 visitor.terrarium.pop_transform();
             }
         }
 
-        visitor.patterns.pop();
+        visitor.visiting.pop();
         visitor.viewport.pop_dims();
         visitor.terrarium.pop_clip_layer();
     }
