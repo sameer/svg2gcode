@@ -6,13 +6,13 @@ use roxmltree::Node;
 use crate::{
     lower::{
         ConversionVisitor, TemplatedExpansion,
-        elements::{SimpleElement, ViewportState},
+        elements::{SVG_TAG_NAME, SYMBOL_TAG_NAME, SimpleElement, USE_TAG_NAME},
         style::{calculate_presentation_attr, get_node_presentation_attr},
         transform::node_transform,
-        visit::{XmlVisitor, resolve_url_ref},
+        visit::{XmlVisitor, resolve_href, resolve_url_ref},
     },
     turtle::{
-        StrokeCollectingTurtle, Terrarium, Turtle,
+        CoordinateSystem, PreprocessTurtle, StrokeCollectingTurtle, Terrarium, Turtle,
         elements::{FillRule, Shape},
     },
 };
@@ -127,13 +127,15 @@ impl<'a, 'input> ClipPathElement<'a, 'input> {
         let units_transform = match clip_node.attribute("clipPathUnits") {
             Some("userSpaceOnUse") | None => Transform2D::identity(),
             Some("objectBoundingBox") => {
-                let Some(bbox) = target_node.and_then(|n| local_element_bbox(n, &visitor.viewport))
-                else {
-                    warn!(
-                        "clipPathUnits=\"objectBoundingBox\" is not yet supported on container elements: {clip_node:?}"
-                    );
+                let Some(bbox) = target_node.and_then(|n| local_element_bbox(visitor, n)) else {
+                    warn!("Could not compute objectBoundingBox for {clip_node:?}");
                     return 0;
                 };
+                // Completely excluded.
+                if bbox.width() <= 0. || bbox.height() <= 0. {
+                    visitor.terrarium.push_clip_layer(vec![]);
+                    return 1;
+                }
                 Transform2D::scale(bbox.width(), bbox.height())
                     .then_translate(vector(bbox.min.x, bbox.min.y))
             }
@@ -191,16 +193,66 @@ fn push_clip_for_node<'a, 'input, T: Turtle>(
     ClipPathElement(clip_node).push_layers(visitor, target_node)
 }
 
-fn local_element_bbox(node: Node, viewport: &ViewportState) -> Option<Box2D<f64>> {
-    let elem = SimpleElement::new(node).ok()?;
-    let segments = elem.segments(viewport).ok()?;
-    let mut sub = Terrarium::new(StrokeCollectingTurtle::default());
-    sub.apply_path(segments);
-    let strokes = sub.finish().into_strokes();
-    strokes
-        .into_iter()
-        .map(|s| s.bounding_box())
-        .reduce(|a, b| Box2D::from_points([a.min, a.max, b.min, b.max]))
+fn local_element_bbox<'a, 'input, T: Turtle>(
+    visitor: &ConversionVisitor<'a, 'input, T>,
+    node: Node<'a, 'input>,
+) -> Option<Box2D<f64>> {
+    if let Ok(elem) = SimpleElement::new(node) {
+        let segments = elem.segments(&visitor.viewport).ok()?;
+        let mut sub = Terrarium::new(StrokeCollectingTurtle::default());
+        sub.apply_path(segments);
+        let strokes = sub.finish().into_strokes();
+        return strokes
+            .into_iter()
+            .map(|s| s.bounding_box())
+            .reduce(|a, b| Box2D::from_points([a.min, a.max, b.min, b.max]));
+    }
+
+    #[cfg(feature = "image")]
+    if node.has_tag_name("image") {
+        let [x, y, width, height] = ["x", "y", "width", "height"].map(|a| {
+            visitor
+                .viewport
+                .length_attr_to_user_units(node, a)
+                .unwrap_or(0.)
+        });
+        return (width > 0. && height > 0.).then(|| {
+            Box2D::new(
+                lyon_geom::point(x, y),
+                lyon_geom::point(x + width, y + height),
+            )
+        });
+    }
+
+    let mut bbox_visitor = ConversionVisitor {
+        terrarium: Terrarium::new(PreprocessTurtle::default()),
+        coordinate_system: CoordinateSystem::YDown,
+        name_stack: vec![],
+        config: visitor.config,
+        options: visitor.options.clone(),
+        selector_filter: None,
+        css_rules: visitor.css_rules,
+        viewport: visitor.viewport.clone(),
+        expansions: visitor.expansions.clone(),
+        use_state: visitor.use_state.clone(),
+        visiting: visitor.visiting.clone(),
+        clip_paths: ClipPathState::default(),
+    };
+
+    if node.has_tag_name(USE_TAG_NAME) {
+        let referenced = resolve_href(node.document(), node)?;
+        if !bbox_visitor.visiting.contains(&referenced.id()) {
+            bbox_visitor.visit_dfs(referenced, Some(TemplatedExpansion::Use));
+        }
+    } else if matches!(node.tag_name().name(), "g" | SVG_TAG_NAME | SYMBOL_TAG_NAME) {
+        for child in node.children() {
+            bbox_visitor.visit_dfs(child, None);
+        }
+    } else {
+        return None;
+    }
+
+    bbox_visitor.terrarium.finish().into_inner()
 }
 
 #[cfg(test)]
@@ -386,6 +438,55 @@ mod tests {
                 <rect x="20" y="20" width="40" height="20" fill="none" stroke="black" clip-path="url(#c)"/>
             </svg>
         "#;
+        let strokes = collect_strokes(svg);
+        assert!(!strokes.is_empty());
+        for s in &strokes {
+            let bb = s.bounding_box();
+            assert!(bb.min.x >= 30.0 - 1e-6, "min.x {} < 30", bb.min.x);
+            assert!(bb.max.x <= 50.0 + 1e-6, "max.x {} > 50", bb.max.x);
+        }
+    }
+
+    #[test]
+    fn object_bounding_box_on_group_container() {
+        // Group bbox in local coords: x in [10, 50] (width 40), y in [20, 40] (height 20),
+        // then translated by (10, 0) -> world x in [20, 60].
+        // Clip rect [0.25, 0.75] of local x -> local [20, 40] -> world [30, 50].
+        let svg = r#"
+            <svg width="100" height="100" viewBox="0 0 100 100">
+                <defs>
+                    <clipPath id="c" clipPathUnits="objectBoundingBox">
+                        <rect x="0.25" y="-0.1" width="0.5" height="1.2"/>
+                    </clipPath>
+                </defs>
+                <g transform="translate(10, 0)" clip-path="url(#c)">
+                    <rect x="10" y="20" width="20" height="20" fill="black" stroke="none"/>
+                    <line x1="10" y1="30" x2="50" y2="30" stroke="black"/>
+                </g>
+            </svg>
+        "#;
+        let strokes = collect_strokes(svg);
+        assert_eq!(strokes.len(), 1);
+        let ((sx, sy), (ex, ey)) = stroke_endpoints(&strokes[0]);
+        assert_approx(sx, 30.0);
+        assert_approx(sy, 30.0);
+        assert_approx(ex, 50.0);
+        assert_approx(ey, 30.0);
+    }
+
+    #[test]
+    fn object_bounding_box_on_use() {
+        let svg = r##"
+            <svg width="100" height="100" viewBox="0 0 100 100">
+                <defs>
+                    <path id="p" d="M 0 40 H 40 V 60 H 0 Z" fill="none" stroke="black"/>
+                    <clipPath id="c" clipPathUnits="objectBoundingBox">
+                        <rect x="0.25" y="-0.1" width="0.5" height="1.2"/>
+                    </clipPath>
+                </defs>
+                <use href="#p" x="20" clip-path="url(#c)"/>
+            </svg>
+        "##;
         let strokes = collect_strokes(svg);
         assert!(!strokes.is_empty());
         for s in &strokes {

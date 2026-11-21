@@ -2,17 +2,23 @@ use lyon_geom::Box2D;
 
 use super::{Turtle, elements::Shape};
 
-/// Generates a bounding box for all draw operations, used to properly apply [`crate::lower::ConversionConfig::origin`]
-///
-/// The box intentionally includes the origin so drawings within the page keep their layout.
+/// Generates a tight bounding box for all draw operations, used to apply [`crate::lower::ConversionConfig::origin`]
+/// and SVG features like `clipPathUnits="objectBoundingBox"`.
 #[derive(Debug, Default)]
 pub struct PreprocessTurtle {
-    bounding_box: Box2D<f64>,
+    bounding_box: Option<Box2D<f64>>,
 }
 
 impl PreprocessTurtle {
-    pub fn into_inner(self) -> Box2D<f64> {
+    pub fn into_inner(self) -> Option<Box2D<f64>> {
         self.bounding_box
+    }
+
+    fn expand(&mut self, bbox: Box2D<f64>) {
+        self.bounding_box = Some(match self.bounding_box {
+            Some(existing) => Box2D::from_points([existing.min, existing.max, bbox.min, bbox.max]),
+            None => bbox,
+        });
     }
 }
 
@@ -23,20 +29,14 @@ impl Turtle for PreprocessTurtle {
 
     #[cfg(feature = "image")]
     fn image(&mut self, image: super::elements::RasterImage) {
-        let Box2D { min, max } = image.bounding_box();
-        self.bounding_box =
-            Box2D::from_points([self.bounding_box.min, self.bounding_box.max, min, max]);
+        self.expand(image.bounding_box());
     }
 
     fn fill(&mut self, shape: Shape) {
-        let Box2D { min, max } = shape.bounding_box();
-        self.bounding_box =
-            Box2D::from_points([self.bounding_box.min, self.bounding_box.max, min, max]);
+        self.expand(shape.bounding_box());
     }
 
     fn stroke(&mut self, stroke: super::elements::Stroke) {
-        let Box2D { min, max } = stroke.bounding_box();
-        self.bounding_box =
-            Box2D::from_points([self.bounding_box.min, self.bounding_box.max, min, max]);
+        self.expand(stroke.bounding_box());
     }
 }

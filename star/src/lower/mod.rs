@@ -1,6 +1,6 @@
 use std::{borrow::Cow, fmt::Debug};
 
-use lyon_geom::euclid::default::Transform2D;
+use lyon_geom::{Box2D, Point, euclid::default::Transform2D};
 use roxmltree::{Document, Node};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -183,7 +183,15 @@ pub fn svg_to_turtle<T: Turtle>(
         visit::depth_first_visit(doc, &mut visitor);
         visitor.end();
 
-        visitor.terrarium.finish().into_inner().into_inner()
+        visitor
+            .terrarium
+            .finish()
+            .into_inner()
+            .into_inner()
+            // Include the origin so drawings within the page keep their layout.
+            .map_or_else(Box2D::default, |bb| {
+                Box2D::from_points([Point::zero(), bb.min, bb.max])
+            })
     };
 
     // Convert from millimeters to user units

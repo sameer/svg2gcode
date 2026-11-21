@@ -31,7 +31,7 @@ const MASK_TAG_NAME: &str = "mask";
 #[cfg(feature = "image")]
 use crate::lower::elements::{IMAGE_TAG_NAME, ImageElement};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ExpansionState {
     /// Stack of active template expansion scopes.
     stack: Vec<TemplatedExpansion>,

@@ -33,7 +33,7 @@ mod pattern;
 /// State of the viewport when rendering
 ///
 /// <https://www.w3.org/TR/SVG/coords.html>
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ViewportState {
     /// Tracks width/height for percentage conversions.
     dim_stack: Vec<[f64; 2]>,
@@ -53,7 +53,7 @@ impl ViewportState {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct UseState {
     /// Tracks use node IDs and any width/height override.
     stack: SmallVec<[(roxmltree::NodeId, [Option<f64>; 2]); Self::EXPECTED_MAX_DEPTH]>,
