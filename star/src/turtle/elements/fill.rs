@@ -812,6 +812,7 @@ impl BoundaryGraph {
 
             let mut current_edge_idx = start_edge_idx;
             let mut loop_cmds: Vec<DrawCommand> = Vec::new();
+            let mut loop_edges: Vec<usize> = Vec::new();
             let mut loop_vertices: Vec<usize> = vec![start_edge.from];
             let mut vertex_positions: FxHashMap<usize, usize> =
                 FxHashMap::from_iter(iter::once((start_edge.from, 0)));
@@ -824,11 +825,13 @@ impl BoundaryGraph {
                     break;
                 };
                 loop_cmds.push(current_edge.command);
+                loop_edges.push(current_edge_idx);
                 let next_vertex = current_edge.to;
 
                 // Whenever the walk revisits a vertex on the active stack, extract it.
                 if let Some(&cycle_start) = vertex_positions.get(&next_vertex) {
                     let cycle_cmds: Vec<DrawCommand> = loop_cmds.drain(cycle_start..).collect();
+                    loop_edges.truncate(cycle_start);
                     for v in loop_vertices.drain((cycle_start + 1)..) {
                         vertex_positions.remove(&v);
                     }
@@ -844,7 +847,14 @@ impl BoundaryGraph {
                     loop_vertices.push(next_vertex);
                 }
 
-                let tan_to = current_edge.tan_to;
+                // Use the tangent of the edge currently entering `next_vertex` on the active stack.
+                let Some(tan_to) = loop_edges
+                    .last()
+                    .and_then(|&idx| self.edges.get(idx))
+                    .map(|e| e.tan_to)
+                else {
+                    break;
+                };
                 let outgoing_candidates = self.adjacency_map.get(&next_vertex);
 
                 // Find the unvisited outgoing edge with the tightest rightward turn
