@@ -45,8 +45,8 @@ impl Tour<'_> {
                     continue;
                 }
 
-                for edge_b in edge_tree.locate_in_envelope_intersecting(edge_a.envelope()) {
-                    let index_b = edge_b.data;
+                for edge_b_entry in edge_tree.locate_in_envelope_intersecting(edge_a.envelope()) {
+                    let index_b = edge_b_entry.data;
                     if to_modify[index_b.node_range()]
                         .iter()
                         .copied()
@@ -63,10 +63,15 @@ impl Tour<'_> {
                         continue;
                     };
 
-                    if edge_a
-                        .line_segment()
-                        .intersects(&edge_b.geom().line_segment())
-                    {
+                    let edge_b = *edge_b_entry.geom();
+                    let savings = edge_a.len + edge_b.len;
+                    let cost =
+                        (edge_a.from - edge_b.from).length() + (edge_a.to - edge_b.to).length();
+                    if savings - cost <= Self::MIN_IMPROVEMENT {
+                        continue;
+                    }
+
+                    if edge_a.line_segment().intersects(&edge_b.line_segment()) {
                         let range = &mut to_modify[index_a.start()..=index_b.end()];
                         if range.iter().copied().any(identity) {
                             continue;

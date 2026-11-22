@@ -159,28 +159,63 @@ where
             return;
         }
 
-        let self_arc = self.to_arc();
+        self.to_arc().flatten_into(tolerance, acc);
+    }
+}
+
+impl<S> FlattenWithArcs<S> for Arc<S>
+where
+    S: Scalar,
+{
+    fn flatten_into(&self, tolerance: S, acc: &mut Vec<ArcOrLineSegment<S>>) {
+        let chord = LineSegment {
+            from: self.sample(S::ZERO),
+            to: self.sample(S::ONE),
+        };
+        if chord.square_length() < S::EPSILON {
+            return;
+        }
+
+        if !self.center.x.is_finite()
+            || !self.center.y.is_finite()
+            || self.sweep_angle.radians.abs() < S::EPSILON
+        {
+            acc.push(ArcOrLineSegment::Line(chord));
+            return;
+        }
+        // Upper bound on distance from the elliptical arc to its chord.
+        // A circle with radius `max(|rx|, |ry|)` and the same sweep
+        // deviates at most by `r * (1 - cos(sweep / 2))`. This also puts a
+        // cheaper upper bound on the ellipse deviation
+        if self.sweep_angle.radians.abs() < S::PI() {
+            let max_radius = self.radii.x.abs().max(self.radii.y.abs());
+            let (_, cos_half_sweep) = (self.sweep_angle * S::HALF).sin_cos();
+            let max_chord_error = max_radius * (S::ONE - cos_half_sweep);
+            if max_chord_error < tolerance {
+                acc.push(ArcOrLineSegment::Line(chord));
+                return;
+            }
+        }
         if let Some(svg_arc) = arc_from_endpoints_and_tangents(
-            self.from,
-            self_arc.sample_tangent(S::ZERO),
-            self.to,
-            self_arc.sample_tangent(S::ONE),
+            chord.from(),
+            self.sample_tangent(S::ZERO),
+            chord.to(),
+            self.sample_tangent(S::ONE),
         )
         .filter(|approx_svg_arc| {
             let approx_arc = approx_svg_arc.to_arc();
-            let mut max_deviation = S::ZERO;
-            for i in 1..20 {
-                let t = S::from(i).unwrap() / S::from(20).unwrap();
-                max_deviation =
-                    max_deviation.max(point_to_arc_dist(self_arc.sample(t), &approx_arc));
-            }
+            let max_deviation = (1..20)
+                .map(|i| S::from(i).unwrap() / S::from(20).unwrap())
+                .map(|t| point_to_arc_dist(self.sample(t), &approx_arc))
+                .fold(S::ZERO, S::max);
+
             max_deviation < tolerance
         }) {
             acc.push(ArcOrLineSegment::Arc(svg_arc));
         } else {
-            let (left, right) = self_arc.split(S::HALF);
-            left.to_svg_arc().flatten_into(tolerance, acc);
-            right.to_svg_arc().flatten_into(tolerance, acc);
+            let (left, right) = self.split(S::HALF);
+            left.flatten_into(tolerance, acc);
+            right.flatten_into(tolerance, acc);
         }
     }
 }
