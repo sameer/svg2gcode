@@ -28,11 +28,6 @@ const VERTEX_SNAP_EPSILON_SQ: f64 = VERTEX_SNAP_EPSILON * VERTEX_SNAP_EPSILON;
 /// Minimum absolute signed area for a boundary loop to be considered non-degenerate.
 const MIN_LOOP_AREA: f64 = 1e-6;
 
-/// Fraction of segment scale used to offset midpoint samples along the normal.
-const SAMPLE_OFFSET_FRACTION: f64 = 0.05;
-const MIN_SAMPLE_OFFSET: f64 = 1e-4;
-const MAX_SAMPLE_OFFSET: f64 = 0.5;
-
 /// Result of evaluating a point against one or more closed non-overlapping [`Stroke`]s.
 #[derive(Default)]
 struct PointRelation {
@@ -346,12 +341,12 @@ impl Stroke {
     }
 }
 
-/// Queries the crossing count and winding number at `point` relative to `strokes`.
-fn query_point(strokes: &[Stroke], point: Point<f64>) -> PointRelation {
+/// Evaluates crossings and winding strictly ahead of `point` along unit direction `ray_dir`.
+fn query_ray(strokes: &[Stroke], point: Point<f64>, ray_dir: Vector<f64>) -> PointRelation {
     strokes
         .iter()
         .fold(PointRelation::default(), |mut total, stroke| {
-            total += stroke.point_relationship(point);
+            total += stroke.ray_relationship(point, ray_dir);
             total
         })
 }
@@ -723,23 +718,17 @@ impl SubdividedSegments<'_> {
                 continue;
             }
 
-            // Sample a point on either side of the segment to classify it.
+            // Cast rays from `midpoint` to the left/right half-planes, tilted by
+            // `RAY_SLOPE` to avoid rational vertices.
+            let tangent = segment.tangent(0.5);
             let normal = segment.normal(0.5);
-            let bbox = segment.bounding_box();
-            let seg_scale = bbox.width().max(bbox.height());
-            let eps =
-                (seg_scale * SAMPLE_OFFSET_FRACTION).clamp(MIN_SAMPLE_OFFSET, MAX_SAMPLE_OFFSET);
+            let left_dir = (normal + tangent * RAY_SLOPE).normalize();
+            let right_dir = (-normal + tangent * RAY_SLOPE).normalize();
 
-            // Consider a line segment l. The line segment k through p_left and p_right
-            // has length 2*eps, is perpendicular to l, and passes through the midpoint of l.
-            let p_left = midpoint + normal * eps;
-            let p_right = midpoint - normal * eps;
-
-            let left_query = query_point(self.input_strokes, p_left);
-            let right_query = query_point(self.input_strokes, p_right);
-
-            let left_filled = left_query.is_filled(self.fill_rule);
-            let right_filled = right_query.is_filled(self.fill_rule);
+            let left_filled =
+                query_ray(self.input_strokes, midpoint, left_dir).is_filled(self.fill_rule);
+            let right_filled =
+                query_ray(self.input_strokes, midpoint, right_dir).is_filled(self.fill_rule);
 
             // Not a boundary, fully within or fully outside the filled region.
             if left_filled == right_filled {
@@ -812,6 +801,7 @@ impl BoundaryGraph {
 
             let mut current_edge_idx = start_edge_idx;
             let mut loop_cmds: Vec<DrawCommand> = Vec::new();
+            let mut loop_edges: Vec<usize> = Vec::new();
             let mut loop_vertices: Vec<usize> = vec![start_edge.from];
             let mut vertex_positions: FxHashMap<usize, usize> =
                 FxHashMap::from_iter(iter::once((start_edge.from, 0)));
@@ -824,11 +814,13 @@ impl BoundaryGraph {
                     break;
                 };
                 loop_cmds.push(current_edge.command);
+                loop_edges.push(current_edge_idx);
                 let next_vertex = current_edge.to;
 
                 // Whenever the walk revisits a vertex on the active stack, extract it.
                 if let Some(&cycle_start) = vertex_positions.get(&next_vertex) {
                     let cycle_cmds: Vec<DrawCommand> = loop_cmds.drain(cycle_start..).collect();
+                    loop_edges.truncate(cycle_start);
                     for v in loop_vertices.drain((cycle_start + 1)..) {
                         vertex_positions.remove(&v);
                     }
@@ -844,7 +836,14 @@ impl BoundaryGraph {
                     loop_vertices.push(next_vertex);
                 }
 
-                let tan_to = current_edge.tan_to;
+                // Use the tangent of the edge currently entering `next_vertex` on the active stack.
+                let Some(tan_to) = loop_edges
+                    .last()
+                    .and_then(|&idx| self.edges.get(idx))
+                    .map(|e| e.tan_to)
+                else {
+                    break;
+                };
                 let outgoing_candidates = self.adjacency_map.get(&next_vertex);
 
                 // Find the unvisited outgoing edge with the tightest rightward turn

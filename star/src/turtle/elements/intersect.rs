@@ -30,7 +30,50 @@ pub trait Intersections<Rhs = Self> {
 
 impl Intersections<LineSegment<f64>> for LineSegment<f64> {
     fn intersections(&self, rhs: &LineSegment<f64>) -> SmallVec<[(f64, f64); 3]> {
-        self.intersection_t(rhs).into_iter().collect()
+        if let Some(intersection) = self.intersection_t(rhs) {
+            return smallvec![intersection];
+        }
+
+        // Degenerate
+        if self.square_length() <= f64::EPSILON || rhs.square_length() <= f64::EPSILON {
+            return smallvec![];
+        }
+
+        // Parallel
+        let line1 = self.to_line();
+        let line2 = rhs.to_line();
+        if !(line1.distance_to_point(&rhs.from) <= PARAM_EPSILON
+            && line1.distance_to_point(&rhs.to) <= PARAM_EPSILON
+            && line2.distance_to_point(&self.from) <= PARAM_EPSILON
+            && line2.distance_to_point(&self.to) <= PARAM_EPSILON)
+        {
+            return smallvec![];
+        }
+
+        let param_on = |seg: &LineSegment<f64>, p: Point<f64>| {
+            (p - seg.from).dot(seg.to_vector()) / seg.square_length()
+        };
+
+        let [t_from, t_to] = [rhs.from, rhs.to].map(|p| param_on(self, p));
+        let arr @ [t_min, t_max] = [t_from.min(t_to), t_from.max(t_to)];
+
+        // Disjoint collinear
+        if t_min > 1.0 + PARAM_EPSILON || t_max < -PARAM_EPSILON {
+            return smallvec![];
+        }
+        let arr @ [t_low, t_high] = arr.map(|t| t.clamp(0., 1.));
+
+        let [u_low, u_high] = arr
+            .map(|t| param_on(rhs, self.sample(t)))
+            .map(|u| u.clamp(0.0, 1.0));
+
+        if t_high - t_low <= PARAM_EPSILON {
+            // Single shared
+            smallvec![(t_low, u_low)]
+        } else {
+            // Overlapping collinear interval
+            smallvec![(t_low, u_low), (t_high, u_high)]
+        }
     }
 }
 
