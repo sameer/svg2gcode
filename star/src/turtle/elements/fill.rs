@@ -809,10 +809,12 @@ impl BoundaryGraph {
             if visited.get(start_edge_idx).copied() == Some(true) {
                 continue;
             }
-            let start_vertex = start_edge.from;
 
             let mut current_edge_idx = start_edge_idx;
-            let mut loop_cmds = Vec::new();
+            let mut loop_cmds: Vec<DrawCommand> = Vec::new();
+            let mut loop_vertices: Vec<usize> = vec![start_edge.from];
+            let mut vertex_positions: FxHashMap<usize, usize> =
+                FxHashMap::from_iter(iter::once((start_edge.from, 0)));
 
             loop {
                 if let Some(v) = visited.get_mut(current_edge_idx) {
@@ -824,12 +826,22 @@ impl BoundaryGraph {
                 loop_cmds.push(current_edge.command);
                 let next_vertex = current_edge.to;
 
-                if next_vertex == start_vertex {
-                    let start_point = loop_cmds
+                // Whenever the walk revisits a vertex on the active stack, extract it.
+                if let Some(&cycle_start) = vertex_positions.get(&next_vertex) {
+                    let cycle_cmds: Vec<DrawCommand> = loop_cmds.drain(cycle_start..).collect();
+                    for v in loop_vertices.drain((cycle_start + 1)..) {
+                        vertex_positions.remove(&v);
+                    }
+                    let start_point = cycle_cmds
                         .first()
                         .map_or(Point::zero(), DrawCommand::start_point);
-                    loops.push(Stroke::new(start_point, loop_cmds, None));
-                    break;
+                    loops.push(Stroke::new(start_point, cycle_cmds, None));
+                    if cycle_start == 0 {
+                        break;
+                    }
+                } else {
+                    vertex_positions.insert(next_vertex, loop_cmds.len());
+                    loop_vertices.push(next_vertex);
                 }
 
                 let tan_to = current_edge.tan_to;
