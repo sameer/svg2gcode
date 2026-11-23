@@ -197,7 +197,10 @@ impl Turtle for GCodeTurtle<'_> {
                             }
                         }
                     } else {
-                        for point in svg_arc.to_exact_arc().flattened(self.flattening_tolerance()) {
+                        for point in svg_arc
+                            .to_exact_arc()
+                            .flattened(self.flattening_tolerance())
+                        {
                             self.program.extend(self.line_to(point));
                         }
                     }
