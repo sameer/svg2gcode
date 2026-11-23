@@ -13,7 +13,7 @@ use rustc_hash::FxHashMap;
 use smallvec::{SmallVec, smallvec};
 
 use super::intersect::{Intersections, PARAM_EPSILON};
-use crate::turtle::elements::{DrawCommand, FillRule, PointLocation, Shape, Stroke};
+use crate::turtle::elements::{DrawCommand, ExactArc, FillRule, PointLocation, Shape, Stroke};
 
 /// Minimum padding beyond bounding box `max.x` for ray casting.
 const RAY_PADDING: f64 = 10.0;
@@ -212,7 +212,7 @@ impl DrawCommand {
         0.5 * match *self {
             DrawCommand::LineTo(LineSegment { from, to }) => cross(from, to),
             DrawCommand::Arc(svg_arc) => {
-                let arc = svg_arc.to_arc();
+                let arc = svg_arc.to_exact_arc();
                 arc.radii.x * arc.radii.y * arc.sweep_angle.radians
                     + arc.center.to_vector().cross(svg_arc.to - svg_arc.from)
             }
@@ -854,7 +854,7 @@ impl BoundaryGraph {
                     .filter(|&next_idx| visited.get(next_idx).copied() != Some(true))
                     .filter_map(|next_idx| {
                         let tan_from = self.edges.get(next_idx)?.tan_from;
-                        let angle = tan_to.angle_to(tan_from).radians;
+                        let angle = tan_to.cross(tan_from).atan2(tan_to.dot(tan_from));
                         Some((angle, next_idx))
                     })
                     .min_by(|(angle_a, _), (angle_b, _)| angle_a.total_cmp(angle_b))

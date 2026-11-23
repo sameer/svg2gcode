@@ -4,7 +4,7 @@ use lyon_geom::{
 };
 use smallvec::{SmallVec, smallvec};
 
-use crate::turtle::elements::DrawCommand;
+use crate::turtle::elements::{DrawCommand, ExactArc};
 
 /// Used to exclude intersection endpoints and dedupe intersections.
 pub const PARAM_EPSILON: f64 = 1e-6;
@@ -346,7 +346,7 @@ impl CanonicalArcTransform {
 
 impl Intersections<LineSegment<f64>> for SvgArc<f64> {
     fn intersections(&self, line_seg: &LineSegment<f64>) -> SmallVec<[(f64, f64); 3]> {
-        let arc = self.to_arc();
+        let arc = self.to_exact_arc();
         let to_canonical = CanonicalArcTransform::new_arc_to_unit(&arc);
         to_canonical
             .world_line_intersections_t(line_seg)
@@ -357,7 +357,7 @@ impl Intersections<LineSegment<f64>> for SvgArc<f64> {
 
 impl Intersections<CubicBezierSegment<f64>> for SvgArc<f64> {
     fn intersections(&self, cbs: &CubicBezierSegment<f64>) -> SmallVec<[(f64, f64); 3]> {
-        let arc = self.to_arc();
+        let arc = self.to_exact_arc();
         let to_canonical = CanonicalArcTransform::new_arc_to_unit(&arc);
         let mut results: SmallVec<[(f64, f64); 3]> = SmallVec::new();
 
@@ -585,8 +585,8 @@ fn refine_arc_arc(arc1: &Arc<f64>, arc2: &Arc<f64>, mut t: f64, mut u: f64) -> O
 
 impl Intersections<SvgArc<f64>> for SvgArc<f64> {
     fn intersections(&self, rhs: &SvgArc<f64>) -> SmallVec<[(f64, f64); 3]> {
-        let arc1 = self.to_arc();
-        let arc2 = rhs.to_arc();
+        let arc1 = self.to_exact_arc();
+        let arc2 = rhs.to_exact_arc();
 
         if is_circular(arc1.radii) && is_circular(arc2.radii) {
             return intersect_circles(&arc1, &arc2);
@@ -741,7 +741,7 @@ mod tests {
                     from: point(-10.0, 0.0),
                     to: point(10.0, 0.0),
                 },
-                1,
+                2,
             ),
             (
                 "distant_line_miss",
@@ -845,7 +845,7 @@ mod tests {
             );
 
             for (t, u) in isects {
-                let p_arc = arc.to_arc().sample(t);
+                let p_arc = arc.to_exact_arc().sample(t);
                 let p_line = line.sample(u);
                 assert!(
                     (p_arc - p_line).square_length() < 1e-10,
@@ -1092,8 +1092,8 @@ mod tests {
             );
 
             for (t, u) in &isects {
-                let p1 = arc1.to_arc().sample(*t);
-                let p2 = arc2.to_arc().sample(*u);
+                let p1 = arc1.to_exact_arc().sample(*t);
+                let p2 = arc2.to_exact_arc().sample(*u);
                 assert!(
                     (p1 - p2).square_length() < 1e-10,
                     "[{name}] Arcs do not meet at ({t}, {u}): p1={p1:?}, p2={p2:?}"
@@ -1164,7 +1164,7 @@ mod tests {
             );
 
             for (t, u) in &isects {
-                let p1 = arc.to_arc().sample(*t);
+                let p1 = arc.to_exact_arc().sample(*t);
                 let p2 = cbs.sample(*u);
                 assert!(
                     (p1 - p2).square_length() < 1e-10,

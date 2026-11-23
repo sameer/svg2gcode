@@ -5,7 +5,7 @@ use lyon_geom::{LineSegment, Point, SvgArc};
 use rust_decimal::{Decimal, prelude::*};
 use svg2star::turtle::{
     Turtle,
-    elements::{ArcOrLineSegment, DrawCommand, FlattenWithArcs, Shape, Stroke},
+    elements::{ArcOrLineSegment, DrawCommand, ExactArc, FlattenWithArcs, Shape, Stroke},
 };
 
 use crate::machine::Machine;
@@ -101,7 +101,7 @@ impl<'input> GCodeTurtle<'input> {
                 );
             }
             (true, _) => {
-                let (left, right) = svg_arc.to_arc().split(0.5);
+                let (left, right) = svg_arc.to_exact_arc().split(0.5);
                 self.push_circular_interpolation(left.to_svg_arc());
                 self.push_circular_interpolation(right.to_svg_arc());
             }
@@ -197,7 +197,10 @@ impl Turtle for GCodeTurtle<'_> {
                             }
                         }
                     } else {
-                        for point in svg_arc.to_arc().flattened(self.flattening_tolerance()) {
+                        for point in svg_arc
+                            .to_exact_arc()
+                            .flattened(self.flattening_tolerance())
+                        {
                             self.program.extend(self.line_to(point));
                         }
                     }

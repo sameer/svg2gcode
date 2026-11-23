@@ -8,7 +8,7 @@ use lyon_geom::{
 };
 
 pub use self::{
-    arc::{ArcOrLineSegment, FlattenWithArcs, Transformed},
+    arc::{ArcOrLineSegment, ExactArc, FlattenWithArcs, Transformed},
     tsp::minimize_travel_time,
 };
 
@@ -144,7 +144,7 @@ impl DrawCommand {
     pub fn bounding_box(&self) -> Box2D<f64> {
         match self {
             Self::LineTo(line) => line.bounding_box(),
-            Self::Arc(arc) => arc.to_arc().bounding_box(),
+            Self::Arc(arc) => arc.to_exact_arc().bounding_box(),
             Self::CubicBezier(cbs) => cbs.bounding_box(),
             Self::QuadraticBezier(qbs) => qbs.bounding_box(),
         }
@@ -154,7 +154,7 @@ impl DrawCommand {
     pub fn sample(&self, t: f64) -> Point<f64> {
         match self {
             Self::LineTo(line) => line.sample(t),
-            Self::Arc(arc) => arc.to_arc().sample(t),
+            Self::Arc(arc) => arc.to_exact_arc().sample(t),
             Self::CubicBezier(cbs) => cbs.sample(t),
             Self::QuadraticBezier(qbs) => qbs.sample(t),
         }
@@ -165,7 +165,7 @@ impl DrawCommand {
         match self {
             Self::LineTo(line) => Self::LineTo(line.split_range(range)),
             Self::Arc(svg_arc) => {
-                let svg_sub_arc = svg_arc.to_arc().split_range(range).to_svg_arc();
+                let svg_sub_arc = svg_arc.to_exact_arc().split_range(range).to_svg_arc();
                 if svg_sub_arc.is_straight_line() {
                     Self::LineTo(LineSegment {
                         from: svg_sub_arc.from,
@@ -185,7 +185,7 @@ impl DrawCommand {
         match self {
             Self::LineTo(line) => line.to_vector().normalize(),
             Self::Arc(svg_arc) => {
-                let arc = svg_arc.to_arc();
+                let arc = svg_arc.to_exact_arc();
                 let tangent_vector = arc.sample_tangent(t).normalize();
                 // `sample_tangent` points along increasing angle, sign must be flipped if the arc sweeps backward.
                 if arc.sweep_angle.get().is_sign_negative() {
