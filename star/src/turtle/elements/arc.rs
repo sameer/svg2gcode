@@ -9,10 +9,12 @@ pub enum ArcOrLineSegment<S> {
     Line(LineSegment<S>),
 }
 
-/// Calcuates the distance from `p` to the nearest point on `arc`.
+/// Calculates the distance from `p` to the nearest point on `arc`.
 fn point_to_arc_dist<S: Scalar>(p: Point<S>, arc: &Arc<S>) -> S {
-    let t_raw = (p - arc.center).angle_from_x_axis().radians / arc.sweep_angle.radians
-        - arc.start_angle.radians / arc.sweep_angle.radians;
+    let from_center = p - arc.center;
+    let angle = from_center.y.atan2(from_center.x);
+    let t_raw =
+        (angle - arc.x_rotation.radians - arc.start_angle.radians) / arc.sweep_angle.radians;
     let full_rev = S::TWO * S::PI() / arc.sweep_angle.radians.abs();
     let calc_dist = |t: S| (arc.sample(t.clamp(S::ZERO, S::ONE)) - p).length();
 
@@ -80,23 +82,132 @@ pub trait FlattenWithArcs<S> {
     fn flatten_into(&self, tolerance: S, acc: &mut Vec<ArcOrLineSegment<S>>);
 }
 
+/// Returns whether the cubic bezier segment lies within `tolerance` of its baseline.
+///
+/// Works around a bug in [`CubicBezierSegment::is_linear`].
+fn cbs_approx_linear<S: Scalar>(cbs: &CubicBezierSegment<S>, tolerance: S) -> bool {
+    // Some helpful math:
+    //
+    // Take each point in the Bezier's equation and find the closest point to it
+    // on the baseline:
+    //
+    // from --> from (0)
+    // ctrl1 --> x (d1)
+    // ctrl2 --> y (d2)
+    // to --> to (0)
+    //
+    // Can construct a parameterized equation using these points:
+    // f(t) = w1*to + w2*x + w3*y + w4*from
+    // where the weights are the same as those in the Bezier sample function B(t):
+    // w1 = (1-t)^2, w2 = 3(1-t)^2t, w3 = 3(1-t)t^2, w4 = t^3
+    //
+    // To calculate dist(B(t), baseline) we use f(t):
+    // ||B(t) - f(t)|| = ||w1 (from - from) + w2(ctrl1 - x) + w3(ctrl2 - y) + w4(to - to)||
+    //                 = ||w2(ctrl1 - x) + w3(ctrl2 - y)||
+    //
+    // Set an upper bound on the error by inequality:
+    // ||w2(ctrl - x) + w3(ctrl2 - y)|| <= ||w2(ctrl1 - x)|| + ||w3(ctrl2 - y)||
+    //                                  <= w2 ||ctrl1 - x|| + w3 ||ctrl2 - y||
+    //
+    // A more conservative upper bound allows us to factor:
+    //                                  <= (w2 + w3) * max(||ctrl1 - x||, ||ctrl2 - y||)
+    // Substituting, we get:
+    // w2 + w3 = 3(1-t)^2 * t + 3(1-t)t^2 = 3t(1-t)((1 - t) + 2) = 3t(1 - t)
+    //
+    // The maximum value of 3t(1 - t) with t in [0, 1] is 0.75 at t = 0.5.
+    // So we can use this as yet another more conservative bound to arrive at:
+    // dist(B(t), baseline) <= 0.75 * max(||ctrl1 - x||, ||ctrl2 - y||)
+    //                      <= 0.75 * ||ctrl1 - x||
+    //                  AND <= 0.75 * ||ctrl2 - y||
+    let baseline = cbs.baseline();
+    let limit = tolerance * (S::FOUR / S::THREE);
+    let limit_sq = limit.powi(2);
+
+    let dist_sq = |p: Point<S>| {
+        if baseline.square_length() < S::EPSILON.powi(2) {
+            // Chord is actually a single point
+            (p - cbs.from).square_length()
+        } else {
+            (baseline.closest_point(p) - p).square_length()
+        }
+    };
+
+    dist_sq(cbs.ctrl1) <= limit_sq && dist_sq(cbs.ctrl2) <= limit_sq
+}
+
+/// Verifies tht `cbs` lies within `tolerance` of `svg_arc`.
+fn cubic_within_arc_tolerance<S: Scalar>(
+    cbs: &CubicBezierSegment<S>,
+    svg_arc: &SvgArc<S>,
+    tolerance: S,
+) -> bool {
+    let arc = svg_arc.to_arc();
+    let sweep = arc.sweep_angle.radians;
+    if !arc.center.x.is_finite() || !arc.center.y.is_finite() || sweep.abs() >= S::PI() {
+        return false;
+    }
+
+    let q0 = cbs.from - arc.center;
+    let q1 = cbs.ctrl1 - arc.center;
+    let q2 = cbs.ctrl2 - arc.center;
+    let q3 = cbs.to - arc.center;
+
+    let sign = if sweep >= S::ZERO { S::ONE } else { -S::ONE };
+    let in_sector = |q: Vector<S>| sign * q0.cross(q) >= S::ZERO && sign * q.cross(q3) >= S::ZERO;
+    if !in_sector(q1) || !in_sector(q2) {
+        return false;
+    }
+
+    let r = arc.radii.x.abs();
+    let r_min = (r - tolerance).max(S::ZERO);
+    let r_max = r + tolerance;
+    let min_sq = r_min * r_min;
+    let max_sq = r_max * r_max;
+
+    let two = S::TWO;
+    let three = S::THREE;
+    let five = S::FIVE;
+    let nine = S::NINE;
+    let ten = S::FIVE + S::FIVE;
+
+    let b = [
+        q0.dot(q0),
+        q0.dot(q1),
+        (two * q0.dot(q2) + three * q1.dot(q1)) / five,
+        (q0.dot(q3) + nine * q1.dot(q2)) / ten,
+        (two * q1.dot(q3) + three * q2.dot(q2)) / five,
+        q2.dot(q3),
+        q3.dot(q3),
+    ];
+    b.into_iter().all(|bk| bk >= min_sq && bk <= max_sq)
+}
+
+/// Checks if `cbs` points are all equal.
+fn cbs_is_degenerate<S: Scalar>(cbs: &CubicBezierSegment<S>) -> bool {
+    cbs.to == cbs.from && cbs.ctrl1 == cbs.from && cbs.ctrl2 == cbs.from
+}
+
 impl<S> FlattenWithArcs<S> for CubicBezierSegment<S>
 where
     S: Scalar + Copy,
 {
-    /// Implementation of [Modeling of Bézier Curves Using a Combination of Linear and Circular Arc Approximations](https://sci-hub.st/https://doi.org/10.1109/CGIV.2012.20)
+    /// Flattens a cubic bezier segment into a series of arcs and line segments.
     ///
-    /// Kaewsaiha, P., & Dejdumrong, N. (2012). Modeling of Bézier Curves Using a Combination of Linear and Circular Arc Approximations. 2012 Ninth International Conference on Computer Graphics, Imaging and Visualization. doi:10.1109/cgiv.2012.20
+    /// Uses the splitting algorithm from Kaewsaiha & Dejdumrong, but checks bezier flatness and
+    /// bezier-arc tolerance analytically.
+    ///
+    /// <https://sci-hub.st/https://doi.org/10.1109/CGIV.2012.20>
     fn flatten_into(&self, tolerance: S, acc: &mut Vec<ArcOrLineSegment<S>>) {
-        if (self.to - self.from).square_length() < S::EPSILON {
+        if cbs_is_degenerate(self) {
             return;
-        } else if self.is_linear(tolerance) {
-            acc.push(ArcOrLineSegment::Line(self.baseline()));
+        } else if cbs_approx_linear(self, tolerance) {
+            if self.to != self.from {
+                acc.push(ArcOrLineSegment::Line(self.baseline()));
+            }
             return;
         }
 
-        let mut splits: SmallVec<[S; 4]> = SmallVec::new();
-        splits.push(S::ZERO);
+        let mut splits: SmallVec<[S; 4]> = SmallVec::from_slice(&[S::ZERO]);
         self.for_each_inflection_t(&mut |t| {
             if t > S::ZERO {
                 splits.push(t);
@@ -104,14 +215,16 @@ where
         });
         splits.push(S::ONE);
 
-        for window in splits.windows(2) {
+        for window in splits.array_windows::<2>() {
             let inner_bezier = self.split_range(window[0]..window[1]);
 
-            if (inner_bezier.to - inner_bezier.from).square_length() < S::EPSILON {
+            if cbs_is_degenerate(&inner_bezier) {
                 continue;
             }
-            if inner_bezier.is_linear(tolerance) {
-                acc.push(ArcOrLineSegment::Line(inner_bezier.baseline()));
+            if cbs_approx_linear(&inner_bezier, tolerance) {
+                if inner_bezier.to != inner_bezier.from {
+                    acc.push(ArcOrLineSegment::Line(inner_bezier.baseline()));
+                }
                 continue;
             }
 
@@ -121,16 +234,8 @@ where
                 inner_bezier.to,
                 inner_bezier.derivative(S::ONE),
             )
-            .filter(|svg_arc| {
-                let arc = svg_arc.to_arc();
-                let mut max_deviation = S::ZERO;
-                for i in 1..20 {
-                    let t = S::from(i).unwrap() / S::from(20).unwrap();
-                    max_deviation =
-                        max_deviation.max(point_to_arc_dist(inner_bezier.sample(t), &arc));
-                }
-                max_deviation < tolerance
-            }) {
+            .filter(|svg_arc| cubic_within_arc_tolerance(&inner_bezier, svg_arc, tolerance))
+            {
                 acc.push(ArcOrLineSegment::Arc(svg_arc));
             } else {
                 let (left, right) = inner_bezier.split(S::HALF);
@@ -146,7 +251,7 @@ where
     S: Scalar,
 {
     fn flatten_into(&self, tolerance: S, acc: &mut Vec<ArcOrLineSegment<S>>) {
-        if (self.to - self.from).square_length() < S::EPSILON {
+        if self.to == self.from {
             return;
         } else if self.is_straight_line() {
             acc.push(ArcOrLineSegment::Line(LineSegment {
@@ -172,7 +277,7 @@ where
             from: self.sample(S::ZERO),
             to: self.sample(S::ONE),
         };
-        if chord.square_length() < S::EPSILON {
+        if chord.from == chord.to {
             return;
         }
 
