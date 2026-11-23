@@ -9,6 +9,49 @@ pub enum ArcOrLineSegment<S> {
     Line(LineSegment<S>),
 }
 
+/// Converts an [`SvgArc`] to a center-parameterized [`Arc`] using exact `atan2`.
+///
+/// [`lyon_geom::SvgArc::to_arc`] computes `start_angle` and `sweep_angle` via [`euclid`]'s
+/// `fast_atan2` which introduces significant error.
+pub trait ExactArc<S> {
+    fn to_exact_arc(&self) -> Arc<S>;
+}
+
+impl<S: Scalar> ExactArc<S> for SvgArc<S> {
+    fn to_exact_arc(&self) -> Arc<S> {
+        let mut arc = self.to_arc();
+        if !arc.center.x.is_finite()
+            || !arc.center.y.is_finite()
+            || arc.radii.x == S::ZERO
+            || arc.radii.y == S::ZERO
+        {
+            return arc;
+        }
+        let (sin_phi, cos_phi) = arc.x_rotation.sin_cos();
+        let to_unit = |p: Point<S>| {
+            let d = p - arc.center;
+            Vector::new(
+                (cos_phi * d.x + sin_phi * d.y) / arc.radii.x,
+                (-sin_phi * d.x + cos_phi * d.y) / arc.radii.y,
+            )
+        };
+        let start_v = to_unit(self.from);
+        let end_v = to_unit(self.to);
+        let start_rad = start_v.y.atan2(start_v.x);
+        let end_rad = end_v.y.atan2(end_v.x);
+        let two_pi = S::TWO * S::PI();
+        let mut sweep_rad = (end_rad - start_rad) % two_pi;
+        if self.flags.sweep && sweep_rad < S::ZERO {
+            sweep_rad += two_pi;
+        } else if !self.flags.sweep && sweep_rad > S::ZERO {
+            sweep_rad -= two_pi;
+        }
+        arc.start_angle = Angle::radians(start_rad);
+        arc.sweep_angle = Angle::radians(sweep_rad);
+        arc
+    }
+}
+
 /// Calculates the distance from `p` to the nearest point on `arc`.
 fn point_to_arc_dist<S: Scalar>(p: Point<S>, arc: &Arc<S>) -> S {
     let from_center = p - arc.center;
@@ -141,7 +184,7 @@ fn cubic_within_arc_tolerance<S: Scalar>(
     svg_arc: &SvgArc<S>,
     tolerance: S,
 ) -> bool {
-    let arc = svg_arc.to_arc();
+    let arc = svg_arc.to_exact_arc();
     let sweep = arc.sweep_angle.radians;
     if !arc.center.x.is_finite() || !arc.center.y.is_finite() || sweep.abs() >= S::PI() {
         return false;
@@ -264,7 +307,7 @@ where
             return;
         }
 
-        self.to_arc().flatten_into(tolerance, acc);
+        self.to_exact_arc().flatten_into(tolerance, acc);
     }
 }
 
@@ -308,7 +351,7 @@ where
             self.sample_tangent(S::ONE),
         )
         .filter(|approx_svg_arc| {
-            let approx_arc = approx_svg_arc.to_arc();
+            let approx_arc = approx_svg_arc.to_exact_arc();
             let max_deviation = (1..20)
                 .map(|i| S::from(i).unwrap() / S::from(20).unwrap())
                 .map(|t| point_to_arc_dist(self.sample(t), &approx_arc))
@@ -420,7 +463,7 @@ impl<S: Scalar> Transformed<S> for SvgArc<S> {
 mod tests {
     use lyon_geom::{CubicBezierSegment, point};
 
-    use super::{ArcOrLineSegment, FlattenWithArcs};
+    use super::{ArcOrLineSegment, ExactArc, FlattenWithArcs};
 
     /// Magic constant for cubic Bézier approximation of a quarter circle: 4(√2-1)/3
     const KAPPA: f64 = 4.0 * (std::f64::consts::SQRT_2 - 1.0) / 3.0;
@@ -440,8 +483,9 @@ mod tests {
                     .iter()
                     .map(|seg| match seg {
                         ArcOrLineSegment::Arc(svg_arc) => {
-                            let arc = svg_arc.to_arc();
-                            let q_angle = (p - arc.center).angle_from_x_axis().radians;
+                            let arc = svg_arc.to_exact_arc();
+                            let d = p - arc.center;
+                            let q_angle = d.y.atan2(d.x) - arc.x_rotation.radians;
                             let start = arc.start_angle.radians;
                             let sweep = arc.sweep_angle.radians;
                             let t_raw = (q_angle - start) / sweep;
